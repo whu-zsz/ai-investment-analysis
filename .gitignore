@@ -1,0 +1,142 @@
+# ====================
+# 系统 / 编辑器通用
+# ====================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.AppleDouble
+.LSOverride
+._*
+
+# ====================
+# Node.js / npm / pnpm / yarn
+# ====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# ====================
+# Vite / 前端构建产物
+# ====================
+frontend/dist/
+frontend/.vite/
+frontend/.svelte-kit/
+frontend/.next/
+frontend/.output/
+frontend/.turbo/
+frontend/.cache/
+
+# ====================
+# 前端开发临时文件
+# ====================
+frontend/.env.local
+frontend/.env.*.local
+frontend/*.log
+frontend/coverage/
+frontend/.nyc_output/
+
+# ====================
+# TypeScript / 编辑器
+# ====================
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+*.log
+frontend/tsconfig.tsbuildinfo
+
+# ====================
+# Go / 后端相关
+# ====================
+backend/bin/
+backend/pkg/
+backend/vendor/
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/coverage.*
+backend/*.test
+backend/*.out
+backend/go.work.sum
+backend/debug/
+
+# ====================
+# 数据库 / 测试数据
+# ====================
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sql.bak
+data/
+dump/
+
+# ====================
+# IDE / 编辑器特定文件
+# ====================
+.idea/
+.vscode/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# ====================
+# 临时 / 构建缓存
+# ====================
+*.bak
+*.tmp
+*.temp
+temp/
+tmp/
+cache/
+build/
+dist/
+*.zip
+*.tar.gz
+
+# ====================
+# 个人 / 敏感文件（强烈建议加入）
+# ====================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.key
+*.pem
+*.crt
+*.cer
+backend/config.yaml.bak
+frontend/localStorage.json
+
+# ====================
+# macOS / Windows 特定
+# ====================
+.DS_Store
+ehthumbs.db
+Icon?
+Thumbs.db
+desktop.ini
+
+# ====================
+# 其他常见忽略
+# ====================
+*.bak
+*.old
+*.backup
+.DS_Store
+.AppleDouble
+.LSOverride
