@@ -91,7 +91,6 @@ frontend/
 
 ## 快速启动
 
-```bash
 # 进入前端目录
 cd frontend
 
@@ -101,6 +100,7 @@ npm install
 # 启动开发服务器
 npm run dev
 # 默认打开 http://localhost:5173
+
 测试账号（当前模拟登录）
 用户名：盛哲
 密码：123456
