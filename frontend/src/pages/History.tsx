@@ -1,32 +1,24 @@
-const History = () => {
-  return (
-    <div>
-      <h2 className="text-3xl font-bold mb-6">📜 历史交易记录</h2>
-      <div className="bg-white rounded-3xl overflow-hidden shadow">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-4 text-left">日期</th>
-              <th className="px-6 py-4 text-left">类型</th>
-              <th className="px-6 py-4 text-left">资产</th>
-              <th className="px-6 py-4 text-right">金额</th>
-              <th className="px-6 py-4 text-right">盈亏</th>
-            </tr>
-          </thead>
-          <tbody className="text-gray-700">
-            <tr className="border-t">
-              <td className="px-6 py-4">2026-03-15</td>
-              <td className="px-6 py-4">买入</td>
-              <td className="px-6 py-4">腾讯控股</td>
-              <td className="px-6 py-4 text-right">¥12,500</td>
-              <td className="px-6 py-4 text-right text-green-600">+¥890</td>
-            </tr>
-            {/* 更多行可后续扩展 */}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
+import React from 'react';
+import { Table, Card, Tag } from 'antd';
 
-export default History
+export default function History() {
+  const columns = [
+    { title: '日期', dataIndex: 'date', key: 'date' },
+    { title: '类型', dataIndex: 'type', key: 'type' },
+    { title: '资产', dataIndex: 'asset', key: 'asset' },
+    { title: '盈亏', dataIndex: 'profit', key: 'profit', 
+      render: (val: string) => <span style={{ color: val.startsWith('+') ? 'green' : 'red' }}>{val}</span> 
+    },
+  ];
+
+  const data = [
+    { key: '1', date: '2026-03-15', type: '买入', asset: '腾讯控股', profit: '+¥890' },
+    { key: '2', date: '2026-03-10', type: '卖出', asset: '贵州茅台', profit: '-¥120' },
+  ];
+
+  return (
+    <Card title="📜 历史交易记录">
+      <Table columns={columns} dataSource={data} pagination={{ pageSize: 5 }} />
+    </Card>
+  );
+}

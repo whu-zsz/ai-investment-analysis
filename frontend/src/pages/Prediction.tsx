@@ -1,17 +1,29 @@
-const Prediction = () => {
-  return (
-    <div>
-      <h2 className="text-3xl font-bold mb-6">🔮 AI趋势预测</h2>
-      <div className="bg-white rounded-3xl p-8 shadow">
-        <p className="text-xl text-gray-700 mb-4">未来30天预测（置信度 78%）</p>
-        <div className="text-5xl font-bold text-green-600">+8.6%</div>
-        <p className="text-gray-500 mt-2">建议：轻仓加仓科技板块，观察大盘</p>
-      </div>
-      <div className="mt-10 text-center text-gray-400">
-        （后面加实时折线图 + Yahoo Finance 数据）
-      </div>
-    </div>
-  )
-}
+import { Card, Typography, Alert } from 'antd';
+import ReactECharts from 'echarts-for-react';
 
-export default Prediction
+export default function Prediction() {
+  const option = {
+    title: { text: '未来 30 天收益模拟 (AI)', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: ['W1', 'W2', 'W3', 'W4'] },
+    yAxis: { type: 'value' },
+    series: [{
+      name: '预测区间',
+      type: 'line',
+      smooth: true,
+      data: [310, 330, 325, 350],
+      lineStyle: { type: 'dashed', color: '#1890ff' },
+      areaStyle: { color: 'rgba(24, 144, 255, 0.1)' }
+    }]
+  };
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <Card bordered={false}>
+        <Typography.Title level={2}>AI 趋势模拟</Typography.Title>
+        <Alert message="基于历史数据生成的模拟趋势，不构成具体投资建议。" type="info" showIcon style={{ marginBottom: 24 }} />
+        <ReactECharts option={option} style={{ height: '400px' }} />
+      </Card>
+    </div>
+  );
+}

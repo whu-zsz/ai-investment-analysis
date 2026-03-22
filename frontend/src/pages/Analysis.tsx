@@ -1,35 +1,27 @@
-const Analysis = () => {
+import { Card, Typography, Timeline, Tag, Row, Col } from 'antd';
+import { WarningOutlined, CheckCircleOutlined } from '@ant-design/icons';
+
+export default function Analysis() {
   return (
-    <div>
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-bold">📊 AI分析报告</h2>
-        <button className="px-6 py-3 bg-green-600 text-white rounded-2xl hover:bg-green-700">
-          重新生成AI分析
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 总结卡片 */}
-        <div className="bg-white p-8 rounded-3xl shadow">
-          <h3 className="text-lg font-semibold mb-4">投资总结</h3>
-          <p className="text-gray-600">总盈亏：<span className="text-green-600 font-bold">+¥28,450</span></p>
-          <p className="text-gray-600 mt-2">交易次数：47 次</p>
-          <p className="text-gray-600 mt-2">投资偏好：成长型 + 科技股</p>
-        </div>
-
-        {/* 风险卡片 */}
-        <div className="bg-white p-8 rounded-3xl shadow">
-          <h3 className="text-lg font-semibold mb-4">风险评估</h3>
-          <div className="text-6xl font-bold text-orange-500">中</div>
-          <p className="mt-4 text-gray-600">主要风险：单一行业集中度高</p>
-        </div>
-      </div>
-
-      <div className="mt-8 text-center text-gray-400">
-        （后面我会给你完整 ECharts 版本）
-      </div>
+    <div style={{ padding: '24px' }}>
+      <Typography.Title level={2}>AI 风险评估报告</Typography.Title>
+      <Row gutter={24}>
+        <Col span={16}>
+          <Card title="行为模式识别" bordered={false}>
+            <Timeline items={[
+              { color: 'red', children: '高频交易警报：近期短线操作过于频繁，增加了交易成本。' },
+              { color: 'green', children: '持仓分布优化：资产已从单一股票扩展至指数基金，风险分散度提升。' },
+              { children: '投资偏好：系统识别您的风格为“进取型”，偏好科技板块。' },
+            ]} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card title="当前风险等级" textAlign="center">
+            <div style={{ fontSize: '32px', color: '#fa8c16', fontWeight: 'bold' }}>中等风险</div>
+            <Tag color="orange" style={{ marginTop: 16 }}>建议增加防御性资产占比</Tag>
+          </Card>
+        </Col>
+      </Row>
     </div>
-  )
+  );
 }
-
-export default Analysis
