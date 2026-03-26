@@ -9,15 +9,19 @@ import Login from '../pages/Login';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 
 export const router = createBrowserRouter([
-  { 
-    path: '/login', 
-    element: <Login /> 
-  },
   {
     path: '/',
-    element: <ProtectedRoute><MainLayout /></ProtectedRoute>, // 只有这里用 Layout
+    element: <Dashboard />,
+  },
+  {
+    path: '/login',
+    element: <Login />,
+  },
+  {
+    path: '/app',
+    element: <ProtectedRoute><MainLayout /></ProtectedRoute>,
     children: [
-      { index: true, element: <Dashboard /> }, // 首页直接渲染内容，不再套 Layout
+      { index: true, element: <Dashboard /> },
       { path: 'upload', element: <UploadPage /> },
       { path: 'analysis', element: <Analysis /> },
       { path: 'prediction', element: <Prediction /> },

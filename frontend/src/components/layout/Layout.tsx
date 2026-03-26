@@ -34,18 +34,18 @@ const MainLayout: React.FC = () => {
           selectedKeys={[location.pathname]} 
           onClick={({ key }) => navigate(key)}
           items={[
-            { key: '/', icon: <DashboardOutlined />, label: '投资驾驶舱' },
-            { key: '/upload', icon: <CloudUploadOutlined />, label: '上传记录' },
-            { key: '/analysis', icon: <BulbOutlined />, label: 'AI 风险分析' },
-            { key: '/prediction', icon: <BarChartOutlined />, label: '趋势预测' },
-            { key: '/history', icon: <HistoryOutlined />, label: '历史归档' },
+            { key: '/app', icon: <DashboardOutlined />, label: '投资驾驶舱' },
+            { key: '/app/upload', icon: <CloudUploadOutlined />, label: '上传记录' },
+            { key: '/app/analysis', icon: <BulbOutlined />, label: 'AI 风险分析' },
+            { key: '/app/prediction', icon: <BarChartOutlined />, label: '趋势预测' },
+            { key: '/app/history', icon: <HistoryOutlined />, label: '历史归档' },
           ]}
         />
       </Sider>
       <Layout>
         <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
           <span style={{ fontSize: 16, fontWeight: 500 }}>
-            {location.pathname === '/' ? '数据总览' : '功能模块'}
+            {location.pathname === '/app' ? '数据总览' : '功能模块'}
           </span>
           <Space size={16}>
             <span style={{ fontSize: 12, color: '#999' }}>DeepSeek API V3 已连接</span>
@@ -54,7 +54,7 @@ const MainLayout: React.FC = () => {
           </Space>
         </Header>
         <Content style={{ margin: '24px', minHeight: 280 }}>
-          <Outlet /> {/* 核心：这里只负责渲染 pages 里的内容 */}
+          <Outlet />
         </Content>
       </Layout>
     </Layout>

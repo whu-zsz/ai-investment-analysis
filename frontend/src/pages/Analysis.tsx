@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Row, Col, Card, Statistic, Typography, Divider, Tag, Descriptions, Space, Skeleton, Progress } from 'antd';
-import { 
-  RadarChartOutlined, 
-  SafetyCertificateOutlined, 
-  ThunderboltOutlined, 
-  RiseOutlined,
+import {
+  RadarChartOutlined,
+  SafetyCertificateOutlined,
   BulbOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons';
@@ -91,7 +89,7 @@ export default function AnalysisPage() {
               </Descriptions.Item>
             </Descriptions>
 
-            <Divider orientation="left"><InfoCircleOutlined /> 行为特征报告</Divider>
+            <Divider><InfoCircleOutlined /> 行为特征报告</Divider>
             <div style={{ background: '#f8fafc', padding: 20, borderRadius: 8 }}>
               <Title level={5}>⚡ 市场敏感度扫描</Title>
               <Paragraph>

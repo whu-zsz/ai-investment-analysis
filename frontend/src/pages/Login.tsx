@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Form, Input, Button, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +10,7 @@ export default function Login() {
     // 模拟登录成功，存入 token
     localStorage.setItem('token', 'mock_token_shangzhezhe');
     message.success('登录成功！');
-    navigate('/');
+    navigate('/app');
   };
 
   return (
