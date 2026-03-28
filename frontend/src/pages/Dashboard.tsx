@@ -274,10 +274,10 @@ export default function Dashboard() {
               </Paragraph>
             </div>
             <Space wrap>
-              <Button ghost onClick={() => navigate('/login')}>上传记录</Button>
-              <Button ghost onClick={() => navigate('/login')}>AI 风险分析</Button>
-              <Button ghost onClick={() => navigate('/login')}>趋势预测</Button>
-              <Button ghost onClick={() => navigate('/login')}>历史归档</Button>
+              <Button ghost onClick={() => navigate('/app/upload')}>上传记录</Button>
+              <Button ghost onClick={() => navigate('/app/analysis')}>AI 风险分析</Button>
+              <Button ghost onClick={() => navigate('/app/prediction')}>趋势预测</Button>
+              <Button ghost onClick={() => navigate('/app/history')}>历史归档</Button>
               <Button type="primary" icon={<UserOutlined />} onClick={() => navigate('/login')}>
                 登录
               </Button>
@@ -292,6 +292,7 @@ export default function Dashboard() {
             <Card
               bordered={false}
               hoverable
+              onClick={() => navigate('/app/analysis')}
               style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15, 23, 42, 0.06)' }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>

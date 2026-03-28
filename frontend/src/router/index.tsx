@@ -1,12 +1,10 @@
-import { createBrowserRouter } from 'react-router-dom';
-import MainLayout from '../components/layout/Layout';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import Dashboard from '../pages/Dashboard';
 import UploadPage from '../pages/Upload';
 import Analysis from '../pages/Analysis';
 import Prediction from '../pages/Prediction';
 import History from '../pages/History';
 import Login from '../pages/Login';
-import { ProtectedRoute } from '../components/ProtectedRoute';
 
 export const router = createBrowserRouter([
   {
@@ -18,14 +16,23 @@ export const router = createBrowserRouter([
     element: <Login />,
   },
   {
-    path: '/app',
-    element: <ProtectedRoute><MainLayout /></ProtectedRoute>,
-    children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'upload', element: <UploadPage /> },
-      { path: 'analysis', element: <Analysis /> },
-      { path: 'prediction', element: <Prediction /> },
-      { path: 'history', element: <History /> },
-    ],
+    path: '/app/upload',
+    element: <UploadPage />,
+  },
+  {
+    path: '/app/analysis',
+    element: <Analysis />,
+  },
+  {
+    path: '/app/prediction',
+    element: <Prediction />,
+  },
+  {
+    path: '/app/history',
+    element: <History />,
+  },
+  {
+    path: '*',
+    element: <Navigate to="/" replace />,
   },
 ]);

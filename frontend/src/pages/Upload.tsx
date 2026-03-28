@@ -1,20 +1,20 @@
-import { useState } from 'react'; // 删除了未使用的 React
-import { 
-  Upload, Card, Typography, Table, message, Button, 
-  Space, Progress, Row, Col 
-} from 'antd'; // 删除了未使用的 Alert
-import { 
-  InboxOutlined, FileSearchOutlined, 
-  CloudUploadOutlined, CheckCircleTwoTone 
-} from '@ant-design/icons'; // 删除了未使用的 DeleteOutlined
+import { useState } from 'react';
+import {
+  Upload, Card, Typography, Table, message, Button,
+  Space, Progress, Row, Col, ConfigProvider, theme
+} from 'antd';
+import {
+  InboxOutlined, FileSearchOutlined,
+  CloudUploadOutlined, CheckCircleTwoTone
+} from '@ant-design/icons';
 import * as XLSX from 'xlsx';
 import type { RcFile } from 'antd/es/upload';
 import type { ColumnsType } from 'antd/es/table';
+import PageHeader from '../components/PageHeader';
 
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
-// 1. 定义行数据接口
 interface PreviewRow {
   key: string | number;
   [key: string]: string | number | boolean | undefined;
@@ -37,7 +37,6 @@ export default function UploadPage() {
         const data = new Uint8Array(arrayBuffer);
         let workbook;
 
-        // 处理 CSV 的 GBK 编码防乱码
         if (file.name.endsWith('.csv')) {
           const decoder = new TextDecoder('gbk');
           const str = decoder.decode(data);
@@ -45,28 +44,25 @@ export default function UploadPage() {
         } else {
           workbook = XLSX.read(data, { type: 'array' });
         }
-        
+
         const wsname = workbook.SheetNames[0];
         const ws = workbook.Sheets[wsname];
-        // 明确声明类型，避免隐式 any
         const jsonData = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 });
 
         if (jsonData.length > 0) {
           const firstRow = jsonData[0] as string[];
-          
           const dynamicColumns: ColumnsType<PreviewRow> = firstRow.map((colName, index) => ({
-            title: String(colName || `列${index + 1}`),
+            title: <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{String(colName || `列${index + 1}`)}</Text>,
             dataIndex: `col${index}`,
             key: `col${index}`,
             ellipsis: true,
+            render: (val: unknown) => <Text style={{ color: 'rgba(255,255,255,0.8)' }}>{String(val ?? '')}</Text>,
           }));
-          
-          // 关键修复：将 any 改为 unknown，并配合类型保护
+
           const previewRows: PreviewRow[] = jsonData.slice(1, 6).map((row: unknown, rIndex) => {
             const obj: PreviewRow = { key: rIndex };
             if (Array.isArray(row)) {
               row.forEach((cell, cIndex) => {
-                // 确保 cell 类型符合 PreviewRow 定义
                 obj[`col${cIndex}`] = cell as string | number | boolean | undefined;
               });
             }
@@ -90,7 +86,6 @@ export default function UploadPage() {
   const startUpload = () => {
     setUploading(true);
     let curr = 0;
-    // 使用 window.setInterval 明确 DOM 环境类型
     const timer = window.setInterval(() => {
       curr += 10;
       setPercent(curr);
@@ -112,60 +107,138 @@ export default function UploadPage() {
     setFileName('');
   };
 
+  const cardStyle = {
+    background: 'rgba(15, 23, 42, 0.6)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    backdropFilter: 'blur(10px)',
+  };
+
+  const supportedFormats = [
+    { label: 'CSV 对账单', desc: '支持 GBK / UTF-8 自动识别' },
+    { label: 'Excel (.xlsx)', desc: '多 Sheet 自动取第一张' },
+    { label: 'Excel (.xls)', desc: '兼容旧版格式' },
+  ];
+
   return (
-    <div style={{ padding: '8px' }}>
-      <Title level={3}>数据导入中心</Title>
-      <Text type="secondary">智能识别编码，确保 CSV/Excel 预览无乱码。</Text>
+    <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
+      <div style={{ minHeight: '100vh', background: 'radial-gradient(circle at top left, #1e293b 0%, #0b1120 100%)' }}>
+        <PageHeader title="数据导入中心" subtitle="智能识别编码，支持主流券商对账单格式" />
 
-      <Row gutter={[0, 24]} style={{ marginTop: 24 }}>
-        <Col span={24}>
-          <Card bordered={false} hoverable>
-            <Dragger 
-              accept=".csv,.xlsx,.xls"
-              beforeUpload={handleFile}
-              showUploadList={false}
-              disabled={dataPreview.length > 0}
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined style={{ color: '#1677ff' }} /></p>
-              <p className="ant-upload-text">点击或将文件拖拽到此处</p>
-              <p className="ant-upload-hint">支持各大券商导出的标准对账单格式</p>
-            </Dragger>
-          </Card>
-        </Col>
+        <div style={{ padding: '28px 32px', maxWidth: 1400, margin: '0 auto' }}>
+          <Row gutter={[20, 20]}>
+            {/* 左侧说明 */}
+            <Col span={24} lg={7}>
+              <Space direction="vertical" style={{ width: '100%' }} size={20}>
+                <Card bordered={false} style={cardStyle}>
+                  <Title level={5} style={{ color: 'rgba(255,255,255,0.8)', marginTop: 0 }}>支持格式</Title>
+                  {supportedFormats.map(fmt => (
+                    <div key={fmt.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1677ff', marginTop: 6, flexShrink: 0 }} />
+                      <div>
+                        <Text strong style={{ color: '#fff', fontSize: 13 }}>{fmt.label}</Text>
+                        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 2 }}>{fmt.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </Card>
 
-        {dataPreview.length > 0 && (
-          <Col span={24}>
-            <Card 
-              title={<Space><FileSearchOutlined /><span>解析预览: {fileName}</span></Space>}
-              extra={
-                <Space>
-                  <Button onClick={resetUpload} disabled={uploading}>
-                    重选文件
-                  </Button>
-                  <Button 
-                    type="primary" 
-                    icon={<CloudUploadOutlined />} 
-                    loading={uploading}
-                    onClick={startUpload}
+                <Card bordered={false} style={cardStyle}>
+                  <Title level={5} style={{ color: 'rgba(255,255,255,0.8)', marginTop: 0 }}>数据说明</Title>
+                  {[
+                    '仅预览前 5 行，完整数据在提交后处理',
+                    '文件不会被永久存储，仅用于 AI 分析',
+                    '敏感字段建议提前脱敏处理',
+                  ].map((tip, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                      <Text style={{ color: '#1677ff', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</Text>
+                      <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, lineHeight: 1.6 }}>{tip}</Text>
+                    </div>
+                  ))}
+                </Card>
+              </Space>
+            </Col>
+
+            {/* 右侧上传区 */}
+            <Col span={24} lg={17}>
+              <Space direction="vertical" style={{ width: '100%' }} size={20}>
+                <Card bordered={false} style={cardStyle}>
+                  <Dragger
+                    accept=".csv,.xlsx,.xls"
+                    beforeUpload={handleFile}
+                    showUploadList={false}
+                    disabled={dataPreview.length > 0}
+                    style={{
+                      background: 'rgba(22,119,255,0.04)',
+                      border: '1px dashed rgba(22,119,255,0.3)',
+                      borderRadius: 12,
+                    }}
                   >
-                    确认提交
-                  </Button>
-                </Space>
-              }
-            >
-              <Table 
-                dataSource={dataPreview} 
-                columns={columns} 
-                pagination={false} 
-                size="small"
-                scroll={{ x: 'max-content' }}
-                bordered
-              />
-              {uploading && <Progress percent={percent} status="active" style={{ marginTop: 20 }} />}
-            </Card>
-          </Col>
-        )}
-      </Row>
-    </div>
+                    <p className="ant-upload-drag-icon">
+                      <InboxOutlined style={{ color: '#1677ff', fontSize: 48 }} />
+                    </p>
+                    <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16, fontWeight: 500 }}>
+                      点击或将文件拖拽到此处
+                    </p>
+                    <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>
+                      支持各大券商导出的标准对账单格式 · CSV / XLSX / XLS
+                    </p>
+                  </Dragger>
+                </Card>
+
+                {dataPreview.length > 0 && (
+                  <Card
+                    bordered={false}
+                    style={cardStyle}
+                    title={
+                      <Space>
+                        <FileSearchOutlined style={{ color: '#1677ff' }} />
+                        <Text style={{ color: 'rgba(255,255,255,0.85)' }}>解析预览: {fileName}</Text>
+                      </Space>
+                    }
+                    extra={
+                      <Space>
+                        <Button onClick={resetUpload} disabled={uploading}
+                          style={{ borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                        >
+                          重选文件
+                        </Button>
+                        <Button
+                          type="primary"
+                          icon={<CloudUploadOutlined />}
+                          loading={uploading}
+                          onClick={startUpload}
+                          style={{ borderRadius: 10 }}
+                        >
+                          确认提交
+                        </Button>
+                      </Space>
+                    }
+                  >
+                    <Table
+                      dataSource={dataPreview}
+                      columns={columns}
+                      pagination={false}
+                      size="small"
+                      scroll={{ x: 'max-content' }}
+                      style={{ background: 'transparent' }}
+                    />
+                    {uploading && (
+                      <Progress
+                        percent={percent}
+                        status="active"
+                        strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }}
+                        trailColor="rgba(255,255,255,0.08)"
+                        style={{ marginTop: 20 }}
+                      />
+                    )}
+                  </Card>
+                )}
+              </Space>
+            </Col>
+          </Row>
+        </div>
+      </div>
+    </ConfigProvider>
   );
 }
