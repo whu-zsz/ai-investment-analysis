@@ -5,6 +5,8 @@ import Analysis from '../pages/Analysis';
 import Prediction from '../pages/Prediction';
 import History from '../pages/History';
 import Login from '../pages/Login';
+import Profile from '../pages/Profile';
+import { ProtectedRoute } from '../components/ProtectedRoute';
 
 export const router = createBrowserRouter([
   {
@@ -16,20 +18,24 @@ export const router = createBrowserRouter([
     element: <Login />,
   },
   {
+    path: '/profile',
+    element: <ProtectedRoute><Profile /></ProtectedRoute>,
+  },
+  {
     path: '/app/upload',
-    element: <UploadPage />,
+    element: <ProtectedRoute><UploadPage /></ProtectedRoute>,
   },
   {
     path: '/app/analysis',
-    element: <Analysis />,
+    element: <ProtectedRoute><Analysis /></ProtectedRoute>,
   },
   {
     path: '/app/prediction',
-    element: <Prediction />,
+    element: <ProtectedRoute><Prediction /></ProtectedRoute>,
   },
   {
     path: '/app/history',
-    element: <History />,
+    element: <ProtectedRoute><History /></ProtectedRoute>,
   },
   {
     path: '*',

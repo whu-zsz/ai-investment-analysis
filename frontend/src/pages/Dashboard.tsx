@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Col, Descriptions, Divider, Popover, Progress, Row, Space, Statistic, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Divider, Avatar, Dropdown, Popover, Progress, Row, Space, Statistic, Tag, Typography } from 'antd';
 import {
   BarChartOutlined,
   BulbOutlined,
@@ -8,11 +8,15 @@ import {
   RiseOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
-  UserOutlined
+  UserOutlined,
+  LogoutOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { useAuth } from '../hooks/useAuth';
+import type { MenuProps } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -191,6 +195,23 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicHome = location.pathname === '/';
+  const { isLoggedIn, userInfo, logout } = useAuth();
+
+  const guardNavigate = (path: string) => {
+    if (!isLoggedIn) navigate('/login', { state: { from: path } });
+    else navigate(path);
+  };
+
+  const userMenuItems: MenuProps['items'] = [
+    { key: 'profile', icon: <SettingOutlined />, label: '个人中心' },
+    { type: 'divider' },
+    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
+  ];
+
+  const handleUserMenu: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'profile') navigate('/profile');
+    if (key === 'logout') { logout(); navigate('/'); }
+  };
 
   const getOption = (): EChartsOption => ({
     tooltip: {
@@ -274,13 +295,25 @@ export default function Dashboard() {
               </Paragraph>
             </div>
             <Space wrap>
-              <Button ghost onClick={() => navigate('/app/upload')}>上传记录</Button>
-              <Button ghost onClick={() => navigate('/app/analysis')}>AI 风险分析</Button>
-              <Button ghost onClick={() => navigate('/app/prediction')}>趋势预测</Button>
-              <Button ghost onClick={() => navigate('/app/history')}>历史归档</Button>
-              <Button type="primary" icon={<UserOutlined />} onClick={() => navigate('/login')}>
-                登录
-              </Button>
+              <Button ghost onClick={() => guardNavigate('/app/upload')}>上传记录</Button>
+              <Button ghost onClick={() => guardNavigate('/app/analysis')}>AI 风险分析</Button>
+              <Button ghost onClick={() => guardNavigate('/app/prediction')}>趋势预测</Button>
+              <Button ghost onClick={() => guardNavigate('/app/history')}>历史归档</Button>
+              {isLoggedIn ? (
+                <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenu }} placement="bottomRight" arrow>
+                  <Button
+                    type="primary"
+                    icon={<Avatar size={18} icon={<UserOutlined />} style={{ background: 'rgba(255,255,255,0.25)', verticalAlign: 'middle' }} />}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    {userInfo?.displayName ?? '用户'}
+                  </Button>
+                </Dropdown>
+              ) : (
+                <Button type="primary" icon={<UserOutlined />} onClick={() => navigate('/login')}>
+                  登录
+                </Button>
+              )}
             </Space>
           </div>
         </Card>
