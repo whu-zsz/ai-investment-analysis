@@ -42,6 +42,7 @@ frontend/.cache/
 frontend/.env.local
 frontend/.env.*.local
 frontend/*.log
+frontend/.vite.pid
 frontend/coverage/
 frontend/.nyc_output/
 
@@ -70,6 +71,7 @@ backend/*.test
 backend/*.out
 backend/go.work.sum
 backend/debug/
+backend/.backend.pid
 
 # ====================
 # 数据库 / 测试数据
@@ -140,6 +142,8 @@ desktop.ini
 # ====================
 # 其他常见忽略
 # ====================
+doc/
+images/
 *.bak
 *.old
 *.backup
