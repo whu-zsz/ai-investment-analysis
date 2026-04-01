@@ -15,6 +15,7 @@ func SetupRouter(
 	transactionHandler *handler.TransactionHandler,
 	portfolioHandler *handler.PortfolioHandler,
 	analysisHandler *handler.AnalysisHandler,
+	marketHandler *handler.MarketHandler,
 	jwtSecret string,
 ) *gin.Engine {
 	router := gin.Default()
@@ -71,6 +72,19 @@ func SetupRouter(
 			portfolios := protected.Group("/portfolios")
 			{
 				portfolios.GET("", portfolioHandler.GetPortfolios)
+			}
+
+			// Dashboard 市场快照
+			dashboard := protected.Group("/dashboard")
+			{
+				dashboard.GET("/market-snapshot", marketHandler.GetDashboardSnapshot)
+			}
+
+			// 市场快照
+			market := protected.Group("/market")
+			{
+				market.GET("/snapshots/latest", marketHandler.GetLatestSnapshots)
+				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
 			}
 
 			// AI分析

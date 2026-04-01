@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"stock-analysis-backend/internal/config"
 	"stock-analysis-backend/internal/handler"
 	"stock-analysis-backend/internal/repository"
@@ -8,6 +9,8 @@ import (
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/deepseek"
 	"stock-analysis-backend/pkg/logger"
+	"stock-analysis-backend/pkg/marketdata"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -59,9 +62,14 @@ func main() {
 	portfolioRepo := repository.NewPortfolioRepository(db)
 	analysisReportRepo := repository.NewAnalysisReportRepository(db)
 	uploadedFileRepo := repository.NewUploadedFileRepository(db)
+	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
 
-	// 6. 初始化Deepseek客户端
+	// 6. 初始化客户端
 	deepseekClient := deepseek.NewClient(cfg.Deepseek.APIKey, cfg.Deepseek.APIURL)
+	marketProvider, err := marketdata.NewProvider(cfg.Market)
+	if err != nil {
+		log.Fatal("Failed to initialize market provider", zap.Error(err))
+	}
 
 	// 7. 初始化Service
 	userService := service.NewUserService(userRepo, cfg.JWT)
@@ -70,6 +78,9 @@ func main() {
 	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
 	transactionService := service.NewTransactionService(transactionRepo, portfolioService)
 	aiService := service.NewAIService(analysisReportRepo, transactionRepo, deepseekClient)
+	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo)
+	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
+	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	// 8. 初始化Handler
 	userHandler := handler.NewUserHandler(userService)
@@ -77,6 +88,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
 	analysisHandler := handler.NewAnalysisHandler(aiService)
+	marketHandler := handler.NewMarketHandler(marketSnapshotService)
 
 	// 9. 设置路由
 	router := router.SetupRouter(
@@ -85,8 +97,13 @@ func main() {
 		transactionHandler,
 		portfolioHandler,
 		analysisHandler,
+		marketHandler,
 		cfg.JWT.Secret,
 	)
+
+	if cfg.Market.Enabled {
+		marketScheduler.Start(context.Background())
+	}
 
 	// 10. 启动服务器
 	log.Info("Server starting", zap.String("port", cfg.Server.Port))
