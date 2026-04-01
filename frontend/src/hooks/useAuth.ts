@@ -1,55 +1,114 @@
-import { useState, useEffect } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { api, type BackendUserProfile, type LoginRequest } from '../types';
 
-export interface UserInfo {
-  username: string;
-  displayName: string;
-  email: string;
-  avatar?: string;
-  role: string;
-  joinDate: string;
+interface AuthContextValue {
+  isLoggedIn: boolean;
+  isLoading: boolean;
+  userInfo: BackendUserProfile | null;
+  login: (credentials: LoginRequest) => Promise<void>;
+  logout: () => void;
+  refreshProfile: () => Promise<void>;
+  updateUserInfo: (info: Partial<BackendUserProfile>) => void;
 }
 
-const DEFAULT_USER: UserInfo = {
-  username: 'admin',
-  displayName: '投资顾问',
-  email: 'admin@guanshi.ai',
-  role: '高级分析师',
-  joinDate: '2024-01-01',
-};
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function useAuth() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+const TOKEN_KEY = 'token';
+const USER_KEY = 'userInfo';
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsLoggedIn(true);
-      const saved = localStorage.getItem('userInfo');
-      setUserInfo(saved ? JSON.parse(saved) : DEFAULT_USER);
-    }
+function readStoredUser(): BackendUserProfile | null {
+  const saved = localStorage.getItem(USER_KEY);
+  if (!saved) return null;
+
+  try {
+    return JSON.parse(saved) as BackendUserProfile;
+  } catch {
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [userInfo, setUserInfo] = useState<BackendUserProfile | null>(() => readStoredUser());
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+
+  const clearAuth = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    setToken(null);
+    setUserInfo(null);
   }, []);
 
-  const login = (username: string) => {
-    const info: UserInfo = { ...DEFAULT_USER, username, displayName: username };
-    localStorage.setItem('token', 'auth_token_' + Date.now());
-    localStorage.setItem('userInfo', JSON.stringify(info));
-    setIsLoggedIn(true);
-    setUserInfo(info);
-  };
+  const refreshProfile = useCallback(async () => {
+    const currentToken = localStorage.getItem(TOKEN_KEY);
+    if (!currentToken) {
+      setUserInfo(null);
+      return;
+    }
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userInfo');
-    setIsLoggedIn(false);
-    setUserInfo(null);
-  };
+    try {
+      const profile = await api.getProfile();
+      localStorage.setItem(USER_KEY, JSON.stringify(profile.data));
+      setUserInfo(profile.data);
+      setToken(currentToken);
+    } catch {
+      clearAuth();
+      throw new Error('refresh profile failed');
+    }
+  }, [clearAuth]);
 
-  const updateUserInfo = (info: Partial<UserInfo>) => {
-    const updated = { ...(userInfo ?? DEFAULT_USER), ...info };
-    localStorage.setItem('userInfo', JSON.stringify(updated));
-    setUserInfo(updated);
-  };
+  useEffect(() => {
+    const currentToken = localStorage.getItem(TOKEN_KEY);
+    if (!currentToken) {
+      setIsLoading(false);
+      return;
+    }
 
-  return { isLoggedIn, userInfo, login, logout, updateUserInfo };
+    refreshProfile()
+      .catch(() => undefined)
+      .finally(() => setIsLoading(false));
+  }, [refreshProfile]);
+
+  const login = useCallback(async (credentials: LoginRequest) => {
+    const loginData = await api.login(credentials);
+
+    localStorage.setItem(TOKEN_KEY, loginData.data.token);
+    localStorage.setItem(USER_KEY, JSON.stringify(loginData.data.user));
+    setToken(loginData.data.token);
+    setUserInfo(loginData.data.user);
+  }, []);
+
+  const logout = useCallback(() => {
+    clearAuth();
+  }, [clearAuth]);
+
+  const updateUserInfo = useCallback((info: Partial<BackendUserProfile>) => {
+    setUserInfo(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...info };
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  const value = useMemo<AuthContextValue>(() => ({
+    isLoggedIn: Boolean(token),
+    isLoading,
+    userInfo,
+    login,
+    logout,
+    refreshProfile,
+    updateUserInfo,
+  }), [isLoading, userInfo, login, logout, refreshProfile, token, updateUserInfo]);
+
+  return createElement(AuthContext.Provider, { value }, children);
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
 }

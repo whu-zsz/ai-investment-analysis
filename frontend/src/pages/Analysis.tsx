@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Row, Col, Card, Statistic, Typography, Divider, Tag,
-  Descriptions, Space, Skeleton, Progress, Alert, Button
+  Row, Col, Card, Statistic, Typography, Tag,
+  Descriptions, Space, Skeleton, Progress, Alert, Button, Empty
 } from 'antd';
 import {
   RadarChartOutlined, SafetyCertificateOutlined, BulbOutlined,
@@ -10,35 +10,68 @@ import {
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { api } from '../types';
 
 const { Title, Paragraph, Text } = Typography;
+
+interface AnalysisReport {
+  id: number;
+  report_type: string;
+  report_title: string;
+  analysis_period_start: string;
+  analysis_period_end: string;
+  total_investment: string;
+  total_profit: string;
+  profit_rate: string;
+  risk_level: string;
+  investment_style: string;
+  summary_text: string;
+  risk_analysis: string;
+  pattern_insights: string;
+  prediction_text: string;
+  chart_data: string;
+  recommendations: string;
+  ai_model: string;
+  created_at: string;
+}
 
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
 const subCardStyle = { background: '#f8fafc', borderRadius: 12 };
 
-const quickMetrics = [
-  { label: 'Beta 系数', value: '1.42', color: '#1677ff', bg: '#e6f4ff' },
-  { label: '月换手率',  value: '120%', color: '#ff4d4f', bg: '#fff1f0' },
-  { label: '夏普比率',  value: '0.87', color: '#1677ff', bg: '#e6f4ff' },
-  { label: '最大回撤',  value: '4.9%', color: '#ff4d4f', bg: '#fff1f0' },
-];
-
 export default function AnalysisPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [report, setReport] = useState<AnalysisReport | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
+    const load = async () => {
+      setLoading(true);
+      try {
+        const response = await api.getReports({ limit: 1 });
+        const reports = response.data as AnalysisReport[];
+        setReport(reports[0] ?? null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
   }, []);
+
+  const radarValues = useMemo(() => {
+    const riskLevel = report?.risk_level?.toLowerCase();
+    if (riskLevel === 'high') return [82, 45, 30, 65, 90];
+    if (riskLevel === 'medium') return [74, 62, 58, 71, 76];
+    return [68, 76, 72, 78, 69];
+  }, [report]);
 
   const getRadarOption = (): EChartsOption => ({
     radar: {
       indicator: [
         { name: '收益爆发力', max: 100 },
-        { name: '回撤控制',   max: 100 },
+        { name: '回撤控制', max: 100 },
         { name: '资产分散度', max: 100 },
-        { name: '交易纪律',   max: 100 },
+        { name: '交易纪律', max: 100 },
         { name: '风格稳定性', max: 100 },
       ],
       shape: 'circle',
@@ -50,7 +83,7 @@ export default function AnalysisPage() {
     series: [{
       type: 'radar',
       data: [{
-        value: [82, 45, 30, 65, 90],
+        value: radarValues,
         name: '特征评分',
         itemStyle: { color: '#1677ff' },
         lineStyle: { color: '#1677ff' },
@@ -61,8 +94,6 @@ export default function AnalysisPage() {
 
   return (
     <div style={{ padding: '24px' }}>
-
-      {/* 返回按钮 */}
       <Button
         icon={<ArrowLeftOutlined />}
         type="text"
@@ -72,7 +103,6 @@ export default function AnalysisPage() {
         返回首页
       </Button>
 
-      {/* Hero Banner */}
       <Card
         bordered={false}
         style={{
@@ -86,19 +116,19 @@ export default function AnalysisPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">AI 驱动</Tag>
-              <Tag color="blue">多因子模型</Tag>
+              <Tag color="blue">真实分析报告</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 深度风险诊断</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              基于多因子量化模型，深度穿透您的历史交易行为与仓位分布，识别潜在风险。
+              当前页面已接入 `/analysis/reports`，优先展示最近一份分析报告。
             </Paragraph>
           </div>
           <Space wrap>
             <Tag color="success" icon={<SafetyCertificateOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              健康分 74.2
+              风险等级 {report?.risk_level || '待生成'}
             </Tag>
             <Tag color="processing" icon={<ThunderboltOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              激进型成长风格
+              {report?.investment_style || '等待分析'}
             </Tag>
           </Space>
         </div>
@@ -106,52 +136,52 @@ export default function AnalysisPage() {
 
       {loading ? (
         <Skeleton active paragraph={{ rows: 12 }} />
+      ) : !report ? (
+        <Card bordered={false} style={cardStyle}>
+          <Empty description="暂无分析报告，请先完成上传并触发分析" />
+        </Card>
       ) : (
         <Row gutter={[16, 16]}>
-          {/* ── 左栏 ── */}
           <Col span={24} lg={8}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-
-              {/* 健康分 */}
               <Card bordered={false} style={cardStyle}>
                 <Statistic
                   title="账户健康分"
-                  value={74.2}
+                  value={report.risk_level === 'high' ? 60 : report.risk_level === 'medium' ? 74.2 : 86}
                   suffix="/ 100"
                   prefix={<SafetyCertificateOutlined />}
                   valueStyle={{ color: '#52c41a', fontSize: 34 }}
                 />
                 <Progress
-                  percent={74.2}
+                  percent={report.risk_level === 'high' ? 60 : report.risk_level === 'medium' ? 74.2 : 86}
                   showInfo={false}
                   strokeColor={{ '0%': '#52c41a', '100%': '#95de64' }}
                   style={{ marginTop: 12 }}
                 />
                 <Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'block' }}>
-                  高于 78% 的同类用户
+                  分析区间：{report.analysis_period_start} ~ {report.analysis_period_end}
                 </Text>
               </Card>
 
-              {/* 雷达图 */}
-              <Card
-                bordered={false}
-                style={cardStyle}
-                title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />投资风格画像</span>}
-              >
+              <Card bordered={false} style={cardStyle} title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />投资风格画像</span>}>
                 <ReactECharts option={getRadarOption()} style={{ height: 260 }} />
                 <div style={{ textAlign: 'center', marginTop: 4 }}>
-                  <Tag color="processing" style={{ borderRadius: 20, padding: '2px 14px' }}>激进型成长风格</Tag>
+                  <Tag color="processing" style={{ borderRadius: 20, padding: '2px 14px' }}>{report.investment_style || '综合风格'}</Tag>
                 </div>
               </Card>
 
-              {/* 快速指标 */}
               <Card bordered={false} style={cardStyle}>
                 <Row gutter={[12, 12]}>
-                  {quickMetrics.map(item => (
+                  {[
+                    { label: '总投入', value: report.total_investment || '0', color: '#1677ff', bg: '#e6f4ff' },
+                    { label: '总收益', value: report.total_profit || '0', color: '#52c41a', bg: '#f6ffed' },
+                    { label: '收益率', value: report.profit_rate || '0', color: '#1677ff', bg: '#e6f4ff' },
+                    { label: '模型', value: report.ai_model || '—', color: '#ff4d4f', bg: '#fff1f0' },
+                  ].map(item => (
                     <Col span={12} key={item.label}>
                       <div style={{ background: item.bg, borderRadius: 12, padding: '14px 16px' }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
-                        <div style={{ color: item.color, fontSize: 22, fontWeight: 700, marginTop: 4 }}>{item.value}</div>
+                        <div style={{ color: item.color, fontSize: 18, fontWeight: 700, marginTop: 4 }}>{item.value}</div>
                       </div>
                     </Col>
                   ))}
@@ -160,61 +190,47 @@ export default function AnalysisPage() {
             </Space>
           </Col>
 
-          {/* ── 右栏 ── */}
           <Col span={24} lg={16}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-
-              {/* AI 诊断结论 */}
-              <Card
-                bordered={false}
-                style={cardStyle}
-                title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />AI 诊断结论</span>}
-              >
+              <Card bordered={false} style={cardStyle} title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />AI 诊断结论</span>}>
                 <Descriptions column={1} bordered size="small">
-                  <Descriptions.Item label="潜在风险点">
-                    <Text type="danger">持仓集中度过高。</Text>
-                    {' '}您的前两大持仓占总资产 65%，极易受单一行业波动影响。
+                  <Descriptions.Item label="摘要结论">
+                    {report.summary_text || '暂无摘要'}
                   </Descriptions.Item>
-                  <Descriptions.Item label="交易倾向">
-                    检测到轻微的 <Text strong>"处置效应"</Text>（倾向于过早卖出盈利股，而长期持有亏损股）。
+                  <Descriptions.Item label="风险分析">
+                    {report.risk_analysis || '暂无风险分析'}
                   </Descriptions.Item>
                   <Descriptions.Item label="优化建议">
-                    建议将科技板块仓位下调 15%，增配防御性资产如红利低波 ETF。
+                    {report.recommendations || '暂无建议'}
                   </Descriptions.Item>
                 </Descriptions>
               </Card>
 
-              {/* 行为特征报告 */}
-              <Card
-                bordered={false}
-                style={cardStyle}
-                title={<span><InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />行为特征报告</span>}
-              >
+              <Card bordered={false} style={cardStyle} title={<span><InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />行为特征报告</span>}>
                 <div style={{ ...subCardStyle, padding: '18px 20px', marginBottom: 12 }}>
-                  <Title level={5} style={{ marginTop: 0 }}>⚡ 市场敏感度扫描</Title>
+                  <Title level={5} style={{ marginTop: 0 }}>风险洞察</Title>
                   <Paragraph type="secondary" style={{ marginBottom: 0, lineHeight: 1.8 }}>
-                    您的组合 Beta 系数为 1.42，意味着市场每波动 1%，您的账户预期波动 1.42%。这表明您处于杠杆化配置状态，在牛市表现优异，但在宽幅震荡期可能面临较大压力。建议通过对冲工具锁定部分利润。
+                    {report.pattern_insights || report.risk_analysis || '暂无行为特征分析'}
                   </Paragraph>
                 </div>
                 <div style={{ ...subCardStyle, padding: '18px 20px' }}>
-                  <Title level={5} style={{ marginTop: 0 }}>🔍 换手率分析</Title>
+                  <Title level={5} style={{ marginTop: 0 }}>趋势结论</Title>
                   <Paragraph type="secondary" style={{ marginBottom: 0, lineHeight: 1.8 }}>
-                    近 30 天换手率达到 120%，远高于基准水平。高频交易产生的佣金损耗已侵蚀掉约 2.4% 的潜在收益，建议拉长持股周期以降低摩擦成本。
+                    {report.prediction_text || '当前后端暂无独立预测接口，这里展示最近报告中的趋势结论。'}
                   </Paragraph>
                 </div>
               </Card>
 
-              {/* AI 结论 Alert，和 Dashboard 一致 */}
               <Card bordered={false} style={cardStyle}>
                 <Alert
                   type="info"
                   showIcon
                   icon={<BulbOutlined />}
-                  message="AI 一句话结论：组合进攻性较强，收益潜力可观，但需优先处理持仓集中度问题。"
+                  message={report.report_title || '最近一份分析报告'}
                   description={
                     <Space direction="vertical" size={4}>
-                      <Text type="secondary">主要风险点：前两大持仓占比过高、Beta 值偏高、换手率侵蚀收益。</Text>
-                      <Text type="secondary">建议动作：将科技板块下调 15%，增配红利低波 ETF 或现金缓冲。</Text>
+                      <Text type="secondary">生成时间：{report.created_at}</Text>
+                      <Text type="secondary">当前页面已从静态内容切换到真实报告数据。</Text>
                     </Space>
                   }
                 />

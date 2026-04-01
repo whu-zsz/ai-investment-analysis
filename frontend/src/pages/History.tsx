@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Table, Card, Typography, Tag, Input, Space, Button,
-  DatePicker, Row, Col, Statistic, Alert
+  Row, Col, Statistic, Alert
 } from 'antd';
 import {
   SearchOutlined, DownloadOutlined, HistoryOutlined,
@@ -9,95 +9,136 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
+import { api } from '../types';
 
 const { Text, Title, Paragraph } = Typography;
-const { RangePicker } = DatePicker;
 
-interface TradeRecord {
-  key: string;
-  date: string;
-  asset: string;
-  type: '买入' | '卖出';
-  price: number;
-  amount: number;
+interface TransactionItem {
+  id: number;
+  transaction_date: string;
+  transaction_type: string;
+  asset_type: string;
+  asset_code: string;
+  asset_name: string;
+  quantity: string;
+  price_per_unit: string;
+  total_amount: string;
+  commission: string;
+  profit: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface TransactionListResponse {
+  transactions: TransactionItem[];
   total: number;
-  status: '已成交' | '已撤单';
-  pnl: number;
+  page: number;
+  page_size: number;
+}
+
+interface TransactionStats {
+  total_transactions: number;
+  buy_count: number;
+  sell_count: number;
+  total_investment: string;
+  total_profit: string;
 }
 
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
 
-const mockData: TradeRecord[] = [
-  { key: '1', date: '2024-03-22 14:30', asset: '腾讯控股 (0700.HK)',   type: '买入', price: 290.5,  amount: 100,  total: 29050, status: '已成交', pnl:  1240 },
-  { key: '2', date: '2024-03-21 10:15', asset: '贵州茅台 (600519)',    type: '卖出', price: 1720.0, amount: 10,   total: 17200, status: '已成交', pnl:  -380 },
-  { key: '3', date: '2024-03-20 09:45', asset: '纳指100ETF (513100)', type: '买入', price: 1.25,   amount: 5000, total:  6250, status: '已成交', pnl:   860 },
-  { key: '4', date: '2024-03-19 15:00', asset: '英伟达 (NVDA.US)',     type: '买入', price: 890.2,  amount: 5,    total:  4451, status: '已成交', pnl:  2100 },
-  { key: '5', date: '2024-03-18 11:20', asset: '招商银行 (600036)',    type: '卖出', price: 32.1,   amount: 1000, total: 32100, status: '已成交', pnl:  -120 },
-];
-
-const summaryStats = [
-  { label: '总交易次数', value: 26,      suffix: '次',  color: '#1677ff', bg: '#e6f4ff' },
-  { label: '总成交额',   value: 89051,   suffix: '元',  color: '#262626', bg: '#f8fafc' },
-  { label: '累计盈亏',   value: 3700,    suffix: '元',  color: '#52c41a', bg: '#f6ffed' },
-  { label: '月度胜率',   value: 61,      suffix: '%',   color: '#1677ff', bg: '#e6f4ff' },
-];
-
 export default function HistoryPage() {
   const navigate = useNavigate();
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [stats, setStats] = useState<TransactionStats | null>(null);
+  const [records, setRecords] = useState<TransactionItem[]>([]);
 
-  const columns: ColumnsType<TradeRecord> = [
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [listResponse, statsResponse] = await Promise.all([
+          api.getTransactions({ page: 1, page_size: 50 }),
+          api.getTransactionStats(),
+        ]);
+        const listData = listResponse.data as TransactionListResponse;
+        setRecords(listData.transactions);
+        setStats(statsResponse.data as TransactionStats);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+  }, []);
+
+  const filteredRecords = useMemo(() => {
+    if (!search.trim()) return records;
+    return records.filter(record =>
+      `${record.asset_name} ${record.asset_code}`.toLowerCase().includes(search.trim().toLowerCase())
+    );
+  }, [records, search]);
+
+  const columns: ColumnsType<TransactionItem> = [
     {
-      title: '交易时间', dataIndex: 'date',
-      sorter: (a, b) => a.date.localeCompare(b.date),
-      render: (text) => <Text type="secondary" style={{ fontSize: 13 }}>{text}</Text>,
+      title: '交易时间', dataIndex: 'transaction_date',
+      sorter: (a, b) => a.transaction_date.localeCompare(b.transaction_date),
+      render: text => <Text type="secondary" style={{ fontSize: 13 }}>{text}</Text>,
     },
     {
-      title: '标的名称', dataIndex: 'asset',
-      render: (text) => <Text strong>{text}</Text>,
+      title: '标的名称', key: 'asset',
+      render: (_, row) => <Text strong>{row.asset_name} ({row.asset_code})</Text>,
     },
     {
-      title: '操作类型', dataIndex: 'type',
-      render: (type: '买入' | '卖出') => (
+      title: '操作类型', dataIndex: 'transaction_type',
+      render: (type: string) => (
         <Tag
-          icon={type === '买入' ? <RiseOutlined /> : <FallOutlined />}
-          color={type === '买入' ? 'processing' : 'default'}
+          icon={type === 'buy' ? <RiseOutlined /> : <FallOutlined />}
+          color={type === 'buy' ? 'processing' : 'default'}
           style={{ borderRadius: 20, padding: '2px 10px' }}
         >
-          {type}
+          {type === 'buy' ? '买入' : type === 'sell' ? '卖出' : '分红'}
         </Tag>
       ),
     },
     {
-      title: '成交均价', dataIndex: 'price',
-      render: (val) => `¥${val.toLocaleString()}`,
+      title: '成交均价', dataIndex: 'price_per_unit',
+      render: val => `¥${Number(val).toLocaleString()}`,
     },
     {
-      title: '成交数量', dataIndex: 'amount',
-      render: (val) => val.toLocaleString(),
+      title: '成交数量', dataIndex: 'quantity',
+      render: val => Number(val).toLocaleString(),
     },
     {
-      title: '成交额', dataIndex: 'total',
-      render: (val) => <Text strong>¥{val.toLocaleString()}</Text>,
+      title: '成交额', dataIndex: 'total_amount',
+      render: val => <Text strong>¥{Number(val).toLocaleString()}</Text>,
     },
     {
-      title: '浮动盈亏', dataIndex: 'pnl',
-      render: (val: number) => (
-        <Text strong style={{ color: val >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {val >= 0 ? '+' : ''}¥{val.toLocaleString()}
-        </Text>
-      ),
+      title: '浮动盈亏', dataIndex: 'profit',
+      render: (val: string | null) => {
+        const number = Number(val ?? 0);
+        return (
+          <Text strong style={{ color: number >= 0 ? '#52c41a' : '#ff4d4f' }}>
+            {number >= 0 ? '+' : ''}¥{number.toLocaleString()}
+          </Text>
+        );
+      },
     },
     {
-      title: '状态', dataIndex: 'status',
-      render: (status) => <Tag style={{ borderRadius: 20 }}>{status}</Tag>,
+      title: '备注', dataIndex: 'notes',
+      render: value => value ?? '—',
     },
+  ];
+
+  const summaryStats = [
+    { label: '总交易次数', value: stats?.total_transactions ?? 0, suffix: '次', color: '#1677ff' },
+    { label: '总成交额', value: Number(stats?.total_investment ?? 0), suffix: '元', color: '#262626' },
+    { label: '累计盈亏', value: Number(stats?.total_profit ?? 0), suffix: '元', color: '#52c41a' },
+    { label: '买入次数', value: stats?.buy_count ?? 0, suffix: '次', color: '#1677ff' },
   ];
 
   return (
     <div style={{ padding: '24px' }}>
-
-      {/* 返回按钮 */}
       <Button
         icon={<ArrowLeftOutlined />}
         type="text"
@@ -107,7 +148,6 @@ export default function HistoryPage() {
         返回首页
       </Button>
 
-      {/* Hero Banner */}
       <Card
         bordered={false}
         style={{
@@ -121,25 +161,24 @@ export default function HistoryPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">历史归档</Tag>
-              <Tag color="blue">盈亏追踪</Tag>
+              <Tag color="blue">真实交易接口</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>历史交易归档</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              完整的交易流水记录，自动计算每笔浮动盈亏，支持按标的、日期灵活筛选与导出。
+              交易明细与统计已接入后端 `/transactions` 与 `/transactions/stats`。
             </Paragraph>
           </div>
           <Space wrap>
             <Tag color="success" icon={<RiseOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              累计盈亏 +¥3,700
+              累计盈亏 ¥{Number(stats?.total_profit ?? 0).toLocaleString()}
             </Tag>
             <Tag color="processing" icon={<HistoryOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              近 30 日 26 笔
+              总交易 {stats?.total_transactions ?? 0} 笔
             </Tag>
           </Space>
         </div>
       </Card>
 
-      {/* 汇总统计 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {summaryStats.map(item => (
           <Col xs={12} sm={6} key={item.label}>
@@ -155,7 +194,6 @@ export default function HistoryPage() {
         ))}
       </Row>
 
-      {/* 筛选栏 */}
       <Card bordered={false} style={{ ...cardStyle, marginBottom: 16 }}>
         <Space wrap size="middle">
           <Input
@@ -163,41 +201,31 @@ export default function HistoryPage() {
             prefix={<SearchOutlined />}
             style={{ width: 260, borderRadius: 10 }}
             allowClear
+            value={search}
+            onChange={e => setSearch(e.target.value)}
           />
-          <RangePicker style={{ borderRadius: 10 }} />
           <Button type="primary" icon={<SearchOutlined />} style={{ borderRadius: 10 }}>查询</Button>
-          <Button icon={<DownloadOutlined />} style={{ borderRadius: 10 }}>导出 CSV</Button>
+          <Button icon={<DownloadOutlined />} style={{ borderRadius: 10 }} disabled>导出 CSV</Button>
         </Space>
       </Card>
 
-      {/* 交易明细表格 */}
-      <Card
-        bordered={false}
-        style={cardStyle}
-        title={<span><HistoryOutlined style={{ color: '#1677ff', marginRight: 8 }} />交易明细流水</span>}
-      >
+      <Card bordered={false} style={cardStyle} title={<span><HistoryOutlined style={{ color: '#1677ff', marginRight: 8 }} />交易明细流水</span>}>
         <Table
+          rowKey="id"
           columns={columns}
-          dataSource={mockData}
+          dataSource={filteredRecords}
           loading={loading}
           pagination={{ pageSize: 10 }}
           size="middle"
         />
       </Card>
 
-      {/* 底部说明 Alert */}
       <Card bordered={false} style={{ ...cardStyle, marginTop: 16 }}>
         <Alert
           type="info"
           showIcon
           icon={<BulbOutlined />}
-          message="AI 一句话结论：近 30 日胜率 61%，盈亏比 1.47，策略整体有效但高频换手侵蚀了部分收益。"
-          description={
-            <Space direction="vertical" size={4}>
-              <Text type="secondary">平均持仓 11 天，短线切换偏多，建议拉长持股周期。</Text>
-              <Text type="secondary">本月摩擦成本约 0.8%，可通过减少无效换手来提升净收益。</Text>
-            </Space>
-          }
+          message="当前历史页已切换为真实后端数据；导出功能因后端暂无专门接口，先保留占位。"
         />
       </Card>
     </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Card, Form, Input, Button, Typography, message, ConfigProvider, theme, Space, Tag } from 'antd';
 import { UserOutlined, LockOutlined, ArrowRightOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -9,14 +10,19 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
 
-  // 取得登录前想去的页面，默认回首页
   const from = (location.state as { from?: string })?.from ?? '/';
 
-  const onFinish = (values: { username: string; password: string }) => {
-    login(values.username);
-    message.success('验证成功，正在进入系统...');
-    navigate(from, { replace: true });
+  const onFinish = async (values: { username: string; password: string }) => {
+    setSubmitting(true);
+    try {
+      await login(values);
+      message.success('登录成功，正在进入系统...');
+      navigate(from, { replace: true });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -31,7 +37,6 @@ export default function Login() {
         position: 'relative',
         overflow: 'hidden',
       }}>
-        {/* 背景光晕 */}
         <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '55vw', height: '55vw', background: 'radial-gradient(circle, rgba(22,119,255,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '40vw', height: '40vw', background: 'radial-gradient(circle, rgba(22,119,255,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
@@ -44,7 +49,6 @@ export default function Login() {
           boxShadow: '0 32px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset',
           padding: '8px',
         }}>
-          {/* 品牌区 */}
           <div style={{ textAlign: 'center', marginBottom: 36 }}>
             <div style={{
               width: 56, height: 56, borderRadius: 16,
@@ -79,7 +83,7 @@ export default function Login() {
               />
             </Form.Item>
             <Form.Item style={{ marginBottom: 0 }}>
-              <Button type="primary" htmlType="submit" block icon={<ArrowRightOutlined />} style={{
+              <Button type="primary" htmlType="submit" block loading={submitting} icon={<ArrowRightOutlined />} style={{
                 height: 52, borderRadius: 14, fontWeight: 600, fontSize: 16,
                 background: 'linear-gradient(135deg, #1677ff 0%, #4096ff 100%)',
                 border: 'none', boxShadow: '0 8px 24px rgba(22,119,255,0.4)',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Upload, Card, Typography, Table, message, Button,
   Space, Progress, Row, Col, Tag, Alert
@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import type { RcFile } from 'antd/es/upload';
 import type { ColumnsType } from 'antd/es/table';
+import { api } from '../types';
 
 const { Dragger } = Upload;
 const { Title, Text, Paragraph } = Typography;
@@ -22,28 +23,42 @@ interface PreviewRow {
   [key: string]: string | number | boolean | undefined;
 }
 
+interface UploadHistoryItem {
+  id: number;
+  file_name: string;
+  file_size: number;
+  file_type: string;
+  upload_status: string;
+  records_imported: number;
+  uploaded_at: string;
+  processed_at: string;
+}
+
 const supportedFormats = [
-  { icon: <FileExcelOutlined style={{ color: '#52c41a', fontSize: 18 }} />, label: 'CSV 对账单',    desc: '支持 GBK / UTF-8 自动识别' },
+  { icon: <FileExcelOutlined style={{ color: '#52c41a', fontSize: 18 }} />, label: 'CSV 对账单', desc: '支持 GBK / UTF-8 自动识别' },
   { icon: <FileExcelOutlined style={{ color: '#1677ff', fontSize: 18 }} />, label: 'Excel (.xlsx)', desc: '多 Sheet 自动取第一张' },
-  { icon: <FileDoneOutlined  style={{ color: '#4096ff', fontSize: 18 }} />, label: 'Excel (.xls)',  desc: '兼容旧版格式' },
+  { icon: <FileDoneOutlined style={{ color: '#4096ff', fontSize: 18 }} />, label: 'Excel (.xls)', desc: '兼容旧版格式' },
 ];
 
 const tips = [
   '仅预览前 5 行，完整数据在提交后处理',
-  '文件不会被永久存储，仅用于 AI 分析',
+  '上传记录会进入系统导入历史，便于后续追踪',
   '敏感字段建议提前脱敏处理',
 ];
 
 export default function UploadPage() {
   const navigate = useNavigate();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dataPreview, setDataPreview] = useState<PreviewRow[]>([]);
-  const [columns, setColumns]         = useState<ColumnsType<PreviewRow>>([]);
-  const [uploading, setUploading]     = useState(false);
-  const [percent, setPercent]         = useState(0);
-  const [fileName, setFileName]       = useState('');
-  const [done, setDone]               = useState(false);
+  const [columns, setColumns] = useState<ColumnsType<PreviewRow>>([]);
+  const [uploading, setUploading] = useState(false);
+  const [percent, setPercent] = useState(0);
+  const [fileName, setFileName] = useState('');
+  const [done, setDone] = useState(false);
+  const [history, setHistory] = useState<UploadHistoryItem[]>([]);
 
   const handleFile = (file: RcFile) => {
+    setSelectedFile(file);
     setFileName(file.name);
     setDone(false);
     const reader = new FileReader();
@@ -52,14 +67,9 @@ export default function UploadPage() {
       try {
         const arrayBuffer = e.target?.result as ArrayBuffer;
         const data = new Uint8Array(arrayBuffer);
-        let workbook;
-
-        if (file.name.endsWith('.csv')) {
-          const decoder = new TextDecoder('gbk');
-          workbook = XLSX.read(decoder.decode(data), { type: 'string' });
-        } else {
-          workbook = XLSX.read(data, { type: 'array' });
-        }
+        const workbook = file.name.endsWith('.csv')
+          ? XLSX.read(new TextDecoder('gbk').decode(data), { type: 'string' })
+          : XLSX.read(data, { type: 'array' });
 
         const ws = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 });
@@ -77,8 +87,11 @@ export default function UploadPage() {
           setDataPreview(
             jsonData.slice(1, 6).map((row: unknown, rIdx) => {
               const obj: PreviewRow = { key: rIdx };
-              if (Array.isArray(row))
-                row.forEach((cell, cIdx) => { obj[`col${cIdx}`] = cell as string | number | boolean | undefined; });
+              if (Array.isArray(row)) {
+                row.forEach((cell, cIdx) => {
+                  obj[`col${cIdx}`] = cell as string | number | boolean | undefined;
+                });
+              }
               return obj;
             })
           );
@@ -93,33 +106,52 @@ export default function UploadPage() {
     return false;
   };
 
-  const startUpload = () => {
+  const loadUploadHistory = async () => {
+    const response = await api.getUploadHistory();
+    setHistory(response.data);
+  };
+
+  const startUpload = async () => {
+    if (!selectedFile) {
+      message.warning('请先选择要上传的文件');
+      return;
+    }
+
     setUploading(true);
-    let curr = 0;
-    const timer = window.setInterval(() => {
-      curr += 10;
-      setPercent(curr);
-      if (curr >= 100) {
-        window.clearInterval(timer);
-        setUploading(false);
-        setDone(true);
-        message.success({
-          content: '上传成功，AI 引擎已开始分析',
-          icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
-        });
-      }
-    }, 150);
+    setPercent(30);
+    try {
+      const response = await api.uploadFile(selectedFile);
+      setPercent(100);
+      setDone(true);
+      message.success({
+        content: response.data.message || '上传成功，AI 引擎已开始分析',
+        icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
+      });
+      await loadUploadHistory();
+    } finally {
+      setUploading(false);
+    }
   };
 
   const resetUpload = () => {
-    setDataPreview([]); setColumns([]);
-    setPercent(0); setFileName(''); setDone(false);
+    setSelectedFile(null);
+    setDataPreview([]);
+    setColumns([]);
+    setPercent(0);
+    setFileName('');
+    setDone(false);
   };
+
+  const historyColumns = useMemo<ColumnsType<UploadHistoryItem>>(() => ([
+    { title: '文件名', dataIndex: 'file_name', key: 'file_name' },
+    { title: '文件类型', dataIndex: 'file_type', key: 'file_type' },
+    { title: '导入条数', dataIndex: 'records_imported', key: 'records_imported' },
+    { title: '状态', dataIndex: 'upload_status', key: 'upload_status', render: value => <Tag>{value}</Tag> },
+    { title: '上传时间', dataIndex: 'uploaded_at', key: 'uploaded_at' },
+  ]), []);
 
   return (
     <div style={{ padding: '24px' }}>
-
-      {/* 返回按钮 */}
       <Button
         icon={<ArrowLeftOutlined />}
         type="text"
@@ -129,7 +161,6 @@ export default function UploadPage() {
         返回首页
       </Button>
 
-      {/* Hero Banner */}
       <Card
         bordered={false}
         style={{
@@ -153,7 +184,7 @@ export default function UploadPage() {
           </div>
           <Space wrap>
             <Tag color="success" icon={<SafetyCertificateOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              端到端加密
+              认证接口接入完成
             </Tag>
             <Tag color="processing" icon={<BulbOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
               AI 自动解析
@@ -163,16 +194,9 @@ export default function UploadPage() {
       </Card>
 
       <Row gutter={[16, 16]}>
-        {/* ── 左栏：格式说明 ── */}
         <Col span={24} lg={7}>
           <Space direction="vertical" style={{ width: '100%' }} size={16}>
-
-            {/* 支持格式卡 */}
-            <Card
-              bordered={false}
-              title={<span><FileExcelOutlined style={{ color: '#1677ff', marginRight: 8 }} />支持格式</span>}
-              style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}
-            >
+            <Card bordered={false} title={<span><FileExcelOutlined style={{ color: '#1677ff', marginRight: 8 }} />支持格式</span>} style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
               {supportedFormats.map(fmt => (
                 <div key={fmt.label} style={{
                   display: 'flex', alignItems: 'center', gap: 14,
@@ -188,12 +212,7 @@ export default function UploadPage() {
               ))}
             </Card>
 
-            {/* 数据说明卡 */}
-            <Card
-              bordered={false}
-              title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />数据说明</span>}
-              style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}
-            >
+            <Card bordered={false} title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />数据说明</span>} style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
               {tips.map((tip, i) => (
                 <div key={i} style={{ display: 'flex', gap: 10, marginBottom: i < tips.length - 1 ? 12 : 0 }}>
                   <div style={{
@@ -208,36 +227,12 @@ export default function UploadPage() {
                 </div>
               ))}
             </Card>
-
-            {/* 上传统计小卡 */}
-            <Row gutter={[12, 12]}>
-              {[
-                { label: '本月上传', value: '3', unit: '份', color: '#1677ff' },
-                { label: '解析成功', value: '100', unit: '%', color: '#52c41a' },
-              ].map(s => (
-                <Col span={12} key={s.label}>
-                  <Card bordered={false} style={{ borderRadius: 14, boxShadow: '0 4px 16px rgba(15,23,42,0.06)', textAlign: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{s.label}</Text>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ color: s.color, fontSize: 24, fontWeight: 700 }}>{s.value}</span>
-                      <span style={{ color: '#bfbfbf', fontSize: 13, marginLeft: 3 }}>{s.unit}</span>
-                    </div>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
           </Space>
         </Col>
 
-        {/* ── 右栏：上传区 ── */}
         <Col span={24} lg={17}>
           <Space direction="vertical" style={{ width: '100%' }} size={16}>
-
-            {/* 拖拽上传卡 */}
-            <Card
-              bordered={false}
-              style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}
-            >
+            <Card bordered={false} style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
               <Dragger
                 accept=".csv,.xlsx,.xls"
                 beforeUpload={handleFile}
@@ -257,90 +252,41 @@ export default function UploadPage() {
               </Dragger>
             </Card>
 
-            {/* 上传成功提示 */}
-            {done && (
-              <Alert
-                type="success"
-                showIcon
-                icon={<CheckCircleTwoTone twoToneColor="#52c41a" />}
-                message="数据上传成功"
-                description="AI 引擎已开始分析您的对账单，请前往「风险扫描」或「收益预演」页面查看结果。"
-                style={{ borderRadius: 12 }}
-              />
-            )}
-
-            {/* 预览表格卡 */}
-            {dataPreview.length > 0 && (
-              <Card
-                bordered={false}
-                style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.06)' }}
-                title={
+            {fileName && (
+              <Card bordered={false} style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
+                <Space direction="vertical" style={{ width: '100%' }} size={12}>
                   <Space>
                     <FileSearchOutlined style={{ color: '#1677ff' }} />
-                    <span>解析预览</span>
-                    <Tag color="processing" style={{ borderRadius: 20 }}>{fileName}</Tag>
+                    <Text strong>{fileName}</Text>
                   </Space>
-                }
-                extra={
+                  <Progress percent={percent} status={done ? 'success' : uploading ? 'active' : 'normal'} />
                   <Space>
-                    <Button
-                      onClick={resetUpload}
-                      disabled={uploading}
-                      style={{ borderRadius: 10 }}
-                    >
-                      重选文件
-                    </Button>
-                    <Button
-                      type="primary"
-                      icon={<CloudUploadOutlined />}
-                      loading={uploading}
-                      disabled={done}
-                      onClick={startUpload}
-                      style={{ borderRadius: 10 }}
-                    >
-                      确认提交
-                    </Button>
+                    <Button type="primary" icon={<CloudUploadOutlined />} loading={uploading} onClick={startUpload}>开始上传</Button>
+                    <Button onClick={resetUpload}>重新选择</Button>
+                    <Button onClick={loadUploadHistory}>刷新历史</Button>
                   </Space>
-                }
-              >
-                <Table
-                  dataSource={dataPreview}
-                  columns={columns}
-                  pagination={false}
-                  size="small"
-                  scroll={{ x: 'max-content' }}
-                  bordered
-                />
-                {uploading && (
-                  <Progress
-                    percent={percent}
-                    status="active"
-                    strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }}
-                    style={{ marginTop: 20 }}
-                  />
-                )}
+                </Space>
               </Card>
             )}
 
-            {/* 底部 AI 说明卡，和 Dashboard Alert 风格一致 */}
-            <Card
-              bordered={false}
-              style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
-            >
+            {dataPreview.length > 0 && (
+              <Card bordered={false} title="文件预览" style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
+                <Table columns={columns} dataSource={dataPreview} pagination={false} size="small" />
+              </Card>
+            )}
+
+            <Card bordered={false} title="上传历史" style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
+              <Table rowKey="id" columns={historyColumns} dataSource={history} pagination={{ pageSize: 5 }} />
+            </Card>
+
+            <Card bordered={false} style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' }}>
               <Alert
                 type="info"
                 showIcon
                 icon={<BulbOutlined />}
-                message="AI 解析说明：系统将自动识别交易日期、标的代码、成交价格与数量等核心字段。"
-                description={
-                  <Space direction="vertical" size={4}>
-                    <Text type="secondary">如字段识别有误，可在提交后的确认界面手动映射列名。</Text>
-                    <Text type="secondary">支持同时上传多日对账单，数据将自动去重合并。</Text>
-                  </Space>
-                }
+                message="文件将进入真实上传接口 /upload，并可在 /upload/history 中查看导入历史。"
               />
             </Card>
-
           </Space>
         </Col>
       </Row>

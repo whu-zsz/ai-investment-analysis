@@ -306,7 +306,7 @@ export default function Dashboard() {
                     icon={<Avatar size={18} icon={<UserOutlined />} style={{ background: 'rgba(255,255,255,0.25)', verticalAlign: 'middle' }} />}
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
-                    {userInfo?.displayName ?? '用户'}
+                    {userInfo?.username ?? '用户'}
                   </Button>
                 </Dropdown>
               ) : (
