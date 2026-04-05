@@ -59,7 +59,7 @@ export default function Login() {
               <Tag color="processing" style={{ borderRadius: 20, padding: '2px 12px' }}>AI 驱动</Tag>
               <Tag color="blue" style={{ borderRadius: 20, padding: '2px 12px' }}>实时市场洞察</Tag>
             </Space>
-            <Title level={2} style={{ color: '#fff', marginBottom: 8, marginTop: 0 }}>观势智投</Title>
+            <Title level={2} style={{ color: '#fff', marginBottom: 8, marginTop: 0 }}>AI投顾助手</Title>
             <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>请输入凭证以访问 AI 分析系统</Text>
           </div>
 
