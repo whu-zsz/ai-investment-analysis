@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 
 export interface UserInfo {
   username: string;
@@ -17,39 +17,46 @@ const DEFAULT_USER: UserInfo = {
   joinDate: '2024-01-01',
 };
 
-export function useAuth() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+const getInitialState = () => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return { isLoggedIn: false, userInfo: null, isLoading: false };
+  }
+  const saved = localStorage.getItem('userInfo');
+  return {
+    isLoggedIn: true,
+    userInfo: saved ? JSON.parse(saved) : DEFAULT_USER,
+    isLoading: false,
+  };
+};
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsLoggedIn(true);
-      const saved = localStorage.getItem('userInfo');
-      setUserInfo(saved ? JSON.parse(saved) : DEFAULT_USER);
-    }
+export function useAuth() {
+  const [{ isLoggedIn, userInfo }, setState] = useState(getInitialState);
+
+  const login = useCallback((username: string, email: string, role: string, token: string) => {
+    const info: UserInfo = {
+      username,
+      displayName: username,
+      email,
+      role,
+      joinDate: new Date().toISOString().slice(0, 10),
+    };
+    localStorage.setItem('token', token);
+    localStorage.setItem('userInfo', JSON.stringify(info));
+    setState({ isLoggedIn: true, userInfo: info, isLoading: false });
   }, []);
 
-  const login = (username: string) => {
-    const info: UserInfo = { ...DEFAULT_USER, username, displayName: username };
-    localStorage.setItem('token', 'auth_token_' + Date.now());
-    localStorage.setItem('userInfo', JSON.stringify(info));
-    setIsLoggedIn(true);
-    setUserInfo(info);
-  };
-
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
-    setIsLoggedIn(false);
-    setUserInfo(null);
-  };
+    setState({ isLoggedIn: false, userInfo: null, isLoading: false });
+  }, []);
 
-  const updateUserInfo = (info: Partial<UserInfo>) => {
+  const updateUserInfo = useCallback((info: Partial<UserInfo>) => {
     const updated = { ...(userInfo ?? DEFAULT_USER), ...info };
     localStorage.setItem('userInfo', JSON.stringify(updated));
-    setUserInfo(updated);
-  };
+    setState(prev => ({ isLoggedIn: prev.isLoggedIn, userInfo: updated, isLoading: false }));
+  }, [userInfo]);
 
-  return { isLoggedIn, userInfo, login, logout, updateUserInfo };
+  return { isLoggedIn, userInfo, login, logout, updateUserInfo, isLoading: false };
 }

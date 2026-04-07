@@ -56,5 +56,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.Portfolio{},
 		&model.AnalysisReport{},
 		&model.UploadedFile{},
+		&model.MarketSnapshot{},
 	)
 }

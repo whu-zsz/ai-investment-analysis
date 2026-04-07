@@ -1,7 +1,7 @@
 import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import { ConfigProvider } from 'antd';
-import zhCN from 'antd/locale/zh_CN'; // 使用中文包
+import zhCN from 'antd/locale/zh_CN';
 
 function App() {
   return (

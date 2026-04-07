@@ -12,10 +12,14 @@ import {
   LogoutOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useAuth } from '../hooks/useAuth';
+import { marketApi } from '../api/index';
+import type { DashboardMarketSnapshotResponse } from '../api/types';
+import { mockDashboardSnapshot } from '../mockData';
 import type { MenuProps } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
@@ -117,14 +121,6 @@ const kpiCards: KpiCard[] = [
   }
 ];
 
-const quickStats = [
-  { label: '区间涨跌幅', value: '+6.82%', color: '#52c41a' },
-  { label: '跑赢基准', value: '+1.36%', color: '#1677ff' },
-  { label: '最大回撤', value: '4.90%', color: '#fa8c16' },
-  { label: '年化波动率', value: '18.4%', color: '#722ed1' },
-  { label: '月度换手率', value: '32%', color: '#13c2c2' },
-  { label: '近30日胜率', value: '61%', color: '#eb2f96' }
-];
 
 function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EChartsOption {
   const isMini = mode === 'mini';
@@ -197,6 +193,25 @@ export default function Dashboard() {
   const isPublicHome = location.pathname === '/';
   const { isLoggedIn, userInfo, logout } = useAuth();
 
+  // 市场数据状态
+  const [marketData, setMarketData] = useState<DashboardMarketSnapshotResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // 获取市场数据
+  useEffect(() => {
+    const fetchMarketData = async () => {
+      try {
+        const res = await marketApi.getDashboardSnapshot();
+        setMarketData(res);
+      } catch {
+        setMarketData(mockDashboardSnapshot);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMarketData();
+  }, []);
+
   const guardNavigate = (path: string) => {
     if (!isLoggedIn) navigate('/login', { state: { from: path } });
     else navigate(path);
@@ -238,7 +253,7 @@ export default function Dashboard() {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: ['03-17', '03-18', '03-19', '03-20', '03-21', '03-24', '03-25'],
+      data: (marketData?.main_chart.series || []).map(point => point.label),
       axisLine: { lineStyle: { color: '#d9d9d9' } }
     },
     yAxis: {
@@ -247,11 +262,11 @@ export default function Dashboard() {
     },
     series: [
       {
-        name: '上证指数',
+        name: marketData?.main_chart.index_name || '上证指数',
         type: 'line',
         smooth: true,
         showSymbol: false,
-        data: [3058, 3072, 3064, 3096, 3108, 3116, 3128.42],
+        data: (marketData?.main_chart.series || []).map(point => parseFloat(point.value)),
         lineStyle: { width: 3, color: '#1677ff' },
         areaStyle: {
           color: {
@@ -269,6 +284,16 @@ export default function Dashboard() {
       }
     ]
   });
+
+  // 在组件内部定义quickStats，以便访问marketData
+  const quickStats = [
+    { label: '区间涨跌幅', value: marketData?.stats?.[0]?.value || '+6.82%', color: '#52c41a' },
+    { label: '跑赢基准', value: marketData?.stats?.[1]?.value || '+1.36%', color: '#1677ff' },
+    { label: '最大回撤', value: marketData?.stats?.[2]?.value || '4.90%', color: '#fa8c16' },
+    { label: '年化波动率', value: marketData?.stats?.[3]?.value || '18.4%', color: '#722ed1' },
+    { label: '月度换手率', value: marketData?.stats?.[4]?.value || '32%', color: '#13c2c2' },
+    { label: '近30日胜率', value: marketData?.stats?.[5]?.value || '61%', color: '#eb2f96' }
+  ];
 
   return (
     <div style={{ padding: isPublicHome ? '24px' : '4px' }}>
@@ -306,7 +331,7 @@ export default function Dashboard() {
                     icon={<Avatar size={18} icon={<UserOutlined />} style={{ background: 'rgba(255,255,255,0.25)', verticalAlign: 'middle' }} />}
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
-                    {userInfo?.displayName ?? '用户'}
+                    {userInfo?.username ?? '用户'}
                   </Button>
                 </Dropdown>
               ) : (

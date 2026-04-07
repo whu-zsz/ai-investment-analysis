@@ -1,0 +1,42 @@
+# 依赖目录
+node_modules/
+vendor/
+.pnpm-store/
+
+# 构建输出
+dist/
+build/
+out/
+*.min.js
+*.bundle.js
+
+# 锁文件
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 日志和临时文件
+*.log
+tmp/
+temp/
+.cache/
+
+# 测试覆盖率
+coverage/
+
+# IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 大型数据文件
+*.csv
+*.json
+data/
+fixtures/
+
+# 文档（按需）
+docs/
+README.md
+CHANGELOG.md
