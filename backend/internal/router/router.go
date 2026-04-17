@@ -87,12 +87,16 @@ func SetupRouter(
 				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
 			}
 
-			// AI分析
-			analysis := protected.Group("/analysis")
-			{
-				analysis.POST("/summary", analysisHandler.GenerateSummary)
-				analysis.GET("/reports", analysisHandler.GetReports)
-			}
+				// AI分析
+				analysis := protected.Group("/analysis")
+				{
+					analysis.POST("/tasks", analysisHandler.CreateTask)
+					analysis.GET("/tasks", analysisHandler.GetTasks)
+					analysis.GET("/tasks/:id", analysisHandler.GetTask)
+					analysis.POST("/summary", analysisHandler.GenerateSummary)
+					analysis.GET("/reports", analysisHandler.GetReports)
+					analysis.GET("/reports/:id", analysisHandler.GetReportDetail)
+				}
 		}
 	}
 

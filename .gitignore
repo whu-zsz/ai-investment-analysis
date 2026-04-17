@@ -55,6 +55,24 @@ frontend/.nyc_output/
 *.log
 frontend/tsconfig.tsbuildinfo
 
+# ====================
+# Go / 后端相关
+# ====================
+backend/bin/
+backend/pkg/
+backend/vendor/
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/coverage.*
+backend/*.test
+backend/*.out
+backend/go.work.sum
+backend/debug/
+backend/.backend.pid
+backend/docs/backend_stage_summary.md
 
 # ====================
 # 数据库 / 测试数据

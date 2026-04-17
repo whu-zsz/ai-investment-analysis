@@ -8,7 +8,10 @@ import (
 
 type AnalysisReportRepository interface {
 	Create(report *model.AnalysisReport) error
+	CreateWithItems(report *model.AnalysisReport, items []model.AnalysisReportItem) error
 	FindByID(id uint64) (*model.AnalysisReport, error)
+	FindByIDAndUserID(id, userID uint64) (*model.AnalysisReport, error)
+	FindByTaskID(taskID uint64) (*model.AnalysisReport, error)
 	FindByUserID(userID uint64, reportType string, limit int) ([]model.AnalysisReport, error)
 	FindLatestByUser(userID uint64, reportType string) (*model.AnalysisReport, error)
 	Delete(id uint64) error
@@ -26,9 +29,42 @@ func (r *analysisReportRepository) Create(report *model.AnalysisReport) error {
 	return r.db.Create(report).Error
 }
 
+func (r *analysisReportRepository) CreateWithItems(report *model.AnalysisReport, items []model.AnalysisReportItem) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(report).Error; err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		for i := range items {
+			items[i].ReportID = report.ID
+		}
+		return tx.CreateInBatches(items, 100).Error
+	})
+}
+
 func (r *analysisReportRepository) FindByID(id uint64) (*model.AnalysisReport, error) {
 	var report model.AnalysisReport
 	err := r.db.First(&report, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &report, nil
+}
+
+func (r *analysisReportRepository) FindByIDAndUserID(id, userID uint64) (*model.AnalysisReport, error) {
+	var report model.AnalysisReport
+	err := r.db.Where("id = ? AND user_id = ?", id, userID).First(&report).Error
+	if err != nil {
+		return nil, err
+	}
+	return &report, nil
+}
+
+func (r *analysisReportRepository) FindByTaskID(taskID uint64) (*model.AnalysisReport, error) {
+	var report model.AnalysisReport
+	err := r.db.Where("task_id = ?", taskID).First(&report).Error
 	if err != nil {
 		return nil, err
 	}

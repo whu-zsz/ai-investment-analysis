@@ -12,6 +12,7 @@ type MarketSnapshotRepository interface {
 	BatchCreate(snapshots []model.MarketSnapshot) error
 	FindLatestBatchNo() (string, error)
 	FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error)
+	FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error)
 	FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
 }
 
@@ -43,6 +44,15 @@ func (r *marketSnapshotRepository) FindByBatchNo(batchNo string) ([]model.Market
 	var snapshots []model.MarketSnapshot
 	err := r.db.Where("batch_no = ?", batchNo).Order("symbol ASC").Find(&snapshots).Error
 	return snapshots, err
+}
+
+func (r *marketSnapshotRepository) FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error) {
+	var snapshot model.MarketSnapshot
+	err := r.db.Where("symbol = ?", symbol).Order("snapshot_time DESC, id DESC").First(&snapshot).Error
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
 }
 
 func (r *marketSnapshotRepository) FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error) {

@@ -17,6 +17,7 @@ import (
 
 type MarketDataService interface {
 	FetchAndStoreMarketSnapshots(ctx context.Context) (string, int, error)
+	FetchAndStoreQuotesBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error)
 }
 
 type marketDataService struct {
@@ -42,13 +43,31 @@ func (s *marketDataService) FetchAndStoreMarketSnapshots(ctx context.Context) (s
 	if len(symbols) == 0 {
 		return "", 0, fmt.Errorf("market symbols are empty")
 	}
-
-	quotes, err := s.provider.GetQuotes(ctx, symbols)
+	snapshots, err := s.fetchAndStoreBySymbols(ctx, symbols)
 	if err != nil {
 		return "", 0, err
 	}
-	if len(quotes) == 0 {
+	if len(snapshots) == 0 {
 		return "", 0, fmt.Errorf("no quotes returned")
+	}
+	return snapshots[0].BatchNo, len(snapshots), nil
+}
+
+func (s *marketDataService) FetchAndStoreQuotesBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error) {
+	normalized := normalizeSymbols(symbols)
+	if len(normalized) == 0 {
+		return []model.MarketSnapshot{}, nil
+	}
+	return s.fetchAndStoreBySymbols(ctx, normalized)
+}
+
+func (s *marketDataService) fetchAndStoreBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error) {
+	quotes, err := s.provider.GetQuotes(ctx, symbols)
+	if err != nil {
+		return nil, err
+	}
+	if len(quotes) == 0 {
+		return nil, fmt.Errorf("no quotes returned")
 	}
 
 	batchNo := time.Now().Format("20060102150405") + "-" + uuid.NewString()
@@ -74,20 +93,28 @@ func (s *marketDataService) FetchAndStoreMarketSnapshots(ctx context.Context) (s
 	}
 
 	if err := s.snapshotRepo.BatchCreate(snapshots); err != nil {
-		return "", 0, err
+		return nil, err
 	}
-
-	return batchNo, len(snapshots), nil
+	return snapshots, nil
 }
 
 func (s *marketDataService) symbols() []string {
-	parts := strings.Split(s.marketConfig.Symbols, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		symbol := strings.TrimSpace(part)
-		if symbol != "" {
-			result = append(result, symbol)
+	return normalizeSymbols(strings.Split(s.marketConfig.Symbols, ","))
+}
+
+func normalizeSymbols(symbols []string) []string {
+	result := make([]string, 0, len(symbols))
+	seen := make(map[string]struct{})
+	for _, part := range symbols {
+		symbol := normalizeSymbol(part)
+		if symbol == "" {
+			continue
 		}
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		result = append(result, symbol)
 	}
 	return result
 }

@@ -54,7 +54,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.User{},
 		&model.Transaction{},
 		&model.Portfolio{},
+		&model.AnalysisTask{},
+		&model.StockAnalysisMetric{},
 		&model.AnalysisReport{},
+		&model.AnalysisReportItem{},
 		&model.UploadedFile{},
 		&model.MarketSnapshot{},
 	)
