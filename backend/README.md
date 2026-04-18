@@ -8,7 +8,7 @@
 
 ## 📋 项目简介
 
-这是一个基于AI大模型（Deepseek）的投资记录分析与预测系统后端，提供完整的投资记录管理、持仓计算、AI智能分析等功能。
+这是一个基于AI大模型（支持 DeepSeek / 豆包）的投资记录分析与预测系统后端，提供完整的投资记录管理、持仓计算、AI智能分析等功能。
 
 ## 📚 快速链接
 
@@ -23,7 +23,7 @@
 - ✅ 文件上传与解析（CSV/Excel）
 - ✅ 交易记录管理
 - ✅ 持仓自动计算
-- ✅ AI投资分析（Deepseek集成）
+- ✅ AI投资分析（支持 DeepSeek / 豆包）
 - ✅ RESTful API
 - ✅ Swagger API文档
 
@@ -36,7 +36,7 @@
 - **配置管理**: Viper
 - **日志**: Zap
 - **API文档**: Swagger
-- **AI集成**: Deepseek API
+- **AI集成**: DeepSeek / 豆包 API
 - **Excel处理**: excelize
 - **CSV处理**: gocsv
 
@@ -58,7 +58,9 @@ stock-analysis-backend/
 ├── pkg/                        # 公共包
 │   ├── logger/                 # 日志
 │   ├── response/               # 统一响应
-│   └── deepseek/               # AI客户端
+│   ├── deepseek/               # DeepSeek 客户端
+│   ├── doubao/                 # 豆包客户端
+│   └── llm/                    # LLM provider 抽象
 ├── uploads/                    # 上传文件目录
 ├── docs/                       # Swagger文档
 ├── .env                        # 环境变量
@@ -72,7 +74,7 @@ stock-analysis-backend/
 
 - Go 1.21+
 - MySQL 8.0+
-- Deepseek API Key
+- DeepSeek 或豆包 API Key
 
 ### 安装步骤
 
@@ -109,6 +111,17 @@ http://localhost:8080/swagger/index.html
 
 ## 📝 环境变量配置
 
+默认使用 `deepseek` 作为 LLM provider。若要切换到豆包，请设置：
+
+```bash
+LLM_PROVIDER=doubao
+DOUBAO_API_KEY=你的方舟 API Key
+DOUBAO_API_URL=https://ark.cn-beijing.volces.com
+DOUBAO_MODEL=你的模型 ID 或 Endpoint ID
+```
+
+> 注意：`DOUBAO_MODEL` 在不同接入方式下可能要求填写模型 ID 或 Endpoint ID，请以你的火山方舟控制台配置为准。
+
 | 变量名 | 说明 | 示例值 |
 |--------|------|--------|
 | SERVER_PORT | 服务端口 | 8080 |
@@ -119,8 +132,13 @@ http://localhost:8080/swagger/index.html
 | DB_NAME | 数据库名 | stock_analysis |
 | JWT_SECRET | JWT密钥 | your_secret_key |
 | JWT_EXPIRE_HOURS | Token有效期（小时） | 24 |
-| DEEPSEEK_API_KEY | Deepseek API密钥 | your_api_key |
-| DEEPSEEK_API_URL | Deepseek API地址 | https://api.deepseek.com |
+| LLM_PROVIDER | LLM 提供方（deepseek/doubao） | deepseek |
+| DEEPSEEK_API_KEY | DeepSeek API密钥 | your_api_key |
+| DEEPSEEK_API_URL | DeepSeek API地址 | https://api.deepseek.com |
+| DEEPSEEK_MODEL | DeepSeek 模型名 | deepseek-chat |
+| DOUBAO_API_KEY | 豆包 / 方舟 API密钥 | your_api_key |
+| DOUBAO_API_URL | 豆包 / 方舟 API地址 | https://ark.cn-beijing.volces.com |
+| DOUBAO_MODEL | 豆包模型 ID 或 Endpoint ID | ep-xxxx |
 | UPLOAD_PATH | 文件上传路径 | ./uploads |
 | MAX_UPLOAD_SIZE | 最大文件大小（字节） | 10485760 |
 

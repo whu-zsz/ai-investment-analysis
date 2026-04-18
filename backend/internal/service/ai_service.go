@@ -12,7 +12,7 @@ import (
 	responsedto "stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/repository"
-	"stock-analysis-backend/pkg/deepseek"
+	"stock-analysis-backend/pkg/llm"
 
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
@@ -27,13 +27,13 @@ const (
 	analysisStatusSuccess    = "success"
 	analysisStatusFailed     = "failed"
 
-	analysisStagePending              = "pending"
-	analysisStageCollectTransactions  = "collecting_transactions"
-	analysisStagePreparingMetrics     = "preparing_metrics"
-	analysisStageGeneratingStocks     = "generating_stock_reports"
-	analysisStageGeneratingSummary    = "generating_summary"
-	analysisStagePersisting           = "persisting_report"
-	analysisStageCompleted            = "completed"
+	analysisStagePending             = "pending"
+	analysisStageCollectTransactions = "collecting_transactions"
+	analysisStagePreparingMetrics    = "preparing_metrics"
+	analysisStageGeneratingStocks    = "generating_stock_reports"
+	analysisStageGeneratingSummary   = "generating_summary"
+	analysisStagePersisting          = "persisting_report"
+	analysisStageCompleted           = "completed"
 
 	marketDataStatusComplete    = "complete"
 	marketDataStatusFetchedLive = "fetched_live"
@@ -56,8 +56,7 @@ type aiService struct {
 	analysisReportItemRepo repository.AnalysisReportItemRepository
 	transactionRepo        repository.TransactionRepository
 	stockMetricService     StockAnalysisMetricService
-	deepseekClient         *deepseek.Client
-	deepseekModel          string
+	llmProvider            llm.Provider
 	logger                 *zap.Logger
 }
 
@@ -79,14 +78,14 @@ type stockAggregate struct {
 }
 
 type aiSummaryOutput struct {
-	ReportTitle      string   `json:"report_title"`
-	SummaryText      string   `json:"summary_text"`
-	RiskLevel        string   `json:"risk_level"`
-	InvestmentStyle  string   `json:"investment_style"`
-	RiskAnalysis     string   `json:"risk_analysis"`
-	PatternInsights  string   `json:"pattern_insights"`
-	PredictionText   string   `json:"prediction_text"`
-	Recommendations  []string `json:"recommendations"`
+	ReportTitle     string   `json:"report_title"`
+	SummaryText     string   `json:"summary_text"`
+	RiskLevel       string   `json:"risk_level"`
+	InvestmentStyle string   `json:"investment_style"`
+	RiskAnalysis    string   `json:"risk_analysis"`
+	PatternInsights string   `json:"pattern_insights"`
+	PredictionText  string   `json:"prediction_text"`
+	Recommendations []string `json:"recommendations"`
 }
 
 type aiStockOutput struct {
@@ -110,8 +109,7 @@ func NewAIService(
 	analysisReportItemRepo repository.AnalysisReportItemRepository,
 	transactionRepo repository.TransactionRepository,
 	stockMetricService StockAnalysisMetricService,
-	deepseekClient *deepseek.Client,
-	deepseekModel string,
+	llmProvider llm.Provider,
 	logger *zap.Logger,
 ) AIService {
 	return &aiService{
@@ -120,8 +118,7 @@ func NewAIService(
 		analysisReportItemRepo: analysisReportItemRepo,
 		transactionRepo:        transactionRepo,
 		stockMetricService:     stockMetricService,
-		deepseekClient:         deepseekClient,
-		deepseekModel:          deepseekModel,
+		llmProvider:            llmProvider,
 		logger:                 logger,
 	}
 }
@@ -137,7 +134,7 @@ func (s *aiService) GenerateInvestmentSummary(userID uint64, startDate, endDate 
 
 	systemPrompt := "你是一位专业的投资顾问，擅长分析投资数据并提供专业建议。"
 	userPrompt := s.buildSummaryPrompt(transactions, startDate, endDate)
-	aiContent, err := s.deepseekClient.GetContent(context.Background(), systemPrompt, userPrompt)
+	aiContent, err := s.llmProvider.GetContent(context.Background(), systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +151,7 @@ func (s *aiService) GenerateInvestmentSummary(userID uint64, startDate, endDate 
 		RiskLevel:           "medium",
 		MarketDataStatus:    marketDataStatusUnavailable,
 		SummaryText:         aiContent,
-		AIModel:             fallbackString(s.deepseekModel, "deepseek-chat"),
+		AIModel:             fallbackString(s.llmProvider.ModelName(), "unknown"),
 	}
 
 	if err := s.analysisReportRepo.Create(report); err != nil {
@@ -336,7 +333,7 @@ func (s *aiService) executeAnalysisTask(taskID, userID uint64, req *requestdto.C
 		stockOutputMap[strings.ToUpper(strings.TrimSpace(item.Symbol))] = item
 	}
 
-	report, items := buildReportModels(taskID, userID, startTime, endTime, rawOutput, output, metrics, stockOutputMap, s.deepseekModel)
+	report, items := buildReportModels(taskID, userID, startTime, endTime, rawOutput, output, metrics, stockOutputMap, s.llmProvider.ModelName())
 
 	if err := s.analysisTaskRepo.UpdateProgress(taskID, analysisStatusProcessing, analysisStagePersisting, nil, nil, nil, nil); err != nil {
 		return err
@@ -355,7 +352,7 @@ func (s *aiService) executeAnalysisTask(taskID, userID uint64, req *requestdto.C
 func (s *aiService) generateStructuredAnalysis(startTime, endTime time.Time, metrics []model.StockAnalysisMetric, transactions []model.Transaction) (*aiAnalysisOutput, string, error) {
 	systemPrompt := `你是一位专业的股票交易分析助手。你只能输出一个合法 JSON 对象，禁止输出 markdown、代码块、解释性文字。JSON 顶层必须包含 summary 和 stocks 两个字段。summary 中 risk_level 只能是 low、medium、high。stocks 中 recommendation 只能是 buy、hold、reduce、sell、observe。`
 	userPrompt := s.buildStructuredPrompt(startTime, endTime, metrics, transactions)
-	content, err := s.deepseekClient.GetContent(context.Background(), systemPrompt, userPrompt)
+	content, err := s.llmProvider.GetContent(context.Background(), systemPrompt, userPrompt)
 	if err != nil {
 		return nil, "", err
 	}
@@ -624,7 +621,7 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 		ChartData:           stringPointerIfNotEmpty(chartData),
 		Recommendations:     stringPointerIfNotEmpty(recommendationsJSON),
 		RawAIOutput:         stringPointerIfNotEmpty(raw),
-		AIModel:             fallbackString(modelName, "deepseek-chat"),
+		AIModel:             fallbackString(modelName, "unknown"),
 		TotalInvestment:     modelDecimalZero(),
 		TotalProfit:         modelDecimalZero(),
 		ProfitRate:          modelDecimalZero(),

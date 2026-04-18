@@ -59,7 +59,6 @@ frontend/tsconfig.tsbuildinfo
 # Go / 后端相关
 # ====================
 backend/bin/
-backend/pkg/
 backend/vendor/
 backend/*.exe
 backend/*.exe~

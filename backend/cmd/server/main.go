@@ -7,7 +7,7 @@ import (
 	"stock-analysis-backend/internal/repository"
 	"stock-analysis-backend/internal/router"
 	"stock-analysis-backend/internal/service"
-	"stock-analysis-backend/pkg/deepseek"
+	"stock-analysis-backend/pkg/llm"
 	"stock-analysis-backend/pkg/logger"
 	"stock-analysis-backend/pkg/marketdata"
 	"time"
@@ -61,7 +61,10 @@ func main() {
 	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
 
-	deepseekClient := deepseek.NewClient(cfg.Deepseek.APIKey, cfg.Deepseek.APIURL)
+	llmProvider, err := llm.NewProvider(cfg)
+	if err != nil {
+		log.Fatal("Failed to initialize llm provider", zap.Error(err), zap.String("provider", cfg.LLM.Provider))
+	}
 	marketProvider, err := marketdata.NewProvider(cfg.Market)
 	if err != nil {
 		log.Fatal("Failed to initialize market provider", zap.Error(err))
@@ -80,8 +83,7 @@ func main() {
 		analysisReportItemRepo,
 		transactionRepo,
 		stockMetricService,
-		deepseekClient,
-		cfg.Deepseek.Model,
+		llmProvider,
 		log,
 	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)

@@ -10,7 +10,9 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	LLM      LLMConfig
 	Deepseek DeepseekConfig
+	Doubao   DoubaoConfig
 	Market   MarketConfig
 	Upload   UploadConfig
 }
@@ -32,21 +34,31 @@ type JWTConfig struct {
 	ExpireHours int    `mapstructure:"JWT_EXPIRE_HOURS"`
 }
 
+type LLMConfig struct {
+	Provider string `mapstructure:"LLM_PROVIDER"`
+}
+
 type DeepseekConfig struct {
-	APIKey  string `mapstructure:"DEEPSEEK_API_KEY"`
-	APIURL  string `mapstructure:"DEEPSEEK_API_URL"`
-	Model   string `mapstructure:"DEEPSEEK_MODEL"`
+	APIKey string `mapstructure:"DEEPSEEK_API_KEY"`
+	APIURL string `mapstructure:"DEEPSEEK_API_URL"`
+	Model  string `mapstructure:"DEEPSEEK_MODEL"`
+}
+
+type DoubaoConfig struct {
+	APIKey string `mapstructure:"DOUBAO_API_KEY"`
+	APIURL string `mapstructure:"DOUBAO_API_URL"`
+	Model  string `mapstructure:"DOUBAO_MODEL"`
 }
 
 type MarketConfig struct {
-	Provider         string `mapstructure:"MARKET_PROVIDER"`
-	Symbols          string `mapstructure:"MARKET_SYMBOLS"`
-	SnapshotInterval int    `mapstructure:"MARKET_SNAPSHOT_INTERVAL"`
-	Enabled          bool   `mapstructure:"MARKET_ENABLED"`
-	TimeoutSeconds   int    `mapstructure:"MARKET_TIMEOUT_SECONDS"`
-	EastmoneyBaseURL string `mapstructure:"MARKET_EASTMONEY_BASE_URL"`
+	Provider           string `mapstructure:"MARKET_PROVIDER"`
+	Symbols            string `mapstructure:"MARKET_SYMBOLS"`
+	SnapshotInterval   int    `mapstructure:"MARKET_SNAPSHOT_INTERVAL"`
+	Enabled            bool   `mapstructure:"MARKET_ENABLED"`
+	TimeoutSeconds     int    `mapstructure:"MARKET_TIMEOUT_SECONDS"`
+	EastmoneyBaseURL   string `mapstructure:"MARKET_EASTMONEY_BASE_URL"`
 	EastmoneyUserAgent string `mapstructure:"MARKET_EASTMONEY_USER_AGENT"`
-	EastmoneyReferer string `mapstructure:"MARKET_EASTMONEY_REFERER"`
+	EastmoneyReferer   string `mapstructure:"MARKET_EASTMONEY_REFERER"`
 }
 
 type UploadConfig struct {
@@ -77,10 +89,18 @@ func LoadConfig() (*Config, error) {
 			Secret:      viper.GetString("JWT_SECRET"),
 			ExpireHours: viper.GetInt("JWT_EXPIRE_HOURS"),
 		},
+		LLM: LLMConfig{
+			Provider: viper.GetString("LLM_PROVIDER"),
+		},
 		Deepseek: DeepseekConfig{
 			APIKey: viper.GetString("DEEPSEEK_API_KEY"),
 			APIURL: viper.GetString("DEEPSEEK_API_URL"),
 			Model:  viper.GetString("DEEPSEEK_MODEL"),
+		},
+		Doubao: DoubaoConfig{
+			APIKey: viper.GetString("DOUBAO_API_KEY"),
+			APIURL: viper.GetString("DOUBAO_API_URL"),
+			Model:  viper.GetString("DOUBAO_MODEL"),
 		},
 		Market: MarketConfig{
 			Provider:           viper.GetString("MARKET_PROVIDER"),
@@ -105,8 +125,17 @@ func LoadConfig() (*Config, error) {
 	if cfg.JWT.ExpireHours == 0 {
 		cfg.JWT.ExpireHours = 24
 	}
+	if cfg.LLM.Provider == "" {
+		cfg.LLM.Provider = "deepseek"
+	}
 	if cfg.Deepseek.Model == "" {
 		cfg.Deepseek.Model = "deepseek-chat"
+	}
+	if cfg.Deepseek.APIURL == "" {
+		cfg.Deepseek.APIURL = "https://api.deepseek.com"
+	}
+	if cfg.Doubao.APIURL == "" {
+		cfg.Doubao.APIURL = "https://ark.cn-beijing.volces.com"
 	}
 	if cfg.Market.Provider == "" {
 		cfg.Market.Provider = "mock"
