@@ -1,9 +1,11 @@
 package handler
 
 import (
-	"stock-analysis-backend/internal/dto/request"
+	"errors"
+	dtoRequest "stock-analysis-backend/internal/dto/request"
+	dtoResponse "stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/service"
-	"stock-analysis-backend/pkg/response"
+	pkgResponse "stock-analysis-backend/pkg/response"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -26,25 +28,25 @@ func NewTransactionHandler(transactionService service.TransactionService) *Trans
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param request body request.CreateTransactionRequest true "交易记录"
+// @Param request body dtoRequest.CreateTransactionRequest true "交易记录"
 // @Success 200 {object} response.Response
 // @Failure 400 {object} response.Response
 // @Router /api/v1/transactions [post]
 func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 	userID := c.GetUint64("user_id")
 
-	var req request.CreateTransactionRequest
+	var req dtoRequest.CreateTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.ValidationError(c, err)
+		pkgResponse.ValidationError(c, err)
 		return
 	}
 
 	if err := h.transactionService.CreateTransaction(userID, &req); err != nil {
-		response.BadRequest(c, err.Error())
+		pkgResponse.BadRequest(c, err.Error())
 		return
 	}
 
-	response.Success(c, nil)
+	pkgResponse.Success(c, nil)
 }
 
 // GetTransactions godoc
@@ -55,7 +57,7 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 // @Security BearerAuth
 // @Param page query int false "页码" default(1)
 // @Param page_size query int false "每页数量" default(20)
-// @Success 200 {object} response.Response{data=response.TransactionListResponse}
+// @Success 200 {object} response.Response{data=dtoResponse.TransactionListResponse}
 // @Router /api/v1/transactions [get]
 func (h *TransactionHandler) GetTransactions(c *gin.Context) {
 	userID := c.GetUint64("user_id")
@@ -65,11 +67,85 @@ func (h *TransactionHandler) GetTransactions(c *gin.Context) {
 
 	result, err := h.transactionService.GetTransactions(userID, page, pageSize)
 	if err != nil {
-		response.InternalServerError(c, "failed to get transactions")
+		pkgResponse.InternalServerError(c, "failed to get transactions")
 		return
 	}
 
-	response.Success(c, result)
+	pkgResponse.Success(c, result)
+}
+
+// GetTransaction godoc
+// @Summary 获取交易记录详情
+// @Description 获取当前用户指定交易记录详情
+// @Tags 交易记录
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "交易记录ID"
+// @Success 200 {object} response.Response{data=dtoResponse.TransactionResponse}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/transactions/{id} [get]
+func (h *TransactionHandler) GetTransaction(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		pkgResponse.BadRequest(c, "invalid transaction id")
+		return
+	}
+
+	transaction, err := h.transactionService.GetTransactionByID(userID, id)
+	if err != nil {
+		if errors.Is(err, service.ErrTransactionNotFound) {
+			pkgResponse.NotFound(c, "transaction not found")
+			return
+		}
+		pkgResponse.InternalServerError(c, "failed to get transaction")
+		return
+	}
+
+	pkgResponse.Success(c, dtoResponse.NewTransactionResponse(transaction))
+}
+
+// UpdateTransaction godoc
+// @Summary 更新交易记录
+// @Description 以完整对象语义更新指定交易记录，并在更新后触发持仓重算
+// @Tags 交易记录
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "交易记录ID"
+// @Param request body dtoRequest.UpdateTransactionRequest true "更新交易记录"
+// @Success 200 {object} response.Response{data=dtoResponse.TransactionResponse}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/transactions/{id} [put]
+func (h *TransactionHandler) UpdateTransaction(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		pkgResponse.BadRequest(c, "invalid transaction id")
+		return
+	}
+
+	var req dtoRequest.UpdateTransactionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		pkgResponse.ValidationError(c, err)
+		return
+	}
+
+	transaction, err := h.transactionService.UpdateTransaction(userID, id, &req)
+	if err != nil {
+		if errors.Is(err, service.ErrTransactionNotFound) {
+			pkgResponse.NotFound(c, "transaction not found")
+			return
+		}
+		pkgResponse.BadRequest(c, err.Error())
+		return
+	}
+
+	pkgResponse.Success(c, dtoResponse.NewTransactionResponse(transaction))
 }
 
 // GetTransactionStats godoc
@@ -78,18 +154,18 @@ func (h *TransactionHandler) GetTransactions(c *gin.Context) {
 // @Tags 交易记录
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} response.Response{data=response.TransactionStats}
+// @Success 200 {object} response.Response{data=dtoResponse.TransactionStats}
 // @Router /api/v1/transactions/stats [get]
 func (h *TransactionHandler) GetTransactionStats(c *gin.Context) {
 	userID := c.GetUint64("user_id")
 
 	stats, err := h.transactionService.GetTransactionStats(userID)
 	if err != nil {
-		response.InternalServerError(c, "failed to get transaction stats")
+		pkgResponse.InternalServerError(c, "failed to get transaction stats")
 		return
 	}
 
-	response.Success(c, stats)
+	pkgResponse.Success(c, stats)
 }
 
 // DeleteTransaction godoc
@@ -107,14 +183,18 @@ func (h *TransactionHandler) DeleteTransaction(c *gin.Context) {
 
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid transaction id")
+		pkgResponse.BadRequest(c, "invalid transaction id")
 		return
 	}
 
 	if err := h.transactionService.DeleteTransaction(userID, id); err != nil {
-		response.NotFound(c, err.Error())
+		if errors.Is(err, service.ErrTransactionNotFound) {
+			pkgResponse.NotFound(c, "transaction not found")
+			return
+		}
+		pkgResponse.InternalServerError(c, "failed to delete transaction")
 		return
 	}
 
-	response.Success(c, nil)
+	pkgResponse.Success(c, nil)
 }

@@ -13,6 +13,7 @@ type MarketSnapshotRepository interface {
 	FindLatestBatchNo() (string, error)
 	FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error)
 	FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error)
+	FindHistory(limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
 	FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
 }
 
@@ -55,6 +56,24 @@ func (r *marketSnapshotRepository) FindLatestBySymbol(symbol string) (*model.Mar
 	return &snapshot, nil
 }
 
+func (r *marketSnapshotRepository) FindHistory(limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error) {
+	if limit <= 0 {
+		limit = 60
+	}
+
+	var snapshots []model.MarketSnapshot
+	db := r.db.Model(&model.MarketSnapshot{})
+	if startTime != nil {
+		db = db.Where("snapshot_time >= ?", *startTime)
+	}
+	if endTime != nil {
+		db = db.Where("snapshot_time <= ?", *endTime)
+	}
+
+	err := db.Order("snapshot_time DESC, id DESC").Limit(limit).Find(&snapshots).Error
+	return snapshots, err
+}
+
 func (r *marketSnapshotRepository) FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error) {
 	if limit <= 0 {
 		limit = 60
@@ -69,6 +88,6 @@ func (r *marketSnapshotRepository) FindHistoryBySymbol(symbol string, limit int,
 		db = db.Where("snapshot_time <= ?", *endTime)
 	}
 
-	err := db.Order("snapshot_time DESC").Limit(limit).Find(&snapshots).Error
+	err := db.Order("snapshot_time DESC, id DESC").Limit(limit).Find(&snapshots).Error
 	return snapshots, err
 }

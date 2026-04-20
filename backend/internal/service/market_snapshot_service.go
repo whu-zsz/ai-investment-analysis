@@ -44,7 +44,16 @@ func (s *marketSnapshotService) GetLatestSnapshots() ([]marketResponse.MarketSna
 }
 
 func (s *marketSnapshotService) GetHistory(symbol string, limit int, startTime, endTime *time.Time) ([]marketResponse.MarketSnapshotResponse, error) {
-	snapshots, err := s.snapshotRepo.FindHistoryBySymbol(symbol, limit, startTime, endTime)
+	var (
+		snapshots []model.MarketSnapshot
+		err       error
+	)
+
+	if symbol == "" {
+		snapshots, err = s.snapshotRepo.FindHistory(limit, startTime, endTime)
+	} else {
+		snapshots, err = s.snapshotRepo.FindHistoryBySymbol(symbol, limit, startTime, endTime)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -14,7 +14,7 @@ type UserService interface {
 	Register(req *request.RegisterRequest) (*model.User, error)
 	Login(req *request.LoginRequest) (*response.LoginResponse, error)
 	GetProfile(userID uint64) (*model.User, error)
-	UpdateProfile(userID uint64, req *request.UpdateProfileRequest) error
+	UpdateProfile(userID uint64, req *request.UpdateProfileRequest) (*model.User, error)
 }
 
 type userService struct {
@@ -106,10 +106,10 @@ func (s *userService) GetProfile(userID uint64) (*model.User, error) {
 	return s.userRepo.FindByID(userID)
 }
 
-func (s *userService) UpdateProfile(userID uint64, req *request.UpdateProfileRequest) error {
+func (s *userService) UpdateProfile(userID uint64, req *request.UpdateProfileRequest) (*model.User, error) {
 	user, err := s.userRepo.FindByID(userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if req.Phone != nil {
@@ -122,5 +122,9 @@ func (s *userService) UpdateProfile(userID uint64, req *request.UpdateProfileReq
 		user.InvestmentPreference = *req.InvestmentPreference
 	}
 
-	return s.userRepo.Update(user)
+	if err := s.userRepo.Update(user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }

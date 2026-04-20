@@ -1,5 +1,7 @@
 package response
 
+import "stock-analysis-backend/internal/model"
+
 type TransactionListResponse struct {
 	Transactions []TransactionResponse `json:"transactions"`
 	Total        int64                 `json:"total"`
@@ -29,4 +31,28 @@ type TransactionStats struct {
 	SellCount         int64  `json:"sell_count"`
 	TotalInvestment   string `json:"total_investment"`
 	TotalProfit       string `json:"total_profit"`
+}
+
+func NewTransactionResponse(transaction *model.Transaction) TransactionResponse {
+	var profit *string
+	if transaction.Profit != nil {
+		profitStr := transaction.Profit.String()
+		profit = &profitStr
+	}
+
+	return TransactionResponse{
+		ID:              transaction.ID,
+		TransactionDate: transaction.TransactionDate.Format("2006-01-02"),
+		TransactionType: transaction.TransactionType,
+		AssetType:       transaction.AssetType,
+		AssetCode:       transaction.AssetCode,
+		AssetName:       transaction.AssetName,
+		Quantity:        transaction.Quantity.String(),
+		PricePerUnit:    transaction.PricePerUnit.String(),
+		TotalAmount:     transaction.TotalAmount.String(),
+		Commission:      transaction.Commission.String(),
+		Profit:          profit,
+		Notes:           transaction.Notes,
+		CreatedAt:       transaction.CreatedAt.Format("2006-01-02 15:04:05"),
+	}
 }

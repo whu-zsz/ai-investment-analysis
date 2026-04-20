@@ -15,8 +15,8 @@ type PortfolioService interface {
 }
 
 type portfolioService struct {
-	portfolioRepo    repository.PortfolioRepository
-	transactionRepo  repository.TransactionRepository
+	portfolioRepo   repository.PortfolioRepository
+	transactionRepo repository.TransactionRepository
 }
 
 func NewPortfolioService(portfolioRepo repository.PortfolioRepository, transactionRepo repository.TransactionRepository) PortfolioService {
@@ -97,7 +97,12 @@ func (s *portfolioService) RecalculatePortfolio(userID uint64, assetCode string)
 		return err
 	}
 
+	// 获取当前持仓（如果存在）
+	portfolio, _ := s.portfolioRepo.FindByUserAndAsset(userID, assetCode)
 	if len(transactions) == 0 {
+		if portfolio != nil {
+			return s.portfolioRepo.Delete(portfolio.ID)
+		}
 		return nil
 	}
 
@@ -107,9 +112,6 @@ func (s *portfolioService) RecalculatePortfolio(userID uint64, assetCode string)
 	var availableQuantity decimal.Decimal
 	assetName := transactions[0].AssetName
 	assetType := transactions[0].AssetType
-
-	// 获取当前持仓（如果存在）
-	portfolio, _ := s.portfolioRepo.FindByUserAndAsset(userID, assetCode)
 	var avgCost decimal.Decimal
 	if portfolio != nil {
 		avgCost = portfolio.AverageCost
@@ -156,6 +158,8 @@ func (s *portfolioService) RecalculatePortfolio(userID uint64, assetCode string)
 	}
 
 	// 更新持仓
+	portfolio.AssetName = assetName
+	portfolio.AssetType = assetType
 	portfolio.TotalQuantity = totalQuantity
 	portfolio.AvailableQuantity = availableQuantity
 	portfolio.AverageCost = averageCost

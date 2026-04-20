@@ -28,10 +28,6 @@ func (h *MarketHandler) GetLatestSnapshots(c *gin.Context) {
 
 func (h *MarketHandler) GetSnapshotHistory(c *gin.Context) {
 	symbol := c.Query("symbol")
-	if symbol == "" {
-		response.BadRequest(c, "symbol is required")
-		return
-	}
 
 	limit := 60
 	if value := c.Query("limit"); value != "" {

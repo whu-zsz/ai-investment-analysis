@@ -52,6 +52,12 @@ func SetupRouter(
 				user.PUT("/profile", userHandler.UpdateProfile)
 			}
 
+			// 认证相关
+			authProtected := protected.Group("/auth")
+			{
+				authProtected.POST("/logout", userHandler.Logout)
+			}
+
 			// 文件上传
 			upload := protected.Group("/upload")
 			{
@@ -65,6 +71,8 @@ func SetupRouter(
 				transactions.POST("", transactionHandler.CreateTransaction)
 				transactions.GET("", transactionHandler.GetTransactions)
 				transactions.GET("/stats", transactionHandler.GetTransactionStats)
+				transactions.GET("/:id", transactionHandler.GetTransaction)
+				transactions.PUT("/:id", transactionHandler.UpdateTransaction)
 				transactions.DELETE("/:id", transactionHandler.DeleteTransaction)
 			}
 
@@ -87,16 +95,16 @@ func SetupRouter(
 				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
 			}
 
-				// AI分析
-				analysis := protected.Group("/analysis")
-				{
-					analysis.POST("/tasks", analysisHandler.CreateTask)
-					analysis.GET("/tasks", analysisHandler.GetTasks)
-					analysis.GET("/tasks/:id", analysisHandler.GetTask)
-					analysis.POST("/summary", analysisHandler.GenerateSummary)
-					analysis.GET("/reports", analysisHandler.GetReports)
-					analysis.GET("/reports/:id", analysisHandler.GetReportDetail)
-				}
+			// AI分析
+			analysis := protected.Group("/analysis")
+			{
+				analysis.POST("/tasks", analysisHandler.CreateTask)
+				analysis.GET("/tasks", analysisHandler.GetTasks)
+				analysis.GET("/tasks/:id", analysisHandler.GetTask)
+				analysis.POST("/summary", analysisHandler.GenerateSummary)
+				analysis.GET("/reports", analysisHandler.GetReports)
+				analysis.GET("/reports/:id", analysisHandler.GetReportDetail)
+			}
 		}
 	}
 

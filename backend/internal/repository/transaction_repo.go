@@ -15,6 +15,7 @@ type TransactionRepository interface {
 	FindByUserID(userID uint64, limit, offset int) ([]model.Transaction, int64, error)
 	FindByAssetCode(userID uint64, assetCode string) ([]model.Transaction, error)
 	FindByDateRange(userID uint64, startDate, endDate string) ([]model.Transaction, error)
+	Update(transaction *model.Transaction) error
 	Delete(id uint64) error
 	GetTransactionStats(userID uint64) (*response.TransactionStats, error)
 }
@@ -73,6 +74,10 @@ func (r *transactionRepository) FindByDateRange(userID uint64, startDate, endDat
 		Order("transaction_date DESC").
 		Find(&transactions).Error
 	return transactions, err
+}
+
+func (r *transactionRepository) Update(transaction *model.Transaction) error {
+	return r.db.Save(transaction).Error
 }
 
 func (r *transactionRepository) Delete(id uint64) error {
