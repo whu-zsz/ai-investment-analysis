@@ -1,7 +1,7 @@
 # 后端单元测试报告
 
 > **项目**: AI 投资分析系统后端
-> **执行日期**: 2026-04-20
+> **执行日期**: 2026-04-21
 > **执行人**: Claude AI
 > **Go 版本**: 1.26.1
 > **测试状态**: ✅ **全部通过**
@@ -21,11 +21,14 @@
 | handler/portfolio | `internal/handler/portfolio_test.go` | 5 | 5 | 0 | 49.6% |
 | service/user | `internal/service/user_service_test.go` | 11 | 11 | 0 | 14.2% |
 | service/transaction | `internal/service/transaction_service_test.go` | 18 | 18 | 0 | 14.2% |
-| **总计** | **9 个文件** | **87** | **87** | **0** | **24.1%** |
+| service/ai | `internal/service/ai_service_test.go` | 19 | 19 | 0 | 38.7% |
+| repository/user | `internal/repository/user_repo_test.go` | 9 | 9 | 0 | - |
+| repository/transaction | `internal/repository/transaction_repo_test.go` | 11 | 11 | 0 | - |
+| **总计** | **12 个文件** | **126** | **126** | **0** | **38.7%** |
 
 ### 测试状态
 
-✅ **全部通过** - 87 个测试用例，0 个失败
+✅ **全部通过** - 126 个测试用例，0 个失败
 
 ---
 
@@ -182,6 +185,61 @@
 
 **覆盖率**: 14.2%
 
+### 2.10 service/ai_service_test.go (AI 服务测试) ⭐ 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestAIService_GetReports | 获取报告列表成功 | ✅ PASS |
+| TestAIService_GetReports_Empty | 空报告列表 | ✅ PASS |
+| TestAIService_GetReports_DefaultLimit | 默认限制值 | ✅ PASS |
+| TestAIService_GetAnalysisTasks | 获取分析任务列表 | ✅ PASS |
+| TestAIService_GetAnalysisTasks_DefaultPagination | 默认分页 | ✅ PASS |
+| TestAIService_GetAnalysisTask | 获取单个分析任务 | ✅ PASS |
+| TestAIService_GetAnalysisTask_NotFound | 任务不存在 | ✅ PASS |
+| TestAIService_GetAnalysisTask_WrongUser | 获取其他用户任务 | ✅ PASS |
+| TestAIService_CreateStockAnalysisTask_InvalidDate | 无效开始日期 | ✅ PASS |
+| TestAIService_CreateStockAnalysisTask_InvalidEndDate | 无效结束日期 | ✅ PASS |
+| TestAIService_CreateStockAnalysisTask_EndBeforeStart | 结束日期早于开始日期 | ✅ PASS |
+| TestAIService_CreateStockAnalysisTask_AlreadyRunning | 任务已在运行 | ✅ PASS |
+| TestAIService_GetAnalysisReportDetail | 获取报告详情 | ✅ PASS |
+| TestAIService_GetAnalysisReportDetail_NotFound | 报告不存在 | ✅ PASS |
+| TestAIService_GetAnalysisReportDetail_WrongUser | 获取其他用户报告 | ✅ PASS |
+| TestAIService_GenerateInvestmentSummary_NoTransactions | 无交易记录 | ✅ PASS |
+| TestAIService_GenerateInvestmentSummary_Success | 生成投资总结成功 | ✅ PASS |
+| TestAIService_GenerateInvestmentSummary_RepositoryError | 仓储层错误 | ✅ PASS |
+| TestAIService_CreateStockAnalysisTask_Success | 创建分析任务成功 | ✅ PASS |
+
+**覆盖率**: 38.7%
+
+### 2.11 repository/user_repo_test.go (用户仓储测试) ⭐ 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestUserRepository_Create | 创建用户成功 | ✅ PASS |
+| TestUserRepository_FindByUsername | 通过用户名查找 | ✅ PASS |
+| TestUserRepository_FindByEmail | 通过邮箱查找 | ✅ PASS |
+| TestUserRepository_Update | 更新用户 | ✅ PASS |
+| TestUserRepository_Delete | 删除用户 | ✅ PASS |
+| TestUserRepository_UpdateTotalProfit | 更新总盈亏 | ✅ PASS |
+| TestUserRepository_FindByID_NotFound | 查找不存在用户 | ✅ PASS |
+| TestUserRepository_MultipleUsers | 多用户场景 | ✅ PASS |
+| TestUserRepository_Interface | 接口实现验证 | ✅ PASS |
+
+### 2.12 repository/transaction_repo_test.go (交易仓储测试) ⭐ 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestTransactionRepository_Create | 创建交易成功 | ✅ PASS |
+| TestTransactionRepository_BatchCreate | 批量创建交易 | ✅ PASS |
+| TestTransactionRepository_FindByID | 通过ID查找交易 | ✅ PASS |
+| TestTransactionRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
+| TestTransactionRepository_FindByUserID_Pagination | 分页测试 | ✅ PASS |
+| TestTransactionRepository_FindByAssetCode | 通过资产代码查找 | ✅ PASS |
+| TestTransactionRepository_Update | 更新交易 | ✅ PASS |
+| TestTransactionRepository_Delete | 删除交易 | ✅ PASS |
+| TestTransactionRepository_GetTransactionStats | 获取交易统计 | ✅ PASS |
+| TestTransactionRepository_Interface | 接口实现验证 | ✅ PASS |
+
 ---
 
 ## 3. 覆盖率详情
@@ -219,8 +277,6 @@
 
 以下模块尚未编写测试：
 
-- `internal/repository/` - 数据访问层
-- `internal/service/ai_service.go` - AI 分析服务
 - `internal/service/upload_service.go` - 上传服务
 - `internal/service/market_*.go` - 市场数据服务
 - `internal/handler/analysis.go` - AI 分析处理器
@@ -396,20 +452,21 @@ backend/
 
 1. ✅ **Service 层测试** - `user_service_test.go`, `transaction_service_test.go`
 2. ✅ **Transaction Handler 测试** - `transaction_test.go`
-3. **Repository 层测试** - 需要集成测试数据库或使用 mock
+3. ✅ **Repository 层测试** - `user_repo_test.go`, `transaction_repo_test.go`
 
 ### 6.2 优先级中 ✅ 已完成
 
 4. ✅ **Transaction Service 测试** - `transaction_service_test.go`
 5. ✅ **Upload Handler 测试** - `upload_test.go`
 6. ✅ **Portfolio Handler 测试** - `portfolio_test.go`
-7. **Market Handler 测试** - 测试市场数据获取
+7. ✅ **AI Service 测试** - `ai_service_test.go`
+8. **Market Handler 测试** - 测试市场数据获取
 
 ### 6.3 优先级低
 
-8. **AI Analysis Handler 测试** - 需要 mock LLM API
-9. **集成测试** - 使用真实数据库进行端到端测试
-10. **性能测试** - API 并发压力测试
+9. **AI Analysis Handler 测试** - 需要 mock LLM API
+10. **集成测试** - 使用真实数据库进行端到端测试
+11. **性能测试** - API 并发压力测试
 
 ---
 
@@ -425,4 +482,4 @@ backend/
 
 ---
 
-**报告生成时间**: 2026-04-20 22:10
+**报告生成时间**: 2026-04-21 10:30

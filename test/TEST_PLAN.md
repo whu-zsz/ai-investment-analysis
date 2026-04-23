@@ -3,11 +3,67 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-04-20
+> **更新日期**: 2026-04-21
 
 ---
 
 ## 0. 测试代码更新日志
+
+### 2026-04-21 更新记录
+
+#### 第四批测试代码 (Repository + AI Service) - 10:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:00 | `internal/repository/user_repo_test.go` | 用户仓储测试 | 9 | ✅ 通过 |
+| 10:00 | `internal/repository/transaction_repo_test.go` | 交易仓储测试 | 11 | ✅ 通过 |
+| 10:30 | `internal/service/ai_service_test.go` | AI 服务测试 | 19 | ✅ 通过 |
+
+**测试内容：**
+- UserRepository: 创建/查找/更新/删除/用户名邮箱索引
+- TransactionRepository: CRUD/批量创建/分页/资产代码查询/统计
+- AIService: 报告列表/任务管理/投资总结生成/日期验证
+
+#### 测试覆盖进度
+
+```
+第四批: repository/user + repository/transaction + service/ai (39 用例)
+├── user_repo_test.go           (内存 Mock, 9 用例)
+├── transaction_repo_test.go    (内存 Mock, 11 用例)
+└── ai_service_test.go          █████░░░░░  38.7%
+
+总计: 12 个测试文件, 126 个用例, 100% 通过率, 38.7% service 覆盖率
+```
+
+#### Mock 实现说明
+
+**InMemoryUserRepository** (`user_repo_test.go`)
+```go
+type InMemoryUserRepository struct {
+    users    map[uint64]*model.User
+    nextID   uint64
+    username map[string]*model.User  // 用户名索引
+    email    map[string]*model.User  // 邮箱索引
+}
+```
+
+**InMemoryTransactionRepository** (`transaction_repo_test.go`)
+```go
+type InMemoryTransactionRepository struct {
+    transactions map[uint64]*model.Transaction
+    nextID       uint64
+}
+```
+
+**MockLLMProvider** (`ai_service_test.go`)
+```go
+type MockLLMProvider struct {
+    Content   string
+    modelName string
+    Err       error
+}
+// 实现: GetContent, ModelName
+```
 
 ### 2026-04-20 更新记录
 
