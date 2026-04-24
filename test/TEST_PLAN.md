@@ -11,6 +11,115 @@
 
 ### 2026-04-24 更新记录 (续)
 
+#### 第八批测试代码 (Service + Repository 完整覆盖) - 21:10
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 20:00 | `internal/repository/market_snapshot_repo_test.go` | 市场快照仓储测试 | 10 | ✅ 通过 |
+| 20:15 | `internal/repository/analysis_report_item_repo_test.go` | 报告项仓储测试 | 5 | ✅ 通过 |
+| 20:30 | `internal/repository/stock_analysis_metric_repo_test.go` | 股票指标仓储测试 | 10 | ✅ 通过 |
+| 20:45 | `internal/service/market_snapshot_service_test.go` | 市场快照服务测试 | 8 | ✅ 通过 |
+| 21:00 | `internal/service/decimal_helpers_test.go` | 小数辅助函数测试 | 5 | ✅ 通过 |
+| 21:15 | `internal/service/market_data_service_test.go` | 市场数据服务测试 | 10 | ✅ 通过 |
+| 21:20 | `internal/service/market_scheduler_test.go` | 市场调度器测试 | 7 | ✅ 通过 |
+| 21:30 | `internal/service/stock_analysis_metric_service_test.go` | 股票指标服务测试 | 10 | ✅ 通过 |
+
+**测试内容：**
+- MarketSnapshotRepository: 批量创建/批次号查询/按代码查找/历史查询
+- AnalysisReportItemRepository: 批量创建/按报告ID查找
+- StockAnalysisMetricRepository: Upsert/批量创建/按用户周期查找
+- MarketSnapshotService: 最新快照/历史查询/仪表盘数据/统计计算
+- decimal_helpers: 零值获取/整数转换/算术运算/比较操作
+- MarketDataService: 行情获取/股票代码标准化/批次号生成
+- MarketScheduler: 调度器创建/启动/停止/错误处理
+- StockAnalysisMetricService: 交易聚合/市场历史应用/指标准备/缓存
+
+#### 测试覆盖进度
+
+```
+第八批: repository + service 完整覆盖 (65 用例)
+├── market_snapshot_repo_test.go           ████████░░  31.9%
+├── analysis_report_item_repo_test.go      ████████░░  31.9%
+├── stock_analysis_metric_repo_test.go     ████████░░  31.9%
+├── market_snapshot_service_test.go        ███████░░░  76.4%
+├── decimal_helpers_test.go                ███████░░░  76.4%
+├── market_data_service_test.go            ███████░░░  76.4%
+├── market_scheduler_test.go               ███████░░░  76.4%
+└── stock_analysis_metric_service_test.go  ███████░░░  76.4%
+
+Service 覆盖率:   52.7% → 76.4% (提升 23.7%)
+Repository 覆盖率: 31.9% (保持)
+总计: 29 个测试文件, 314 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**InMemoryMarketSnapshotRepository** (`market_snapshot_repo_test.go`)
+```go
+type InMemoryMarketSnapshotRepository struct {
+    snapshots map[uint64]*model.MarketSnapshot
+    nextID    uint64
+}
+// 实现: BatchCreate, FindLatestBatchNo, FindByBatchNo, FindLatestBySymbol, FindHistory, FindHistoryBySymbol
+```
+
+**InMemoryAnalysisReportItemRepository** (`analysis_report_item_repo_test.go`)
+```go
+type InMemoryAnalysisReportItemRepository struct {
+    items  map[uint64]*model.AnalysisReportItem
+    nextID uint64
+}
+// 实现: BatchCreate, FindByReportID
+```
+
+**InMemoryStockAnalysisMetricRepository** (`stock_analysis_metric_repo_test.go`)
+```go
+type InMemoryStockAnalysisMetricRepository struct {
+    metrics map[uint64]*model.StockAnalysisMetric
+    nextID  uint64
+}
+// 实现: Upsert, BatchUpsert, FindByUserPeriod, FindByUserSymbolPeriod
+```
+
+**MockMarketSnapshotRepositoryForService** (`market_snapshot_service_test.go`)
+```go
+type MockMarketSnapshotRepositoryForService struct {
+    Snapshots   []model.MarketSnapshot
+    LatestBatch string
+    Err         error
+}
+// 实现: BatchCreate, FindLatestBatchNo, FindByBatchNo, FindLatestBySymbol, FindHistory, FindHistoryBySymbol
+```
+
+**MockMarketDataProvider** (`market_data_service_test.go`)
+```go
+type MockMarketDataProvider struct {
+    Quotes []marketdata.Quote
+    Err    error
+}
+// 实现: GetQuotes
+```
+
+**MockSchedulerMarketDataService** (`market_scheduler_test.go`)
+```go
+type MockSchedulerMarketDataService struct {
+    BatchNo string
+    Count   int
+    Err     error
+    Called  bool
+}
+// 实现: FetchAndStoreMarketSnapshots, FetchAndStoreQuotesBySymbols
+```
+
+**MockMetricRepository** (`stock_analysis_metric_service_test.go`)
+```go
+type MockMetricRepository struct {
+    Metrics []model.StockAnalysisMetric
+    Err     error
+}
+// 实现: Upsert, BatchUpsert, FindByUserPeriod, FindByUserSymbolPeriod
+```
+
 #### 第七批测试代码 (Repository + Service) - 17:30
 
 | 时间 | 文件 | 描述 | 用例数 | 状态 |
@@ -41,6 +150,19 @@
 Repository 覆盖率: 0% → 31.9% (新增)
 Service 覆盖率:   48.7% → 52.7% (提升 4%)
 总计: 21 个测试文件, 249 个用例, 100% 通过率
+```
+
+#### 当前测试总览
+
+```
+测试文件统计 (截至 2026-04-24 21:10):
+├── Handler 层:    6 个文件, 70 个用例, 86.9% 覆盖率
+├── Service 层:   11 个文件, 126 个用例, 76.4% 覆盖率
+├── Repository 层: 9 个文件, 96 个用例, 31.9% 覆盖率
+├── Middleware:    1 个文件, 6 个用例, 69.0% 覆盖率
+└── Utils 层:      1 个文件, 18 个用例, 92.9% 覆盖率
+
+总计: 29 个测试文件, 314 个测试用例, 100% 通过率
 ```
 
 #### Mock 实现说明
@@ -888,7 +1010,89 @@ MAX_UPLOAD_SIZE=10485760
 
 ## 10. 测试执行指南
 
-### 10.1 启动后端服务
+### 10.1 运行单元测试脚本 (推荐)
+
+项目提供了自动化测试执行脚本，可以一键运行所有单元测试：
+
+```bash
+# 方式一：进入 test 目录执行
+cd test
+./run_tests.sh
+
+# 方式二：从项目根目录执行
+./test/run_tests.sh
+
+# 方式三：使用绝对路径执行
+/Users/lnm/Downloads/stock_whu/ai-investment-analysis/test/run_tests.sh
+```
+
+**脚本功能：**
+- 分模块执行测试（Utils → Middleware → Repository → Service → Handler）
+- 实时显示测试进度和状态（✓ 通过 / ✗ 失败）
+- 统计每个模块的测试耗时
+- 自动生成测试覆盖率报告
+- 汇总最终测试结果（总用例数、通过数、失败数、通过率）
+
+**输出示例：**
+```
+╔══════════════════════════════════════════════════════════════╗
+║           AI 投资分析系统 - 单元测试执行器                    ║
+╚══════════════════════════════════════════════════════════════╝
+
+▶ 开始测试模块: internal/utils
+  ✓ [1/1] TestHashPassword_Success
+  ✓ [2/2] TestHashPassword_DifferentPasswords
+  ...
+  ✓ 模块测试通过: internal/utils
+    通过: 22 | 失败: 0 | 耗时: 3.00s
+
+...
+
+╔══════════════════════════════════════════════════════════════╗
+║                      测试执行完成                             ║
+╚══════════════════════════════════════════════════════════════╝
+
+  总测试用例:      314
+  通过用例:        314
+  失败用例:        0
+  通过率:          100.0%
+
+  ████████████████████████████████████████████████████████████
+  █          🎉 所有测试通过！测试套件执行成功！ 🎉          █
+  ████████████████████████████████████████████████████████████
+```
+
+### 10.2 手动运行单元测试
+
+```bash
+# 进入后端目录
+cd backend
+
+# 运行所有单元测试
+go test ./internal/... -v
+
+# 查看覆盖率
+go test ./internal/... -cover
+
+# 生成覆盖率报告
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
+```
+
+### 10.3 运行特定模块测试
+
+```bash
+# Repository 测试
+go test ./internal/repository/... -v
+
+# Service 测试
+go test ./internal/service/... -v
+
+# Handler 测试
+go test ./internal/handler/... -v
+```
+
+### 10.4 启动后端服务
 
 ```bash
 cd backend
@@ -904,14 +1108,14 @@ go build -o bin/server cmd/server/main.go
 ./bin/server
 ```
 
-### 10.2 运行 API 测试脚本
+### 10.5 运行 API 测试脚本
 
 ```bash
 # 确保服务已启动 (端口 8080)
 bash backend/scripts/test_api.sh
 ```
 
-### 10.3 使用 curl 手动测试
+### 10.6 使用 curl 手动测试
 
 ```bash
 # 健康检查
@@ -950,7 +1154,7 @@ curl -X POST "http://localhost:8080/api/v1/analysis/summary?start_date=2024-01-0
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### 10.4 访问 Swagger 文档
+### 10.7 访问 Swagger 文档
 
 服务启动后访问: http://localhost:8080/swagger/index.html
 
