@@ -3,7 +3,192 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-04-20
+> **更新日期**: 2026-04-21
+
+---
+
+## 0. 测试代码更新日志
+
+### 2026-04-21 更新记录
+
+#### 第四批测试代码 (Repository + AI Service) - 10:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:00 | `internal/repository/user_repo_test.go` | 用户仓储测试 | 9 | ✅ 通过 |
+| 10:00 | `internal/repository/transaction_repo_test.go` | 交易仓储测试 | 11 | ✅ 通过 |
+| 10:30 | `internal/service/ai_service_test.go` | AI 服务测试 | 19 | ✅ 通过 |
+
+**测试内容：**
+- UserRepository: 创建/查找/更新/删除/用户名邮箱索引
+- TransactionRepository: CRUD/批量创建/分页/资产代码查询/统计
+- AIService: 报告列表/任务管理/投资总结生成/日期验证
+
+#### 测试覆盖进度
+
+```
+第四批: repository/user + repository/transaction + service/ai (39 用例)
+├── user_repo_test.go           (内存 Mock, 9 用例)
+├── transaction_repo_test.go    (内存 Mock, 11 用例)
+└── ai_service_test.go          █████░░░░░  38.7%
+
+总计: 12 个测试文件, 126 个用例, 100% 通过率, 38.7% service 覆盖率
+```
+
+#### Mock 实现说明
+
+**InMemoryUserRepository** (`user_repo_test.go`)
+```go
+type InMemoryUserRepository struct {
+    users    map[uint64]*model.User
+    nextID   uint64
+    username map[string]*model.User  // 用户名索引
+    email    map[string]*model.User  // 邮箱索引
+}
+```
+
+**InMemoryTransactionRepository** (`transaction_repo_test.go`)
+```go
+type InMemoryTransactionRepository struct {
+    transactions map[uint64]*model.Transaction
+    nextID       uint64
+}
+```
+
+**MockLLMProvider** (`ai_service_test.go`)
+```go
+type MockLLMProvider struct {
+    Content   string
+    modelName string
+    Err       error
+}
+// 实现: GetContent, ModelName
+```
+
+### 2026-04-20 更新记录
+
+#### 第一批测试代码 (基础测试) - 20:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 20:30 | `internal/utils/crypto_test.go` | 密码工具测试 | 8 | ✅ 通过 |
+| 20:30 | `internal/utils/jwt_test.go` | JWT 工具测试 | 10 | ✅ 通过 |
+| 20:30 | `internal/middleware/auth_test.go` | 认证中间件测试 | 6 | ✅ 通过 |
+| 20:30 | `internal/handler/user_test.go` | 用户处理器测试 | 8 | ✅ 通过 |
+
+**测试内容：**
+- 密码哈希生成与验证
+- JWT Token 生成与解析
+- 认证中间件 Header 验证
+- 用户注册/登录/资料 CRUD
+
+#### 第二批测试代码 (优先级高) - 21:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 21:30 | `internal/service/user_service_test.go` | 用户服务层测试 | 11 | ✅ 通过 |
+| 21:30 | `internal/handler/transaction_test.go` | 交易处理器测试 | 13 | ✅ 通过 |
+
+**测试内容：**
+- UserService: 注册/登录/资料管理/账户状态
+- TransactionHandler: 交易 CRUD/统计/分页
+
+#### 第三批测试代码 (优先级中) - 22:00
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 22:00 | `internal/service/transaction_service_test.go` | 交易服务层测试 | 18 | ✅ 通过 |
+| 22:00 | `internal/handler/upload_test.go` | 上传处理器测试 | 8 | ✅ 通过 |
+| 22:00 | `internal/handler/portfolio_test.go` | 持仓处理器测试 | 5 | ✅ 通过 |
+
+**测试内容：**
+- TransactionService: 创建/查询/更新/删除/统计/分页/验证
+- UploadHandler: 文件上传/类型验证/历史查询
+- PortfolioHandler: 持仓列表/盈亏计算
+
+#### 测试覆盖进度
+
+```
+第一批: utils + middleware + handler/user (32 用例)
+├── crypto_test.go     ████████████ 100%
+├── jwt_test.go        ███████████░  92.9%
+├── auth_test.go       ███████░░░░░  69.0%
+└── user_test.go       ███░░░░░░░░░  32.9%
+
+第二批: service/user + handler/transaction (24 用例)
+├── user_service_test.go   █░░░░░░░░░░   3.8%
+└── transaction_test.go    ███░░░░░░░░  32.9%
+
+第三批: service/transaction + handler/upload + handler/portfolio (31 用例)
+├── transaction_service_test.go  ██░░░░░░░░░  14.2%
+├── upload_test.go               █████░░░░░  49.6%
+└── portfolio_test.go            █████░░░░░  49.6%
+
+总计: 9 个测试文件, 87 个用例, 100% 通过率, 24.1% 总覆盖率
+```
+
+#### Mock 实现说明
+
+**MockUserRepository** (`user_service_test.go`)
+```go
+type MockUserRepository struct {
+    users         map[uint64]*model.User
+    nextID        uint64
+    errOnCreate   error
+    errOnFindByID error
+}
+// 实现: Create, FindByID, FindByUsername, FindByEmail, Update, Delete, UpdateLastLogin, UpdateTotalProfit, SetUserActive
+```
+
+**MockUserService** (`user_test.go`)
+```go
+type MockUserService struct {
+    RegisterFunc      func(*request.RegisterRequest) (*model.User, error)
+    LoginFunc         func(*request.LoginRequest) (*response.LoginResponse, error)
+    GetProfileFunc    func(uint64) (*model.User, error)
+    UpdateProfileFunc func(uint64, *request.UpdateProfileRequest) (*model.User, error)
+}
+```
+
+**MockTransactionService** (`transaction_test.go`)
+```go
+type MockTransactionService struct {
+    CreateTransactionFunc  func(userID uint64, req *request.CreateTransactionRequest) error
+    GetTransactionsFunc    func(userID uint64, page, pageSize int) (*response.TransactionListResponse, error)
+    GetTransactionByIDFunc func(userID uint64, id uint64) (*model.Transaction, error)
+    UpdateTransactionFunc  func(userID uint64, id uint64, req *request.UpdateTransactionRequest) (*model.Transaction, error)
+    DeleteTransactionFunc  func(userID uint64, id uint64) error
+    GetTransactionStatsFunc func(userID uint64) (*response.TransactionStats, error)
+}
+```
+
+**MockTransactionRepository** (`transaction_service_test.go`)
+```go
+type MockTransactionRepository struct {
+    transactions    map[uint64]*model.Transaction
+    nextID          uint64
+    errOnCreate     error
+    errOnFindByID   error
+    statsResult     *dtoResponse.TransactionStats
+}
+// 实现: Create, BatchCreate, FindByID, FindByUserID, FindByAssetCode, FindByDateRange, Update, Delete, GetTransactionStats
+```
+
+**MockPortfolioService** (`transaction_service_test.go`, `portfolio_test.go`)
+```go
+type MockPortfolioService struct {
+    errOnUpdate bool
+}
+// 实现: UpdatePortfolioFromTransaction, RecalculatePortfolio, GetPortfolios
+```
+
+**MockUploadService** (`upload_test.go`)
+```go
+type MockUploadService struct {
+    ProcessUploadedFileFunc func(userID uint64, filePath, originalName string, fileSize int64, fileType string) (*response.UploadResponse, error)
+    GetUploadHistoryFunc    func(userID uint64) ([]response.UploadHistoryResponse, error)
+}
+```
 
 ---
 
