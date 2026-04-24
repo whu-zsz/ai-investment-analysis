@@ -11,6 +11,79 @@
 
 ### 2026-04-24 更新记录 (续)
 
+#### 第七批测试代码 (Repository + Service) - 17:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 16:30 | `internal/repository/portfolio_repo_test.go` | 持仓仓储测试 | 9 | ✅ 通过 |
+| 16:45 | `internal/repository/uploaded_file_repo_test.go` | 上传文件仓储测试 | 7 | ✅ 通过 |
+| 17:00 | `internal/service/file_parser_test.go` | 文件解析服务测试 | 9 | ✅ 通过 |
+| 17:15 | `internal/repository/analysis_task_repo_test.go` | 分析任务仓储测试 | 13 | ✅ 通过 |
+| 17:30 | `internal/repository/analysis_report_repo_test.go` | 分析报告仓储测试 | 12 | ✅ 通过 |
+
+**测试内容：**
+- PortfolioRepository: 创建/查找/更新/删除/价格更新
+- UploadedFileRepository: 创建/查找/状态更新
+- FileParserService: CSV解析/错误处理/金额计算
+- AnalysisTaskRepository: 创建/查询/进度更新/运行状态检查
+- AnalysisReportRepository: 创建/查询/报告明细/删除
+
+#### 测试覆盖进度
+
+```
+第七批: repository + service/file_parser (50 用例)
+├── portfolio_repo_test.go        ████████░░  31.9%
+├── uploaded_file_repo_test.go    ████████░░  31.9%
+├── file_parser_test.go           █████░░░░░  52.7%
+├── analysis_task_repo_test.go    ████████░░  31.9%
+└── analysis_report_repo_test.go  ████████░░  31.9%
+
+Repository 覆盖率: 0% → 31.9% (新增)
+Service 覆盖率:   48.7% → 52.7% (提升 4%)
+总计: 21 个测试文件, 249 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**InMemoryPortfolioRepository** (`portfolio_repo_test.go`)
+```go
+type InMemoryPortfolioRepository struct {
+    portfolios map[uint64]*model.Portfolio
+    nextID     uint64
+}
+// 实现: Create, FindByID, FindByUserID, FindByUserAndAsset, Update, Delete, UpdateCurrentPrice
+```
+
+**InMemoryUploadedFileRepository** (`uploaded_file_repo_test.go`)
+```go
+type InMemoryUploadedFileRepository struct {
+    files  map[uint64]*model.UploadedFile
+    nextID uint64
+}
+// 实现: Create, FindByID, FindByUserID, UpdateStatus
+```
+
+**InMemoryAnalysisTaskRepository** (`analysis_task_repo_test.go`)
+```go
+type InMemoryAnalysisTaskRepository struct {
+    tasks  map[uint64]*model.AnalysisTask
+    nextID uint64
+}
+// 实现: Create, FindByIDAndUserID, FindByUserID, HasRunningTask, UpdateProgress
+```
+
+**InMemoryAnalysisReportRepository** (`analysis_report_repo_test.go`)
+```go
+type InMemoryAnalysisReportRepository struct {
+    reports map[uint64]*model.AnalysisReport
+    items   map[uint64]*model.AnalysisReportItem
+    nextID  uint64
+}
+// 实现: Create, CreateWithItems, FindByID, FindByIDAndUserID, FindByTaskID, FindByUserID, FindLatestByUser, Delete
+```
+
+### 2026-04-24 更新记录 (续)
+
 #### 第六批测试代码 (Service: Upload + Portfolio) - 11:00
 
 | 时间 | 文件 | 描述 | 用例数 | 状态 |

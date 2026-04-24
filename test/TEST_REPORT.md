@@ -21,322 +21,127 @@
 | handler/portfolio | `internal/handler/portfolio_test.go` | 5 | 5 | 0 | 86.9% |
 | handler/market | `internal/handler/market_test.go` | 10 | 10 | 0 | 86.9% |
 | handler/analysis | `internal/handler/analysis_test.go` | 18 | 18 | 0 | 86.9% |
-| service/user | `internal/service/user_service_test.go` | 11 | 11 | 0 | 48.7% |
-| service/transaction | `internal/service/transaction_service_test.go` | 18 | 18 | 0 | 48.7% |
-| service/ai | `internal/service/ai_service_test.go` | 19 | 19 | 0 | 48.7% |
-| service/upload | `internal/service/upload_service_test.go` | 11 | 11 | 0 | 48.7% |
-| service/portfolio | `internal/service/portfolio_service_test.go` | 14 | 14 | 0 | 48.7% |
-| repository/user | `internal/repository/user_repo_test.go` | 9 | 9 | 0 | - |
-| repository/transaction | `internal/repository/transaction_repo_test.go` | 11 | 11 | 0 | - |
-| **总计** | **16 个文件** | **189** | **189** | **0** | **86.9%** |
+| service/user | `internal/service/user_service_test.go` | 11 | 11 | 0 | 52.7% |
+| service/transaction | `internal/service/transaction_service_test.go` | 18 | 18 | 0 | 52.7% |
+| service/ai | `internal/service/ai_service_test.go` | 19 | 19 | 0 | 52.7% |
+| service/upload | `internal/service/upload_service_test.go` | 11 | 11 | 0 | 52.7% |
+| service/portfolio | `internal/service/portfolio_service_test.go` | 14 | 14 | 0 | 52.7% |
+| service/file_parser | `internal/service/file_parser_test.go` | 9 | 9 | 0 | 52.7% |
+| repository/user | `internal/repository/user_repo_test.go` | 9 | 9 | 0 | 31.9% |
+| repository/transaction | `internal/repository/transaction_repo_test.go` | 11 | 11 | 0 | 31.9% |
+| repository/portfolio | `internal/repository/portfolio_repo_test.go` | 9 | 9 | 0 | 31.9% |
+| repository/uploaded_file | `internal/repository/uploaded_file_repo_test.go` | 7 | 7 | 0 | 31.9% |
+| repository/analysis_task | `internal/repository/analysis_task_repo_test.go` | 13 | 13 | 0 | 31.9% |
+| repository/analysis_report | `internal/repository/analysis_report_repo_test.go` | 12 | 12 | 0 | 31.9% |
+| **总计** | **21 个文件** | **249** | **249** | **0** | **52.7%** |
 
 ### 测试状态
 
-✅ **全部通过** - 189 个测试用例，0 个失败
+✅ **全部通过** - 249 个测试用例，0 个失败
 
 ---
 
-## 2. 测试详情
+## 2. 新增测试模块 ⭐
 
-### 2.1 utils/crypto_test.go (密码工具测试)
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestHashPassword_Success | 密码哈希生成成功 | ✅ PASS |
-| TestHashPassword_DifferentPasswords | 不同密码生成不同哈希 | ✅ PASS |
-| TestHashPassword_SamePasswordDifferentHash | 相同密码生成不同哈希（bcrypt盐） | ✅ PASS |
-| TestCheckPassword_CorrectPassword | 正确密码验证 | ✅ PASS |
-| TestCheckPassword_WrongPassword | 错误密码验证 | ✅ PASS |
-| TestCheckPassword_EmptyPassword | 空密码验证 | ✅ PASS |
-| TestCheckPassword_InvalidHash | 无效哈希验证 | ✅ PASS |
-| TestHashPassword_EmptyPassword | 空密码哈希 | ✅ PASS |
-
-**覆盖率**: 100%
-
-### 2.2 utils/jwt_test.go (JWT 工具测试)
+### 2.1 repository/portfolio_repo_test.go (持仓仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestGenerateToken_Success | Token 生成成功 | ✅ PASS |
-| TestParseToken_Success | Token 解析成功 | ✅ PASS |
-| TestParseToken_InvalidToken | 无效 Token 解析 | ✅ PASS |
-| TestParseToken_EmptyToken | 空 Token 解析 | ✅ PASS |
-| TestParseToken_WrongSecret | 错误密钥解析 | ✅ PASS |
-| TestParseToken_TamperedToken | 篡改 Token 解析 | ✅ PASS |
-| TestGenerateToken_DifferentSecrets | 不同密钥生成不同签名 | ✅ PASS |
-| TestGenerateToken_DifferentUsers | 不同用户生成不同 Token | ✅ PASS |
-| TestGenerateToken_Expiration | Token 过期处理 | ✅ PASS |
-| TestTokenRoundTrip | 完整流程测试（4个子测试） | ✅ PASS |
+| TestPortfolioRepository_Create | 创建持仓 | ✅ PASS |
+| TestPortfolioRepository_FindByID | 通过ID查找持仓 | ✅ PASS |
+| TestPortfolioRepository_FindByID_NotFound | 查找不存在的持仓 | ✅ PASS |
+| TestPortfolioRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
+| TestPortfolioRepository_FindByUserAndAsset | 通过用户和资产代码查找 | ✅ PASS |
+| TestPortfolioRepository_FindByUserAndAsset_NotFound | 查找不存在的资产 | ✅ PASS |
+| TestPortfolioRepository_Update | 更新持仓 | ✅ PASS |
+| TestPortfolioRepository_Delete | 删除持仓 | ✅ PASS |
+| TestPortfolioRepository_UpdateCurrentPrice | 更新当前价格 | ✅ PASS |
 
-**覆盖率**: 92.9%
-
-### 2.3 middleware/auth_test.go (认证中间件测试)
+### 2.2 repository/uploaded_file_repo_test.go (上传文件仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestAuthMiddleware_MissingHeader | 缺少 Authorization Header | ✅ PASS |
-| TestAuthMiddleware_InvalidFormat | 无效 Authorization 格式（4个子测试） | ✅ PASS |
-| TestAuthMiddleware_InvalidToken | 无效 Token | ✅ PASS |
-| TestAuthMiddleware_ValidToken | 有效 Token | ✅ PASS |
-| TestAuthMiddleware_WrongSecret | 错误密钥签名 | ✅ PASS |
-| TestAuthMiddleware_ContextValues | Context 用户信息（3个子测试） | ✅ PASS |
+| TestUploadedFileRepository_Create | 创建上传文件记录 | ✅ PASS |
+| TestUploadedFileRepository_FindByID | 通过ID查找 | ✅ PASS |
+| TestUploadedFileRepository_FindByID_NotFound | 查找不存在的记录 | ✅ PASS |
+| TestUploadedFileRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
+| TestUploadedFileRepository_FindByUserID_Empty | 空结果查询 | ✅ PASS |
+| TestUploadedFileRepository_UpdateStatus_Success | 更新状态为成功 | ✅ PASS |
+| TestUploadedFileRepository_UpdateStatus_Failed | 更新状态为失败 | ✅ PASS |
 
-**覆盖率**: 69.0%
-
-### 2.4 handler/user_test.go (用户处理器测试)
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestRegister_Success | 用户注册成功 | ✅ PASS |
-| TestRegister_InvalidRequest | 无效注册请求（4个子测试） | ✅ PASS |
-| TestRegister_UsernameExists | 用户名已存在 | ✅ PASS |
-| TestLogin_Success | 用户登录成功 | ✅ PASS |
-| TestLogin_InvalidCredentials | 登录凭证错误 | ✅ PASS |
-| TestGetProfile_Success | 获取用户信息成功 | ✅ PASS |
-| TestGetProfile_UserNotFound | 用户不存在 | ✅ PASS |
-| TestUpdateProfile_Success | 更新用户信息成功 | ✅ PASS |
-| TestLogout_Success | 登出成功 | ✅ PASS |
-
-**覆盖率**: 49.6%
-
-### 2.5 handler/transaction_test.go (交易处理器测试)
+### 2.3 service/file_parser_test.go (文件解析测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestCreateTransaction_Success | 创建交易成功 | ✅ PASS |
-| TestCreateTransaction_InvalidRequest | 无效创建请求（3个子测试） | ✅ PASS |
-| TestCreateTransaction_ServiceError | 服务层错误 | ✅ PASS |
-| TestGetTransactions_Success | 获取交易列表成功 | ✅ PASS |
-| TestGetTransactions_DefaultPagination | 默认分页 | ✅ PASS |
-| TestGetTransaction_Success | 获取交易详情成功 | ✅ PASS |
-| TestGetTransaction_NotFound | 交易不存在 | ✅ PASS |
-| TestGetTransaction_InvalidID | 无效 ID | ✅ PASS |
-| TestUpdateTransaction_Success | 更新交易成功 | ✅ PASS |
-| TestUpdateTransaction_NotFound | 更新不存在的交易 | ✅ PASS |
-| TestDeleteTransaction_Success | 删除交易成功 | ✅ PASS |
-| TestDeleteTransaction_NotFound | 删除不存在的交易 | ✅ PASS |
-| TestGetTransactionStats_Success | 获取交易统计成功 | ✅ PASS |
-| TestGetTransactionStats_Error | 获取交易统计错误 | ✅ PASS |
+| TestFileParserService_ParseCSV | 解析CSV文件 | ✅ PASS |
+| TestFileParserService_ParseCSV_FileNotFound | 文件不存在 | ✅ PASS |
+| TestFileParserService_ParseCSV_EmptyFile | 空文件 | ✅ PASS |
+| TestFileParserService_ParseCSV_InvalidDate | 无效日期格式 | ✅ PASS |
+| TestFileParserService_ParseCSV_InvalidQuantity | 无效数量 | ✅ PASS |
+| TestFileParserService_ParseCSV_InvalidPrice | 无效价格 | ✅ PASS |
+| TestFileParserService_ParseCSV_TotalAmount | 验证总金额计算 | ✅ PASS |
+| TestFileParserService_ParseCSV_WithoutCommission | 无手续费列 | ✅ PASS |
+| TestFileParserService_Interface | 接口实现验证 | ✅ PASS |
 
-**覆盖率**: 49.6%
-
-### 2.6 handler/upload_test.go (上传处理器测试) ⭐ 新增
+### 2.4 repository/analysis_task_repo_test.go (分析任务仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestUploadFile_Success | 上传文件成功 | ✅ PASS |
-| TestUploadFile_NoFile | 没有上传文件 | ✅ PASS |
-| TestUploadFile_UnsupportedType | 不支持的文件类型 | ✅ PASS |
-| TestUploadFile_ExcelFile | 上传 Excel 文件 | ✅ PASS |
-| TestUploadFile_ServiceError | 服务层错误 | ✅ PASS |
-| TestGetUploadHistory_Success | 获取上传历史成功 | ✅ PASS |
-| TestGetUploadHistory_Empty | 空上传历史 | ✅ PASS |
-| TestGetUploadHistory_ServiceError | 服务层错误 | ✅ PASS |
+| TestAnalysisTaskRepository_Create | 创建分析任务 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByIDAndUserID | 通过ID和用户ID查找 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByIDAndUserID_WrongUser | 错误用户查找 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByUserID | 通过用户ID查找列表 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByUserID_WithStatus | 按状态筛选 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByUserID_Pagination | 分页测试 | ✅ PASS |
+| TestAnalysisTaskRepository_FindByUserID_Empty | 空结果查询 | ✅ PASS |
+| TestAnalysisTaskRepository_HasRunningTask_True | 有运行中的任务 | ✅ PASS |
+| TestAnalysisTaskRepository_HasRunningTask_False | 无运行中的任务 | ✅ PASS |
+| TestAnalysisTaskRepository_UpdateProgress_Status | 更新状态 | ✅ PASS |
+| TestAnalysisTaskRepository_UpdateProgress_WithError | 更新为失败状态 | ✅ PASS |
+| TestAnalysisTaskRepository_UpdateProgress_WithReportID | 更新报告ID | ✅ PASS |
+| TestAnalysisTaskRepository_Interface | 接口实现验证 | ✅ PASS |
 
-**覆盖率**: 49.6%
-
-### 2.7 handler/portfolio_test.go (持仓处理器测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestGetPortfolios_Success | 获取持仓列表成功 | ✅ PASS |
-| TestGetPortfolios_Empty | 空持仓列表 | ✅ PASS |
-| TestGetPortfolios_MultipleAssets | 多个持仓 | ✅ PASS |
-| TestGetPortfolios_ServiceError | 服务层错误 | ✅ PASS |
-| TestGetPortfolios_WithProfit | 带盈亏的持仓 | ✅ PASS |
-
-**覆盖率**: 49.6%
-
-### 2.8 service/user_service_test.go (用户服务测试)
+### 2.5 repository/analysis_report_repo_test.go (分析报告仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestUserService_Register_Success | 用户注册成功 | ✅ PASS |
-| TestUserService_Register_UsernameExists | 用户名已存在 | ✅ PASS |
-| TestUserService_Register_EmailExists | 邮箱已存在 | ✅ PASS |
-| TestUserService_Login_Success | 用户登录成功 | ✅ PASS |
-| TestUserService_Login_WrongPassword | 密码错误 | ✅ PASS |
-| TestUserService_Login_UserNotFound | 用户不存在 | ✅ PASS |
-| TestUserService_GetProfile_Success | 获取用户信息成功 | ✅ PASS |
-| TestUserService_GetProfile_UserNotFound | 用户不存在 | ✅ PASS |
-| TestUserService_UpdateProfile_Success | 更新用户信息成功 | ✅ PASS |
-| TestUserService_UpdateProfile_UserNotFound | 更新不存在的用户 | ✅ PASS |
-| TestUserService_Login_InactiveUser | 用户账户已停用 | ✅ PASS |
-| TestUserService_Register_DatabaseError | 数据库错误 | ✅ PASS |
-
-**覆盖率**: 14.2%
-
-### 2.9 service/transaction_service_test.go (交易服务测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestTransactionService_CreateTransaction_Success | 创建交易成功 | ✅ PASS |
-| TestTransactionService_CreateTransaction_InvalidDate | 无效日期格式 | ✅ PASS |
-| TestTransactionService_CreateTransaction_InvalidQuantity | 无效数量 | ✅ PASS |
-| TestTransactionService_CreateTransaction_InvalidPrice | 无效价格 | ✅ PASS |
-| TestTransactionService_GetTransactions_Success | 获取交易列表成功 | ✅ PASS |
-| TestTransactionService_GetTransactions_Pagination | 分页测试 | ✅ PASS |
-| TestTransactionService_GetTransactions_DefaultPage | 默认分页 | ✅ PASS |
-| TestTransactionService_GetTransactionByID_Success | 获取交易详情成功 | ✅ PASS |
-| TestTransactionService_GetTransactionByID_NotFound | 交易不存在 | ✅ PASS |
-| TestTransactionService_GetTransactionByID_WrongUser | 其他用户的交易 | ✅ PASS |
-| TestTransactionService_UpdateTransaction_Success | 更新交易成功 | ✅ PASS |
-| TestTransactionService_UpdateTransaction_NotFound | 更新不存在的交易 | ✅ PASS |
-| TestTransactionService_DeleteTransaction_Success | 删除交易成功 | ✅ PASS |
-| TestTransactionService_DeleteTransaction_NotFound | 删除不存在的交易 | ✅ PASS |
-| TestTransactionService_GetTransactionStats_Success | 获取交易统计成功 | ✅ PASS |
-| TestTransactionService_CreateTransaction_RepositoryError | 仓储层错误 | ✅ PASS |
-
-**覆盖率**: 14.2%
-
-### 2.10 service/ai_service_test.go (AI 服务测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestAIService_GetReports | 获取报告列表成功 | ✅ PASS |
-| TestAIService_GetReports_Empty | 空报告列表 | ✅ PASS |
-| TestAIService_GetReports_DefaultLimit | 默认限制值 | ✅ PASS |
-| TestAIService_GetAnalysisTasks | 获取分析任务列表 | ✅ PASS |
-| TestAIService_GetAnalysisTasks_DefaultPagination | 默认分页 | ✅ PASS |
-| TestAIService_GetAnalysisTask | 获取单个分析任务 | ✅ PASS |
-| TestAIService_GetAnalysisTask_NotFound | 任务不存在 | ✅ PASS |
-| TestAIService_GetAnalysisTask_WrongUser | 获取其他用户任务 | ✅ PASS |
-| TestAIService_CreateStockAnalysisTask_InvalidDate | 无效开始日期 | ✅ PASS |
-| TestAIService_CreateStockAnalysisTask_InvalidEndDate | 无效结束日期 | ✅ PASS |
-| TestAIService_CreateStockAnalysisTask_EndBeforeStart | 结束日期早于开始日期 | ✅ PASS |
-| TestAIService_CreateStockAnalysisTask_AlreadyRunning | 任务已在运行 | ✅ PASS |
-| TestAIService_GetAnalysisReportDetail | 获取报告详情 | ✅ PASS |
-| TestAIService_GetAnalysisReportDetail_NotFound | 报告不存在 | ✅ PASS |
-| TestAIService_GetAnalysisReportDetail_WrongUser | 获取其他用户报告 | ✅ PASS |
-| TestAIService_GenerateInvestmentSummary_NoTransactions | 无交易记录 | ✅ PASS |
-| TestAIService_GenerateInvestmentSummary_Success | 生成投资总结成功 | ✅ PASS |
-| TestAIService_GenerateInvestmentSummary_RepositoryError | 仓储层错误 | ✅ PASS |
-| TestAIService_CreateStockAnalysisTask_Success | 创建分析任务成功 | ✅ PASS |
-
-**覆盖率**: 38.7%
-
-### 2.11 repository/user_repo_test.go (用户仓储测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestUserRepository_Create | 创建用户成功 | ✅ PASS |
-| TestUserRepository_FindByUsername | 通过用户名查找 | ✅ PASS |
-| TestUserRepository_FindByEmail | 通过邮箱查找 | ✅ PASS |
-| TestUserRepository_Update | 更新用户 | ✅ PASS |
-| TestUserRepository_Delete | 删除用户 | ✅ PASS |
-| TestUserRepository_UpdateTotalProfit | 更新总盈亏 | ✅ PASS |
-| TestUserRepository_FindByID_NotFound | 查找不存在用户 | ✅ PASS |
-| TestUserRepository_MultipleUsers | 多用户场景 | ✅ PASS |
-| TestUserRepository_Interface | 接口实现验证 | ✅ PASS |
-
-### 2.12 repository/transaction_repo_test.go (交易仓储测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestTransactionRepository_Create | 创建交易成功 | ✅ PASS |
-| TestTransactionRepository_BatchCreate | 批量创建交易 | ✅ PASS |
-| TestTransactionRepository_FindByID | 通过ID查找交易 | ✅ PASS |
-| TestTransactionRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
-| TestTransactionRepository_FindByUserID_Pagination | 分页测试 | ✅ PASS |
-| TestTransactionRepository_FindByAssetCode | 通过资产代码查找 | ✅ PASS |
-| TestTransactionRepository_Update | 更新交易 | ✅ PASS |
-| TestTransactionRepository_Delete | 删除交易 | ✅ PASS |
-| TestTransactionRepository_GetTransactionStats | 获取交易统计 | ✅ PASS |
-| TestTransactionRepository_Interface | 接口实现验证 | ✅ PASS |
-
-### 2.13 handler/market_test.go (市场数据处理器测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestMarketHandler_GetLatestSnapshots | 获取最新快照 | ✅ PASS |
-| TestMarketHandler_GetLatestSnapshots_Empty | 空快照列表 | ✅ PASS |
-| TestMarketHandler_GetLatestSnapshots_Error | 服务错误 | ✅ PASS |
-| TestMarketHandler_GetSnapshotHistory | 获取快照历史 | ✅ PASS |
-| TestMarketHandler_GetSnapshotHistory_WithTimeRange | 带时间范围查询 | ✅ PASS |
-| TestMarketHandler_GetSnapshotHistory_InvalidStartTime | 无效开始时间 | ✅ PASS |
-| TestMarketHandler_GetSnapshotHistory_InvalidEndTime | 无效结束时间 | ✅ PASS |
-| TestMarketHandler_GetDashboardSnapshot | 获取仪表盘快照 | ✅ PASS |
-| TestMarketHandler_GetDashboardSnapshot_Error | 仪表盘服务错误 | ✅ PASS |
-| TestParseOptionalTime | 时间解析辅助函数 | ✅ PASS |
-| TestStrconvAtoi | 字符串转整数辅助函数 | ✅ PASS |
-
-**覆盖率**: 86.9%
-
-### 2.14 handler/analysis_test.go (分析处理器测试) ⭐ 新增
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestAnalysisHandler_CreateTask | 创建分析任务 | ✅ PASS |
-| TestAnalysisHandler_CreateTask_InvalidJSON | 无效JSON请求 | ✅ PASS |
-| TestAnalysisHandler_CreateTask_ServiceError | 服务层错误 | ✅ PASS |
-| TestAnalysisHandler_GetTask | 获取任务详情 | ✅ PASS |
-| TestAnalysisHandler_GetTask_InvalidID | 无效任务ID | ✅ PASS |
-| TestAnalysisHandler_GetTask_NotFound | 任务不存在 | ✅ PASS |
-| TestAnalysisHandler_GetTasks | 获取任务列表 | ✅ PASS |
-| TestAnalysisHandler_GetTasks_WithStatus | 带状态筛选 | ✅ PASS |
-| TestAnalysisHandler_GetReportDetail | 获取报告详情 | ✅ PASS |
-| TestAnalysisHandler_GetReportDetail_InvalidID | 无效报告ID | ✅ PASS |
-| TestAnalysisHandler_GetReportDetail_NotFound | 报告不存在 | ✅ PASS |
-| TestAnalysisHandler_GenerateSummary | 生成投资总结 | ✅ PASS |
-| TestAnalysisHandler_GenerateSummary_MissingDates | 缺少日期参数 | ✅ PASS |
-| TestAnalysisHandler_GenerateSummary_MissingStartDate | 缺少开始日期 | ✅ PASS |
-| TestAnalysisHandler_GenerateSummary_ServiceError | 服务层错误 | ✅ PASS |
-| TestAnalysisHandler_GetReports | 获取历史报告 | ✅ PASS |
-| TestAnalysisHandler_GetReports_WithType | 带类型筛选 | ✅ PASS |
-| TestAnalysisHandler_GetReports_Empty | 空报告列表 | ✅ PASS |
-
-**覆盖率**: 86.9%
+| TestAnalysisReportRepository_Create | 创建报告 | ✅ PASS |
+| TestAnalysisReportRepository_CreateWithItems | 创建报告及明细 | ✅ PASS |
+| TestAnalysisReportRepository_FindByID | 通过ID查找 | ✅ PASS |
+| TestAnalysisReportRepository_FindByID_NotFound | 查找不存在的报告 | ✅ PASS |
+| TestAnalysisReportRepository_FindByIDAndUserID | 通过ID和用户ID查找 | ✅ PASS |
+| TestAnalysisReportRepository_FindByIDAndUserID_WrongUser | 错误用户查找 | ✅ PASS |
+| TestAnalysisReportRepository_FindByTaskID | 通过任务ID查找 | ✅ PASS |
+| TestAnalysisReportRepository_FindByUserID | 通过用户ID查找列表 | ✅ PASS |
+| TestAnalysisReportRepository_FindByUserID_WithType | 按类型筛选 | ✅ PASS |
+| TestAnalysisReportRepository_FindLatestByUser | 获取最新报告 | ✅ PASS |
+| TestAnalysisReportRepository_Delete | 删除报告 | ✅ PASS |
+| TestAnalysisReportRepository_Interface | 接口实现验证 | ✅ PASS |
 
 ---
 
-## 3. 覆盖率详情
+## 3. 覆盖率对比
 
-### 3.1 已覆盖函数
+### 本次更新前后对比
 
-| 文件 | 函数 | 覆盖率 |
-|------|------|--------|
-| internal/utils/crypto.go | HashPassword | 100% |
-| internal/utils/crypto.go | CheckPassword | 100% |
-| internal/utils/jwt.go | GenerateToken | 100% |
-| internal/utils/jwt.go | ParseToken | 85.7% |
-| internal/middleware/auth.go | AuthMiddleware | 100% |
-| internal/handler/user.go | NewUserHandler | 100% |
-| internal/handler/user.go | Register | 100% |
-| internal/handler/user.go | Login | 77.8% |
-| internal/handler/user.go | Logout | 100% |
-| internal/handler/user.go | GetProfile | 100% |
-| internal/handler/user.go | UpdateProfile | 60.0% |
-| internal/handler/transaction.go | CreateTransaction | 100% |
-| internal/handler/transaction.go | GetTransactions | 100% |
-| internal/handler/transaction.go | GetTransaction | 100% |
-| internal/handler/transaction.go | UpdateTransaction | 100% |
-| internal/handler/transaction.go | DeleteTransaction | 100% |
-| internal/handler/transaction.go | GetTransactionStats | 100% |
-| internal/handler/upload.go | UploadFile | 100% |
-| internal/handler/upload.go | GetUploadHistory | 100% |
-| internal/handler/portfolio.go | GetPortfolios | 100% |
-| internal/handler/market.go | GetLatestSnapshots | 100% |
-| internal/handler/market.go | GetSnapshotHistory | 100% |
-| internal/handler/market.go | GetDashboardSnapshot | 100% |
-| internal/handler/analysis.go | CreateTask | 100% |
-| internal/handler/analysis.go | GetTask | 100% |
-| internal/handler/analysis.go | GetTasks | 100% |
-| internal/handler/analysis.go | GetReportDetail | 100% |
-| internal/handler/analysis.go | GenerateSummary | 100% |
-| internal/handler/analysis.go | GetReports | 100% |
-| internal/service/user_service.go | Register | 90.9% |
-| internal/service/user_service.go | Login | 91.7% |
-| internal/service/user_service.go | GetProfile | 100% |
-| internal/service/user_service.go | UpdateProfile | 83.3% |
+| 模块 | 更新前 | 更新后 | 变化 |
+|------|--------|--------|------|
+| handler | 86.9% | 86.9% | - |
+| service | 48.7% | 52.7% | +4.0% |
+| repository | 0.0% | 31.9% | +31.9% |
+| middleware | 69.0% | 69.0% | - |
+| utils | 92.9% | 92.9% | - |
 
-### 3.2 未覆盖模块
+### 新增测试文件
 
-以下模块尚未编写测试：
-
-- `internal/service/market_*.go` - 市场数据服务
-- `internal/service/stock_analysis_metric_service.go` - 股票指标服务
-- `internal/service/file_parser.go` - 文件解析器
-- `internal/service/decimal_helpers.go` - 小数辅助函数
+| 文件 | 新增用例数 |
+|------|-----------|
+| portfolio_repo_test.go | 9 |
+| uploaded_file_repo_test.go | 7 |
+| file_parser_test.go | 9 |
+| analysis_task_repo_test.go | 13 |
+| analysis_report_repo_test.go | 12 |
+| **合计** | **50** |
 
 ---
 
@@ -349,124 +154,27 @@
 cd /Users/lnm/Downloads/stock_whu/ai-investment-analysis/backend
 
 # 运行所有单元测试
-go test ./internal/utils/... ./internal/middleware/... ./internal/handler/... ./internal/service/... -v
+go test ./internal/... -v
 
-# 运行特定模块测试
-go test ./internal/utils/... -v
-go test ./internal/middleware/... -v
+# 查看覆盖率
+go test ./internal/... -cover
+
+# 生成覆盖率报告
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
+```
+
+### 4.2 运行特定模块测试
+
+```bash
+# Repository 测试
+go test ./internal/repository/... -v
+
+# Service 测试
+go test ./internal/service/... -v
+
+# Handler 测试
 go test ./internal/handler/... -v
-go test ./internal/service/... -v
-```
-
-### 4.2 查看测试覆盖率
-
-```bash
-# 查看各模块覆盖率
-go test ./internal/utils/... ./internal/middleware/... ./internal/handler/... ./internal/service/... -cover
-
-# 输出示例:
-# ok      stock-analysis-backend/internal/utils       coverage: 92.9% of statements
-# ok      stock-analysis-backend/internal/middleware  coverage: 69.0% of statements
-# ok      stock-analysis-backend/internal/handler     coverage: 49.6% of statements
-# ok      stock-analysis-backend/internal/service     coverage: 14.2% of statements
-```
-
-### 4.3 生成覆盖率报告
-
-```bash
-# 生成覆盖率文件
-go test ./internal/utils/... ./internal/middleware/... ./internal/handler/... ./internal/service/... -coverprofile=coverage.out
-
-# 查看函数级别覆盖率
-go tool cover -func=coverage.out
-
-# 输出示例:
-# stock-analysis-backend/internal/utils/crypto.go:7:    HashPassword      100.0%
-# stock-analysis-backend/internal/utils/crypto.go:12:   CheckPassword     100.0%
-# stock-analysis-backend/internal/utils/jwt.go:16:      GenerateToken     100.0%
-# ...
-# total:                                                 (statements)      24.1%
-
-# 生成 HTML 覆盖率报告（可在浏览器中查看）
-go tool cover -html=coverage.out -o coverage.html
-open coverage.html  # macOS 打开 HTML 文件
-```
-
-### 4.4 运行单个测试用例
-
-```bash
-# 运行特定测试函数
-go test ./internal/utils/... -run TestHashPassword_Success -v
-
-# 运行匹配模式的测试
-go test ./internal/service/... -run "TestUserService_Login" -v
-
-# 输出示例:
-# === RUN   TestUserService_Login_Success
-# --- PASS: TestUserService_Login_Success (0.21s)
-# === RUN   TestUserService_Login_WrongPassword
-# --- PASS: TestUserService_Login_WrongPassword (0.21s)
-# PASS
-```
-
-### 4.5 测试输出说明
-
-```bash
-# -v 参数显示详细输出
-go test ./internal/service/... -v
-
-# 输出示例:
-# === RUN   TestUserService_Register_Success
-# --- PASS: TestUserService_Register_Success (0.10s)
-# === RUN   TestUserService_Register_UsernameExists
-# --- PASS: TestUserService_Register_UsernameExists (0.00s)
-# PASS
-# coverage: 14.2% of statements
-# ok      stock-analysis-backend/internal/service     1.398s
-
-# 输出含义:
-# === RUN    - 测试开始运行
-# --- PASS   - 测试通过
-# --- FAIL   - 测试失败（会显示错误信息）
-# (0.10s)   - 测试耗时
-# coverage  - 覆盖率百分比
-# ok        - 包测试通过
-# FAIL      - 包测试失败
-```
-
-### 4.6 完整测试执行流程
-
-```bash
-# 1. 进入项目目录
-cd /Users/lnm/Downloads/stock_whu/ai-investment-analysis/backend
-
-# 2. 运行全部测试（带详细输出和覆盖率）
-go test ./internal/utils/... ./internal/middleware/... ./internal/handler/... ./internal/service/... -v -cover
-
-# 3. 生成覆盖率报告
-go test ./internal/utils/... ./internal/middleware/... ./internal/handler/... ./internal/service/... -coverprofile=coverage.out
-
-# 4. 查看总覆盖率
-go tool cover -func=coverage.out | grep "total:"
-
-# 输出:
-# total:                                      (statements)            24.1%
-
-# 5. 生成 HTML 报告
-go tool cover -html=coverage.out -o coverage.html
-```
-
-### 4.7 常见问题排查
-
-```bash
-# 如果测试失败，查看详细错误
-go test ./internal/service/... -v -run "失败的测试名"
-
-# 清理测试缓存
-go clean -testcache
-
-# 重新运行测试
-go test ./... -count=1
 ```
 
 ---
@@ -477,52 +185,53 @@ go test ./... -count=1
 backend/
 ├── internal/
 │   ├── utils/
-│   │   ├── crypto.go
-│   │   ├── crypto_test.go         ← 密码工具测试
-│   │   ├── jwt.go
-│   │   └── jwt_test.go            ← JWT 工具测试
+│   │   ├── crypto_test.go
+│   │   └── jwt_test.go
 │   ├── middleware/
-│   │   ├── auth.go
-│   │   └── auth_test.go           ← 认证中间件测试
+│   │   └── auth_test.go
 │   ├── handler/
-│   │   ├── user.go
-│   │   ├── user_test.go           ← 用户处理器测试
-│   │   ├── transaction.go
-│   │   ├── transaction_test.go    ← 交易处理器测试
-│   │   ├── upload.go
-│   │   ├── upload_test.go         ← 上传处理器测试 ⭐ 新增
-│   │   ├── portfolio.go
-│   │   └── portfolio_test.go      ← 持仓处理器测试 ⭐ 新增
-│   └── service/
-│       ├── user_service.go
-│       ├── user_service_test.go   ← 用户服务测试
-│       ├── transaction_service.go
-│       └── transaction_service_test.go ← 交易服务测试 ⭐ 新增
+│   │   ├── user_test.go
+│   │   ├── transaction_test.go
+│   │   ├── upload_test.go
+│   │   ├── portfolio_test.go
+│   │   ├── market_test.go
+│   │   └── analysis_test.go
+│   ├── service/
+│   │   ├── user_service_test.go
+│   │   ├── transaction_service_test.go
+│   │   ├── upload_service_test.go
+│   │   ├── portfolio_service_test.go
+│   │   ├── ai_service_test.go
+│   │   └── file_parser_test.go          ⭐ 新增
+│   └── repository/
+│       ├── user_repo_test.go
+│       ├── transaction_repo_test.go
+│       ├── portfolio_repo_test.go        ⭐ 新增
+│       ├── uploaded_file_repo_test.go    ⭐ 新增
+│       ├── analysis_task_repo_test.go    ⭐ 新增
+│       └── analysis_report_repo_test.go  ⭐ 新增
 ```
 
 ---
 
 ## 6. 后续建议
 
-### 6.1 优先级高 ✅ 已完成
+### 6.1 已完成 ✅
 
-1. ✅ **Service 层测试** - `user_service_test.go`, `transaction_service_test.go`
-2. ✅ **Transaction Handler 测试** - `transaction_test.go`
-3. ✅ **Repository 层测试** - `user_repo_test.go`, `transaction_repo_test.go`
+- [x] Repository 层核心模块测试（portfolio, uploaded_file, analysis_task, analysis_report）
+- [x] Service 层文件解析测试（file_parser）
+- [x] Handler 层全部模块测试
 
-### 6.2 优先级中 ✅ 已完成
+### 6.2 待完善
 
-4. ✅ **Transaction Service 测试** - `transaction_service_test.go`
-5. ✅ **Upload Handler 测试** - `upload_test.go`
-6. ✅ **Portfolio Handler 测试** - `portfolio_test.go`
-7. ✅ **AI Service 测试** - `ai_service_test.go`
-8. **Market Handler 测试** - 测试市场数据获取
-
-### 6.3 优先级低
-
-9. **AI Analysis Handler 测试** - 需要 mock LLM API
-10. **集成测试** - 使用真实数据库进行端到端测试
-11. **性能测试** - API 并发压力测试
+| 模块 | 文件 | 优先级 |
+|------|------|--------|
+| Service | market_snapshot_service.go | 中 |
+| Service | market_data_service.go | 中 |
+| Service | stock_analysis_metric_service.go | 中 |
+| Repository | analysis_report_item_repo.go | 低 |
+| Repository | market_snapshot_repo.go | 低 |
+| Repository | stock_analysis_metric_repo.go | 低 |
 
 ---
 
@@ -534,8 +243,9 @@ backend/
 | Go 版本 | 1.26.1 |
 | 测试框架 | Go testing |
 | HTTP 测试 | httptest |
-| Mock 方式 | 手动 Mock 接口实现 |
+| Mock 方式 | 内存存储模拟 + 接口实现 |
+| 数据库驱动 | gorm.io/driver/sqlite (测试用) |
 
 ---
 
-**报告生成时间**: 2026-04-24 10:30
+**报告生成时间**: 2026-04-24 17:30
