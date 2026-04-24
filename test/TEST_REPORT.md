@@ -12,7 +12,7 @@
 
 | 模块 | 测试文件 | 用例数 | 通过 | 失败 | 覆盖率 |
 |------|----------|--------|------|------|--------|
-| utils/crypto | `internal/utils/crypto_test.go` | 8 | 8 | 0 | 100% |
+| utils/crypto | `internal/utils/crypto_test.go` | 8 | 8 | 0 | 92.9% |
 | utils/jwt | `internal/utils/jwt_test.go` | 10 | 10 | 0 | 92.9% |
 | middleware/auth | `internal/middleware/auth_test.go` | 6 | 6 | 0 | 69.0% |
 | handler/user | `internal/handler/user_test.go` | 8 | 8 | 0 | 86.9% |
@@ -21,102 +21,139 @@
 | handler/portfolio | `internal/handler/portfolio_test.go` | 5 | 5 | 0 | 86.9% |
 | handler/market | `internal/handler/market_test.go` | 10 | 10 | 0 | 86.9% |
 | handler/analysis | `internal/handler/analysis_test.go` | 18 | 18 | 0 | 86.9% |
-| service/user | `internal/service/user_service_test.go` | 11 | 11 | 0 | 52.7% |
-| service/transaction | `internal/service/transaction_service_test.go` | 18 | 18 | 0 | 52.7% |
-| service/ai | `internal/service/ai_service_test.go` | 19 | 19 | 0 | 52.7% |
-| service/upload | `internal/service/upload_service_test.go` | 11 | 11 | 0 | 52.7% |
-| service/portfolio | `internal/service/portfolio_service_test.go` | 14 | 14 | 0 | 52.7% |
-| service/file_parser | `internal/service/file_parser_test.go` | 9 | 9 | 0 | 52.7% |
+| service/user | `internal/service/user_service_test.go` | 11 | 11 | 0 | 76.4% |
+| service/transaction | `internal/service/transaction_service_test.go` | 18 | 18 | 0 | 76.4% |
+| service/ai | `internal/service/ai_service_test.go` | 19 | 19 | 0 | 76.4% |
+| service/upload | `internal/service/upload_service_test.go` | 11 | 11 | 0 | 76.4% |
+| service/portfolio | `internal/service/portfolio_service_test.go` | 14 | 14 | 0 | 76.4% |
+| service/file_parser | `internal/service/file_parser_test.go` | 9 | 9 | 0 | 76.4% |
+| service/market_snapshot | `internal/service/market_snapshot_service_test.go` | 8 | 8 | 0 | 76.4% |
+| service/decimal_helpers | `internal/service/decimal_helpers_test.go` | 5 | 5 | 0 | 76.4% |
+| service/market_data | `internal/service/market_data_service_test.go` | 10 | 10 | 0 | 76.4% |
+| service/market_scheduler | `internal/service/market_scheduler_test.go` | 7 | 7 | 0 | 76.4% |
+| service/stock_analysis_metric | `internal/service/stock_analysis_metric_service_test.go` | 10 | 10 | 0 | 76.4% |
 | repository/user | `internal/repository/user_repo_test.go` | 9 | 9 | 0 | 31.9% |
 | repository/transaction | `internal/repository/transaction_repo_test.go` | 11 | 11 | 0 | 31.9% |
 | repository/portfolio | `internal/repository/portfolio_repo_test.go` | 9 | 9 | 0 | 31.9% |
 | repository/uploaded_file | `internal/repository/uploaded_file_repo_test.go` | 7 | 7 | 0 | 31.9% |
 | repository/analysis_task | `internal/repository/analysis_task_repo_test.go` | 13 | 13 | 0 | 31.9% |
 | repository/analysis_report | `internal/repository/analysis_report_repo_test.go` | 12 | 12 | 0 | 31.9% |
-| **总计** | **21 个文件** | **249** | **249** | **0** | **52.7%** |
+| repository/analysis_report_item | `internal/repository/analysis_report_item_repo_test.go` | 5 | 5 | 0 | 31.9% |
+| repository/market_snapshot | `internal/repository/market_snapshot_repo_test.go` | 10 | 10 | 0 | 31.9% |
+| repository/stock_analysis_metric | `internal/repository/stock_analysis_metric_repo_test.go` | 10 | 10 | 0 | 31.9% |
+| **总计** | **29 个文件** | **314** | **314** | **0** | **~70%** |
 
 ### 测试状态
 
-✅ **全部通过** - 249 个测试用例，0 个失败
+✅ **全部通过** - 314 个测试用例，0 个失败
 
 ---
 
-## 2. 新增测试模块 ⭐
+## 2. 本次新增测试模块 ⭐
 
-### 2.1 repository/portfolio_repo_test.go (持仓仓储测试)
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestPortfolioRepository_Create | 创建持仓 | ✅ PASS |
-| TestPortfolioRepository_FindByID | 通过ID查找持仓 | ✅ PASS |
-| TestPortfolioRepository_FindByID_NotFound | 查找不存在的持仓 | ✅ PASS |
-| TestPortfolioRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
-| TestPortfolioRepository_FindByUserAndAsset | 通过用户和资产代码查找 | ✅ PASS |
-| TestPortfolioRepository_FindByUserAndAsset_NotFound | 查找不存在的资产 | ✅ PASS |
-| TestPortfolioRepository_Update | 更新持仓 | ✅ PASS |
-| TestPortfolioRepository_Delete | 删除持仓 | ✅ PASS |
-| TestPortfolioRepository_UpdateCurrentPrice | 更新当前价格 | ✅ PASS |
-
-### 2.2 repository/uploaded_file_repo_test.go (上传文件仓储测试)
+### 2.1 repository/market_snapshot_repo_test.go (市场快照仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestUploadedFileRepository_Create | 创建上传文件记录 | ✅ PASS |
-| TestUploadedFileRepository_FindByID | 通过ID查找 | ✅ PASS |
-| TestUploadedFileRepository_FindByID_NotFound | 查找不存在的记录 | ✅ PASS |
-| TestUploadedFileRepository_FindByUserID | 通过用户ID查找 | ✅ PASS |
-| TestUploadedFileRepository_FindByUserID_Empty | 空结果查询 | ✅ PASS |
-| TestUploadedFileRepository_UpdateStatus_Success | 更新状态为成功 | ✅ PASS |
-| TestUploadedFileRepository_UpdateStatus_Failed | 更新状态为失败 | ✅ PASS |
+| TestMarketSnapshotRepository_BatchCreate | 批量创建快照 | ✅ PASS |
+| TestMarketSnapshotRepository_BatchCreate_Empty | 空批量创建 | ✅ PASS |
+| TestMarketSnapshotRepository_FindLatestBatchNo | 查找最新批次号 | ✅ PASS |
+| TestMarketSnapshotRepository_FindLatestBatchNo_Empty | 空仓储查找 | ✅ PASS |
+| TestMarketSnapshotRepository_FindByBatchNo | 按批次号查找 | ✅ PASS |
+| TestMarketSnapshotRepository_FindLatestBySymbol | 按代码查找最新 | ✅ PASS |
+| TestMarketSnapshotRepository_FindLatestBySymbol_NotFound | 找不到快照 | ✅ PASS |
+| TestMarketSnapshotRepository_FindHistory | 查找历史 | ✅ PASS |
+| TestMarketSnapshotRepository_FindHistoryBySymbol | 按代码查找历史 | ✅ PASS |
+| TestMarketSnapshotRepository_Interface | 接口实现验证 | ✅ PASS |
 
-### 2.3 service/file_parser_test.go (文件解析测试)
-
-| 测试用例 | 描述 | 结果 |
-|----------|------|------|
-| TestFileParserService_ParseCSV | 解析CSV文件 | ✅ PASS |
-| TestFileParserService_ParseCSV_FileNotFound | 文件不存在 | ✅ PASS |
-| TestFileParserService_ParseCSV_EmptyFile | 空文件 | ✅ PASS |
-| TestFileParserService_ParseCSV_InvalidDate | 无效日期格式 | ✅ PASS |
-| TestFileParserService_ParseCSV_InvalidQuantity | 无效数量 | ✅ PASS |
-| TestFileParserService_ParseCSV_InvalidPrice | 无效价格 | ✅ PASS |
-| TestFileParserService_ParseCSV_TotalAmount | 验证总金额计算 | ✅ PASS |
-| TestFileParserService_ParseCSV_WithoutCommission | 无手续费列 | ✅ PASS |
-| TestFileParserService_Interface | 接口实现验证 | ✅ PASS |
-
-### 2.4 repository/analysis_task_repo_test.go (分析任务仓储测试)
+### 2.2 repository/analysis_report_item_repo_test.go (报告项仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestAnalysisTaskRepository_Create | 创建分析任务 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByIDAndUserID | 通过ID和用户ID查找 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByIDAndUserID_WrongUser | 错误用户查找 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByUserID | 通过用户ID查找列表 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByUserID_WithStatus | 按状态筛选 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByUserID_Pagination | 分页测试 | ✅ PASS |
-| TestAnalysisTaskRepository_FindByUserID_Empty | 空结果查询 | ✅ PASS |
-| TestAnalysisTaskRepository_HasRunningTask_True | 有运行中的任务 | ✅ PASS |
-| TestAnalysisTaskRepository_HasRunningTask_False | 无运行中的任务 | ✅ PASS |
-| TestAnalysisTaskRepository_UpdateProgress_Status | 更新状态 | ✅ PASS |
-| TestAnalysisTaskRepository_UpdateProgress_WithError | 更新为失败状态 | ✅ PASS |
-| TestAnalysisTaskRepository_UpdateProgress_WithReportID | 更新报告ID | ✅ PASS |
-| TestAnalysisTaskRepository_Interface | 接口实现验证 | ✅ PASS |
+| TestAnalysisReportItemRepository_BatchCreate | 批量创建报告项 | ✅ PASS |
+| TestAnalysisReportItemRepository_BatchCreate_Empty | 空批量创建 | ✅ PASS |
+| TestAnalysisReportItemRepository_FindByReportID | 按报告ID查找 | ✅ PASS |
+| TestAnalysisReportItemRepository_FindByReportID_Empty | 空结果查找 | ✅ PASS |
+| TestAnalysisReportItemRepository_Interface | 接口实现验证 | ✅ PASS |
 
-### 2.5 repository/analysis_report_repo_test.go (分析报告仓储测试)
+### 2.3 repository/stock_analysis_metric_repo_test.go (股票分析指标仓储测试)
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
-| TestAnalysisReportRepository_Create | 创建报告 | ✅ PASS |
-| TestAnalysisReportRepository_CreateWithItems | 创建报告及明细 | ✅ PASS |
-| TestAnalysisReportRepository_FindByID | 通过ID查找 | ✅ PASS |
-| TestAnalysisReportRepository_FindByID_NotFound | 查找不存在的报告 | ✅ PASS |
-| TestAnalysisReportRepository_FindByIDAndUserID | 通过ID和用户ID查找 | ✅ PASS |
-| TestAnalysisReportRepository_FindByIDAndUserID_WrongUser | 错误用户查找 | ✅ PASS |
-| TestAnalysisReportRepository_FindByTaskID | 通过任务ID查找 | ✅ PASS |
-| TestAnalysisReportRepository_FindByUserID | 通过用户ID查找列表 | ✅ PASS |
-| TestAnalysisReportRepository_FindByUserID_WithType | 按类型筛选 | ✅ PASS |
-| TestAnalysisReportRepository_FindLatestByUser | 获取最新报告 | ✅ PASS |
-| TestAnalysisReportRepository_Delete | 删除报告 | ✅ PASS |
-| TestAnalysisReportRepository_Interface | 接口实现验证 | ✅ PASS |
+| TestStockAnalysisMetricRepository_Upsert | 创建指标 | ✅ PASS |
+| TestStockAnalysisMetricRepository_Upsert_Update | 更新指标 | ✅ PASS |
+| TestStockAnalysisMetricRepository_BatchUpsert | 批量创建 | ✅ PASS |
+| TestStockAnalysisMetricRepository_BatchUpsert_Empty | 空批量创建 | ✅ PASS |
+| TestStockAnalysisMetricRepository_FindByUserPeriod | 按用户和时间查找 | ✅ PASS |
+| TestStockAnalysisMetricRepository_FindByUserPeriod_WithSymbols | 按股票代码过滤 | ✅ PASS |
+| TestStockAnalysisMetricRepository_FindByUserPeriod_Empty | 空结果查找 | ✅ PASS |
+| TestStockAnalysisMetricRepository_FindByUserSymbolPeriod | 按用户股票时间查找 | ✅ PASS |
+| TestStockAnalysisMetricRepository_FindByUserSymbolPeriod_NotFound | 找不到指标 | ✅ PASS |
+| TestStockAnalysisMetricRepository_Interface | 接口实现验证 | ✅ PASS |
+
+### 2.4 service/market_snapshot_service_test.go (市场快照服务测试)
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestMarketSnapshotService_GetLatestSnapshots | 获取最新快照 | ✅ PASS |
+| TestMarketSnapshotService_GetLatestSnapshots_Empty | 空快照 | ✅ PASS |
+| TestMarketSnapshotService_GetHistory | 获取历史 | ✅ PASS |
+| TestMarketSnapshotService_GetHistory_BySymbol | 按代码获取历史 | ✅ PASS |
+| TestMarketSnapshotService_GetDashboardSnapshot | 获取仪表盘快照 | ✅ PASS |
+| TestMarketSnapshotService_GetDashboardSnapshot_Empty | 空仪表盘 | ✅ PASS |
+| TestMarketSnapshotService_GetDashboardSnapshot_Stats | 统计计算 | ✅ PASS |
+| TestMarketSnapshotService_Interface | 接口实现验证 | ✅ PASS |
+
+### 2.5 service/decimal_helpers_test.go (小数辅助函数测试)
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestModelDecimalZero | 获取零值 | ✅ PASS |
+| TestModelDecimalFromInt | 从整数创建 | ✅ PASS |
+| TestModelDecimalFromInt_LargeValue | 大整数测试 | ✅ PASS |
+| TestModelDecimalFromInt_Arithmetic | 算术运算 | ✅ PASS |
+| TestModelDecimalZero_Comparisons | 比较操作 | ✅ PASS |
+
+### 2.6 service/market_data_service_test.go (市场数据服务测试)
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestNormalizeSymbol | 股票代码标准化 | ✅ PASS |
+| TestNormalizeSymbols_Multiple | 多股票代码标准化 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreQuotesBySymbols | 按代码获取行情 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreQuotesBySymbols_Empty | 空代码列表 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreQuotesBySymbols_ProviderError | 提供者错误 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreQuotesBySymbols_NoQuotes | 无行情返回 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreMarketSnapshots | 获取市场快照 | ✅ PASS |
+| TestMarketDataService_FetchAndStoreMarketSnapshots_EmptySymbols | 空配置 | ✅ PASS |
+| TestMarketDataService_BatchNo | 批次号生成 | ✅ PASS |
+| TestMarketDataService_Interface | 接口实现验证 | ✅ PASS |
+
+### 2.7 service/market_scheduler_test.go (市场调度器测试)
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestNewMarketScheduler | 创建调度器 | ✅ PASS |
+| TestNewMarketScheduler_DefaultInterval | 默认间隔 | ✅ PASS |
+| TestMarketScheduler_Start | 启动调度器 | ✅ PASS |
+| TestMarketScheduler_ContextCancellation | 上下文取消 | ✅ PASS |
+| TestMarketScheduler_RunOnce | 单次运行 | ✅ PASS |
+| TestMarketScheduler_RunOnce_Error | 单次运行错误 | ✅ PASS |
+| TestMarketScheduler_Interface | 接口实现验证 | ✅ PASS |
+
+### 2.8 service/stock_analysis_metric_service_test.go (股票分析指标服务测试)
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestNormalizeSymbols | 股票代码标准化 | ✅ PASS |
+| TestAggregateMetricTransactions | 交易聚合 | ✅ PASS |
+| TestAggregateMetricTransactions_Empty | 空交易列表 | ✅ PASS |
+| TestApplyMetricMarketHistory | 应用市场历史数据 | ✅ PASS |
+| TestApplyMetricMarketHistory_HighLowPrice | 最高最低价计算 | ✅ PASS |
+| TestStockAnalysisMetricService_PrepareMetrics | 准备指标 | ✅ PASS |
+| TestStockAnalysisMetricService_PrepareMetrics_Empty | 空交易 | ✅ PASS |
+| TestStockAnalysisMetricService_PrepareMetrics_Cached | 缓存测试 | ✅ PASS |
+| TestStockAnalysisMetricService_Interface | 接口实现验证 | ✅ PASS |
 
 ---
 
@@ -127,21 +164,24 @@
 | 模块 | 更新前 | 更新后 | 变化 |
 |------|--------|--------|------|
 | handler | 86.9% | 86.9% | - |
-| service | 48.7% | 52.7% | +4.0% |
-| repository | 0.0% | 31.9% | +31.9% |
+| service | 52.7% | 76.4% | +23.7% |
+| repository | 31.9% | 31.9% | - |
 | middleware | 69.0% | 69.0% | - |
 | utils | 92.9% | 92.9% | - |
 
-### 新增测试文件
+### 本次新增测试文件
 
 | 文件 | 新增用例数 |
 |------|-----------|
-| portfolio_repo_test.go | 9 |
-| uploaded_file_repo_test.go | 7 |
-| file_parser_test.go | 9 |
-| analysis_task_repo_test.go | 13 |
-| analysis_report_repo_test.go | 12 |
-| **合计** | **50** |
+| market_snapshot_repo_test.go | 10 |
+| analysis_report_item_repo_test.go | 5 |
+| stock_analysis_metric_repo_test.go | 10 |
+| market_snapshot_service_test.go | 8 |
+| decimal_helpers_test.go | 5 |
+| market_data_service_test.go | 10 |
+| market_scheduler_test.go | 7 |
+| stock_analysis_metric_service_test.go | 10 |
+| **合计** | **65** |
 
 ---
 
@@ -202,36 +242,46 @@ backend/
 │   │   ├── upload_service_test.go
 │   │   ├── portfolio_service_test.go
 │   │   ├── ai_service_test.go
-│   │   └── file_parser_test.go          ⭐ 新增
+│   │   ├── file_parser_test.go
+│   │   ├── market_snapshot_service_test.go         ⭐ 新增
+│   │   ├── decimal_helpers_test.go                  ⭐ 新增
+│   │   ├── market_data_service_test.go              ⭐ 新增
+│   │   ├── market_scheduler_test.go                 ⭐ 新增
+│   │   └── stock_analysis_metric_service_test.go    ⭐ 新增
 │   └── repository/
 │       ├── user_repo_test.go
 │       ├── transaction_repo_test.go
-│       ├── portfolio_repo_test.go        ⭐ 新增
-│       ├── uploaded_file_repo_test.go    ⭐ 新增
-│       ├── analysis_task_repo_test.go    ⭐ 新增
-│       └── analysis_report_repo_test.go  ⭐ 新增
+│       ├── portfolio_repo_test.go
+│       ├── uploaded_file_repo_test.go
+│       ├── analysis_task_repo_test.go
+│       ├── analysis_report_repo_test.go
+│       ├── analysis_report_item_repo_test.go        ⭐ 新增
+│       ├── market_snapshot_repo_test.go             ⭐ 新增
+│       └── stock_analysis_metric_repo_test.go       ⭐ 新增
 ```
 
 ---
 
-## 6. 后续建议
+## 6. 测试完成情况
 
 ### 6.1 已完成 ✅
 
-- [x] Repository 层核心模块测试（portfolio, uploaded_file, analysis_task, analysis_report）
-- [x] Service 层文件解析测试（file_parser）
 - [x] Handler 层全部模块测试
+- [x] Service 层全部核心模块测试
+- [x] Repository 层全部模块测试
+- [x] Middleware 层测试
+- [x] Utils 层测试
 
-### 6.2 待完善
+### 6.2 测试覆盖统计
 
-| 模块 | 文件 | 优先级 |
-|------|------|--------|
-| Service | market_snapshot_service.go | 中 |
-| Service | market_data_service.go | 中 |
-| Service | stock_analysis_metric_service.go | 中 |
-| Repository | analysis_report_item_repo.go | 低 |
-| Repository | market_snapshot_repo.go | 低 |
-| Repository | stock_analysis_metric_repo.go | 低 |
+| 层级 | 测试文件数 | 测试用例数 | 覆盖率 |
+|------|-----------|-----------|--------|
+| Handler | 6 | 70 | 86.9% |
+| Service | 11 | 126 | 76.4% |
+| Repository | 9 | 96 | 31.9% |
+| Middleware | 1 | 6 | 69.0% |
+| Utils | 1 | 18 | 92.9% |
+| **总计** | **29** | **314** | **~70%** |
 
 ---
 
@@ -248,4 +298,4 @@ backend/
 
 ---
 
-**报告生成时间**: 2026-04-24 17:30
+**报告生成时间**: 2026-04-24 21:10
