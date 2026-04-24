@@ -4,6 +4,7 @@ import (
 	"errors"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/repository"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -45,6 +46,7 @@ func (s *portfolioService) UpdatePortfolioFromTransaction(userID uint64, transac
 				TotalQuantity:     transaction.Quantity,
 				AvailableQuantity: transaction.Quantity,
 				AverageCost:       transaction.PricePerUnit,
+				LastUpdated:       time.Now(),
 			}
 			return s.portfolioRepo.Create(portfolio)
 		}
@@ -153,6 +155,7 @@ func (s *portfolioService) RecalculatePortfolio(userID uint64, assetCode string)
 			TotalQuantity:     totalQuantity,
 			AvailableQuantity: availableQuantity,
 			AverageCost:       averageCost,
+			LastUpdated:       time.Now(),
 		}
 		return s.portfolioRepo.Create(portfolio)
 	}

@@ -3,11 +3,178 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-04-21
+> **更新日期**: 2026-04-24
 
 ---
 
 ## 0. 测试代码更新日志
+
+### 2026-04-24 更新记录 (续)
+
+#### 第七批测试代码 (Repository + Service) - 17:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 16:30 | `internal/repository/portfolio_repo_test.go` | 持仓仓储测试 | 9 | ✅ 通过 |
+| 16:45 | `internal/repository/uploaded_file_repo_test.go` | 上传文件仓储测试 | 7 | ✅ 通过 |
+| 17:00 | `internal/service/file_parser_test.go` | 文件解析服务测试 | 9 | ✅ 通过 |
+| 17:15 | `internal/repository/analysis_task_repo_test.go` | 分析任务仓储测试 | 13 | ✅ 通过 |
+| 17:30 | `internal/repository/analysis_report_repo_test.go` | 分析报告仓储测试 | 12 | ✅ 通过 |
+
+**测试内容：**
+- PortfolioRepository: 创建/查找/更新/删除/价格更新
+- UploadedFileRepository: 创建/查找/状态更新
+- FileParserService: CSV解析/错误处理/金额计算
+- AnalysisTaskRepository: 创建/查询/进度更新/运行状态检查
+- AnalysisReportRepository: 创建/查询/报告明细/删除
+
+#### 测试覆盖进度
+
+```
+第七批: repository + service/file_parser (50 用例)
+├── portfolio_repo_test.go        ████████░░  31.9%
+├── uploaded_file_repo_test.go    ████████░░  31.9%
+├── file_parser_test.go           █████░░░░░  52.7%
+├── analysis_task_repo_test.go    ████████░░  31.9%
+└── analysis_report_repo_test.go  ████████░░  31.9%
+
+Repository 覆盖率: 0% → 31.9% (新增)
+Service 覆盖率:   48.7% → 52.7% (提升 4%)
+总计: 21 个测试文件, 249 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**InMemoryPortfolioRepository** (`portfolio_repo_test.go`)
+```go
+type InMemoryPortfolioRepository struct {
+    portfolios map[uint64]*model.Portfolio
+    nextID     uint64
+}
+// 实现: Create, FindByID, FindByUserID, FindByUserAndAsset, Update, Delete, UpdateCurrentPrice
+```
+
+**InMemoryUploadedFileRepository** (`uploaded_file_repo_test.go`)
+```go
+type InMemoryUploadedFileRepository struct {
+    files  map[uint64]*model.UploadedFile
+    nextID uint64
+}
+// 实现: Create, FindByID, FindByUserID, UpdateStatus
+```
+
+**InMemoryAnalysisTaskRepository** (`analysis_task_repo_test.go`)
+```go
+type InMemoryAnalysisTaskRepository struct {
+    tasks  map[uint64]*model.AnalysisTask
+    nextID uint64
+}
+// 实现: Create, FindByIDAndUserID, FindByUserID, HasRunningTask, UpdateProgress
+```
+
+**InMemoryAnalysisReportRepository** (`analysis_report_repo_test.go`)
+```go
+type InMemoryAnalysisReportRepository struct {
+    reports map[uint64]*model.AnalysisReport
+    items   map[uint64]*model.AnalysisReportItem
+    nextID  uint64
+}
+// 实现: Create, CreateWithItems, FindByID, FindByIDAndUserID, FindByTaskID, FindByUserID, FindLatestByUser, Delete
+```
+
+### 2026-04-24 更新记录 (续)
+
+#### 第六批测试代码 (Service: Upload + Portfolio) - 11:00
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:30 | `internal/service/upload_service_test.go` | 上传服务测试 | 11 | ✅ 通过 |
+| 11:00 | `internal/service/portfolio_service_test.go` | 持仓服务测试 | 14 | ✅ 通过 |
+
+**测试内容：**
+- UploadService: 文件处理/类型验证/大小验证/解析错误/批量创建
+- PortfolioService: 持仓获取/买入/卖出/分红/重新计算
+
+#### 测试覆盖进度
+
+```
+第六批: service/upload + service/portfolio (25 用例)
+├── upload_service_test.go      █████░░░░░  48.7%
+└── portfolio_service_test.go   █████░░░░░  48.7%
+
+Service 覆盖率: 38.7% → 48.7% (提升 10%)
+总计: 16 个测试文件, 189 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**MockUploadedFileRepository** (`upload_service_test.go`)
+```go
+type MockUploadedFileRepository struct {
+    Files  map[uint64]*model.UploadedFile
+    NextID uint64
+}
+// 实现: Create, FindByID, FindByUserID, UpdateStatus
+```
+
+**MockPortfolioRepository** (`portfolio_service_test.go`)
+```go
+type MockPortfolioRepository struct {
+    Portfolios map[uint64]*model.Portfolio
+    NextID     uint64
+}
+// 实现: Create, FindByID, FindByUserID, FindByUserAndAsset, Update, Delete, UpdateCurrentPrice
+```
+
+### 2026-04-24 更新记录
+
+#### 第五批测试代码 (Handler: Market + Analysis) - 10:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:00 | `internal/handler/market_test.go` | 市场数据处理器测试 | 10 | ✅ 通过 |
+| 10:30 | `internal/handler/analysis_test.go` | 分析处理器测试 | 18 | ✅ 通过 |
+
+**测试内容：**
+- MarketHandler: 快照列表/历史查询/仪表盘数据/时间解析
+- AnalysisHandler: 任务创建/任务查询/报告详情/投资总结
+
+#### 测试覆盖进度
+
+```
+第五批: handler/market + handler/analysis (28 用例)
+├── market_test.go              ████████░░  86.9%
+└── analysis_test.go            ████████░░  86.9%
+
+Handler 覆盖率: 49.6% → 86.9% (提升 37.3%)
+总计: 14 个测试文件, 162 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**MockMarketSnapshotService** (`market_test.go`)
+```go
+type MockMarketSnapshotService struct {
+    Snapshots        []response.MarketSnapshotResponse
+    DashboardSnapshot *response.DashboardMarketSnapshotResponse
+    Err              error
+}
+// 实现: GetLatestSnapshots, GetHistory, GetDashboardSnapshot
+```
+
+**MockAIService** (`analysis_test.go`)
+```go
+type MockAIService struct {
+    CreateTaskResult       *response.AnalysisTaskResponse
+    GetTaskResult          *response.AnalysisTaskDetailResponse
+    GetTasksResult         *response.AnalysisTaskListResponse
+    GetReportDetailResult  *response.AnalysisReportDetailResponse
+    GenerateSummaryResult  *response.AnalysisReportResponse
+    GetReportsResult       []response.AnalysisReportResponse
+}
+// 实现: CreateStockAnalysisTask, GetAnalysisTask, GetAnalysisTasks,
+//       GetAnalysisReportDetail, GenerateInvestmentSummary, GetReports
+```
 
 ### 2026-04-21 更新记录
 

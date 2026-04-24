@@ -20,9 +20,13 @@ go.work
 # Environment variables
 .env
 
-# Uploaded files
+# Uploaded files (root uploads folder)
 uploads/*
 !uploads/.gitkeep
+
+# Test uploaded files in handler
+internal/handler/uploads/*
+!internal/handler/uploads/.gitkeep
 
 # Logs
 *.log
