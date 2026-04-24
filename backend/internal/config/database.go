@@ -50,7 +50,7 @@ func CloseDB(db *gorm.DB) error {
 }
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&model.User{},
 		&model.Transaction{},
 		&model.Portfolio{},
@@ -60,5 +60,14 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.AnalysisReportItem{},
 		&model.UploadedFile{},
 		&model.MarketSnapshot{},
-	)
+	); err != nil {
+		return err
+	}
+
+	return db.Exec(`
+		ALTER TABLE ai_analysis_reports
+			MODIFY COLUMN profit_rate DECIMAL(10,4) NOT NULL,
+			MODIFY COLUMN total_investment DECIMAL(15,2) NOT NULL,
+			MODIFY COLUMN total_profit DECIMAL(15,2) NOT NULL
+	`).Error
 }

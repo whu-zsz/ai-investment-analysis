@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS ai_analysis_reports (
     analysis_period_end DATE NOT NULL,
     total_investment DECIMAL(15,2) NOT NULL,
     total_profit DECIMAL(15,2) NOT NULL,
-    profit_rate DECIMAL(5,2) NOT NULL,
+    profit_rate DECIMAL(10,4) NOT NULL,
     risk_level VARCHAR(10) NOT NULL COMMENT 'low, medium, high',
     investment_style VARCHAR(50),
     summary_text TEXT NOT NULL,
