@@ -1,49 +1,73 @@
 import { useState, useCallback } from 'react';
+import type { UserResponse } from '../api/types';
 
-export interface UserInfo {
-  username: string;
-  displayName: string;
-  email: string;
-  avatar?: string;
-  role: string;
-  joinDate: string;
+export type UserInfo = UserResponse;
+
+function normalizeStoredUser(raw: unknown): UserInfo | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  const username = typeof candidate.username === 'string' ? candidate.username : '';
+  const email = typeof candidate.email === 'string' ? candidate.email : '';
+
+  if (!username || !email) {
+    return null;
+  }
+
+  const investmentPreference = candidate.investment_preference;
+  const legacyRole = candidate.role;
+  const normalizedPreference = investmentPreference === 'conservative' || investmentPreference === 'balanced' || investmentPreference === 'aggressive'
+    ? investmentPreference
+    : legacyRole === '保守型'
+      ? 'conservative'
+      : legacyRole === '激进型'
+        ? 'aggressive'
+        : 'balanced';
+
+  return {
+    id: typeof candidate.id === 'number' ? candidate.id : 0,
+    username,
+    email,
+    phone: typeof candidate.phone === 'string' ? candidate.phone : undefined,
+    avatar_url: typeof candidate.avatar_url === 'string'
+      ? candidate.avatar_url
+      : typeof candidate.avatar === 'string'
+        ? candidate.avatar
+        : undefined,
+    investment_preference: normalizedPreference,
+    total_profit: typeof candidate.total_profit === 'string' ? candidate.total_profit : '0.00',
+    risk_tolerance: typeof candidate.risk_tolerance === 'string' ? candidate.risk_tolerance : 'unknown',
+  };
 }
-
-const DEFAULT_USER: UserInfo = {
-  username: 'admin',
-  displayName: '投资顾问',
-  email: 'admin@guanshi.ai',
-  role: '高级分析师',
-  joinDate: '2024-01-01',
-};
 
 const getInitialState = () => {
   const token = localStorage.getItem('token');
   if (!token) {
-    return { isLoggedIn: false, userInfo: null, isLoading: false };
+    return { isLoggedIn: false, userInfo: null as UserInfo | null, isLoading: false };
   }
-  const saved = localStorage.getItem('userInfo');
-  return {
-    isLoggedIn: true,
-    userInfo: saved ? JSON.parse(saved) : DEFAULT_USER,
-    isLoading: false,
-  };
+
+  try {
+    const saved = localStorage.getItem('userInfo');
+    return {
+      isLoggedIn: true,
+      userInfo: normalizeStoredUser(saved ? JSON.parse(saved) : null),
+      isLoading: false,
+    };
+  } catch {
+    localStorage.removeItem('userInfo');
+    return { isLoggedIn: true, userInfo: null as UserInfo | null, isLoading: false };
+  }
 };
 
 export function useAuth() {
   const [{ isLoggedIn, userInfo }, setState] = useState(getInitialState);
 
-  const login = useCallback((username: string, email: string, role: string, token: string) => {
-    const info: UserInfo = {
-      username,
-      displayName: username,
-      email,
-      role,
-      joinDate: new Date().toISOString().slice(0, 10),
-    };
+  const login = useCallback((user: UserResponse, token: string) => {
     localStorage.setItem('token', token);
-    localStorage.setItem('userInfo', JSON.stringify(info));
-    setState({ isLoggedIn: true, userInfo: info, isLoading: false });
+    localStorage.setItem('userInfo', JSON.stringify(user));
+    setState({ isLoggedIn: true, userInfo: user, isLoading: false });
   }, []);
 
   const logout = useCallback(() => {
@@ -53,7 +77,11 @@ export function useAuth() {
   }, []);
 
   const updateUserInfo = useCallback((info: Partial<UserInfo>) => {
-    const updated = { ...(userInfo ?? DEFAULT_USER), ...info };
+    if (!userInfo) {
+      return;
+    }
+
+    const updated = { ...userInfo, ...info };
     localStorage.setItem('userInfo', JSON.stringify(updated));
     setState(prev => ({ isLoggedIn: prev.isLoggedIn, userInfo: updated, isLoading: false }));
   }, [userInfo]);

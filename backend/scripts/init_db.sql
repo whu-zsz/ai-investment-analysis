@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
 -- 插入测试用户（密码：123456）
 INSERT INTO users (username, email, password_hash, investment_preference, total_profit, risk_tolerance)
 VALUES
-('testuser', 'test@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMy.Mrq7K9Y5JwWK5qXKqKWGqKWGqKWGqKW', 'balanced', 0.00, 'medium');
+('testuser', 'test@example.com', '$2a$10$sNiBl7K8mOVa8PQyWKFTKuM.rryXJ1ZAGuMyU9/AA9fYxs9W04guW', 'balanced', 0.00, 'medium');
 
 -- 完成
 SELECT 'Database initialization completed!' AS message;

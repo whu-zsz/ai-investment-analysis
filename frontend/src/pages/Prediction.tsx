@@ -10,42 +10,62 @@ import {
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { api } from '../types';
+import { analysisApi } from '../api';
+import type { AnalysisReportResponse } from '../api/types';
+import { mockAnalysisReport } from '../mockData';
 
 const { Title, Text, Paragraph } = Typography;
 
-interface AnalysisReport {
-  id: number;
-  report_type: string;
-  report_title: string;
-  analysis_period_start: string;
-  analysis_period_end: string;
-  prediction_text: string;
-  profit_rate: string;
-  ai_model: string;
-  created_at: string;
-}
-
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
 
-const scenarios = [
-  { label: '乐观情景 (P90)', value: '+34.2%', color: '#52c41a' },
-  { label: '基准情景 (P50)', value: '+12.8%', color: '#1677ff' },
-  { label: '悲观情景 (P10)', value: '-5.1%', color: '#ff4d4f' },
-];
+interface ProfitChartPoint {
+  symbol: string;
+  value: string;
+}
+
+const marketStatusMap: Record<string, { color: string; text: string }> = {
+  complete: { color: 'success', text: '市场数据完整' },
+  fetched_live: { color: 'processing', text: '市场数据实时拉取' },
+  partial: { color: 'warning', text: '市场数据部分缺失' },
+  unavailable: { color: 'error', text: '市场数据不可用' },
+};
+
+function getMarketStatusMeta(status?: string) {
+  return marketStatusMap[status ?? ''] ?? { color: 'default', text: status || '未知状态' };
+}
+
+function parseProfitChartData(chartData?: string): ProfitChartPoint[] {
+  if (!chartData) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(chartData) as ProfitChartPoint[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function toNumber(value?: string): number {
+  if (!value) return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export default function PredictionPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<AnalysisReport | null>(null);
+  const [report, setReport] = useState<AnalysisReportResponse | null>(null);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const response = await api.getReports({ limit: 1 });
-        const reports = response.data as AnalysisReport[];
+        const reports = await analysisApi.getReports({ report_type: 'summary', limit: 1 });
         setReport(reports[0] ?? null);
+      } catch {
+        setReport(mockAnalysisReport);
       } finally {
         setLoading(false);
       }
@@ -54,48 +74,56 @@ export default function PredictionPage() {
     void load();
   }, []);
 
-  const getOption = (): EChartsOption => {
-    const historyData = [1.0, 1.02, 1.01, 1.05, 1.08, 1.07, 1.12];
-    const predictMid = [1.12, 1.15, 1.18, 1.22];
-    const predictUpper = [1.12, 1.18, 1.25, 1.35];
-    const predictLower = [1.12, 1.11, 1.08, 1.05];
+  const annualRate = useMemo(() => toNumber(report?.profit_rate), [report]);
+  const marketStatus = useMemo(() => getMarketStatusMeta(report?.market_data_status), [report]);
+  const profitChartData = useMemo(() => parseProfitChartData(report?.chart_data), [report]);
+  const topProfitPoint = useMemo(() => {
+    if (!profitChartData.length) {
+      return null;
+    }
 
-    return {
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderColor: '#d9e6ff',
-        borderWidth: 1,
-      },
-      legend: {
-        data: ['历史净值', '趋势路径', '乐观上限', '悲观下限'],
-        bottom: 0,
-        textStyle: { color: '#595959' },
-      },
-      grid: { top: '8%', left: '3%', right: '4%', bottom: '14%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '预测Q3', '预测Q4', '预测Y1', '预测Y2'],
-        axisLine: { lineStyle: { color: '#d9d9d9' } },
-        axisLabel: { color: '#8c8c8c' },
-      },
-      yAxis: {
-        type: 'value',
-        scale: true,
-        splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
-        axisLabel: { color: '#8c8c8c', formatter: '{value}x' },
-      },
-      series: [
-        { name: '历史净值', type: 'line', data: historyData, smooth: true, lineStyle: { width: 3, color: '#1677ff' }, symbol: 'none' },
-        { name: '趋势路径', type: 'line', data: [...Array(6).fill(null), ...predictMid], smooth: true, lineStyle: { type: 'dashed', width: 2, color: '#52c41a' }, symbol: 'circle', symbolSize: 6 },
-        { name: '乐观上限', type: 'line', data: [...Array(6).fill(null), ...predictUpper], smooth: true, lineStyle: { width: 1, type: 'dotted', color: '#1677ff' }, symbol: 'none' },
-        { name: '悲观下限', type: 'line', data: [...Array(6).fill(null), ...predictLower], smooth: true, lineStyle: { width: 1, type: 'dotted', color: '#ff4d4f' }, symbol: 'none' },
-      ],
-    };
-  };
+    return [...profitChartData].sort((a, b) => toNumber(b.value) - toNumber(a.value))[0];
+  }, [profitChartData]);
 
-  const annualRate = useMemo(() => Number(report?.profit_rate ?? 12.8), [report]);
+  const getOption = (): EChartsOption => ({
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.96)',
+      borderColor: '#d9e6ff',
+      borderWidth: 1,
+      formatter: (params: unknown) => {
+        const list = params as Array<{ axisValueLabel?: string; value: number }>;
+        const data = list[0];
+        return `<div style="padding: 4px 6px;">
+                  <div style="color: #888; margin-bottom: 4px;">${data.axisValueLabel ?? ''}</div>
+                  <div style="font-weight: bold; color: #1677ff; font-size: 16px;">${data.value.toFixed(2)}</div>
+                </div>`;
+      },
+    },
+    grid: { top: '8%', left: '3%', right: '4%', bottom: '10%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: profitChartData.map(item => item.symbol),
+      axisLine: { lineStyle: { color: '#d9d9d9' } },
+      axisLabel: { color: '#8c8c8c' },
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
+      axisLabel: { color: '#8c8c8c' },
+    },
+    series: [
+      {
+        name: '累计收益',
+        type: 'bar',
+        data: profitChartData.map(item => toNumber(item.value)),
+        itemStyle: {
+          color: (params: { value?: unknown }) => (Number(params.value ?? 0) >= 0 ? '#52c41a' : '#ff4d4f'),
+          borderRadius: [8, 8, 0, 0],
+        },
+      },
+    ],
+  });
 
   return (
     <div style={{ padding: '24px' }}>
@@ -125,14 +153,17 @@ export default function PredictionPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 收益趋势预测</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前后端暂无独立 `/analysis/prediction`，本页改为展示最近分析报告中的趋势结论。
+              当前后端暂无独立预测接口，本页展示最近一份 summary 报告中的趋势结论与收益分布。
             </Paragraph>
           </div>
           <Space wrap>
             <Tag color="success" icon={<RiseOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
               参考收益率 {annualRate}%
             </Tag>
-            <Tag color="processing" icon={<StockOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
+            <Tag color={marketStatus.color} icon={<StockOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
+              {marketStatus.text}
+            </Tag>
+            <Tag color="processing" icon={<ThunderboltOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
               模型 {report?.ai_model || '—'}
             </Tag>
           </Space>
@@ -161,7 +192,7 @@ export default function PredictionPage() {
                   value={annualRate}
                   suffix="%"
                   precision={2}
-                  valueStyle={{ color: '#52c41a', fontSize: 34 }}
+                  valueStyle={{ color: annualRate >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 34 }}
                   prefix={<StockOutlined />}
                 />
                 <Tag color="success" style={{ marginTop: 10, borderRadius: 20, padding: '2px 12px' }}>
@@ -169,25 +200,25 @@ export default function PredictionPage() {
                 </Tag>
               </Card>
 
-              <Card bordered={false} style={cardStyle} title={<span><InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />情景模拟区间</span>}>
-                {scenarios.map((item, i) => (
-                  <div key={item.label} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: i < scenarios.length - 1 ? '1px solid #f0f0f0' : 'none',
-                  }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
-                    <Tag color={item.color === '#52c41a' ? 'success' : item.color === '#1677ff' ? 'processing' : 'error'} style={{ borderRadius: 20, fontWeight: 700 }}>
-                      {item.value}
-                    </Tag>
-                  </div>
-                ))}
+              <Card bordered={false} style={cardStyle} title={<span><InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />关键信息</span>}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>报告类型</Text>
+                  <Tag color="processing" style={{ borderRadius: 20, fontWeight: 700 }}>{report.report_type}</Tag>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>分析周期</Text>
+                  <Text strong>{report.analysis_period_start} ~ {report.analysis_period_end}</Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>最高收益标的</Text>
+                  <Text strong>{topProfitPoint ? `${topProfitPoint.symbol} (${topProfitPoint.value})` : '暂无数据'}</Text>
+                </div>
               </Card>
 
               <Alert
-                message="风险提示"
-                description="该页面当前展示的是基于最近分析报告的趋势结论，并非独立预测接口结果。"
-                type="warning"
+                message="说明"
+                description="该页面当前展示的是最近分析报告中的预测文本与收益分布，不再伪造独立趋势路径。"
+                type="info"
                 showIcon
                 icon={<InfoCircleOutlined />}
                 style={{ borderRadius: 12 }}
@@ -197,8 +228,12 @@ export default function PredictionPage() {
 
           <Col span={24} lg={18}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              <Card bordered={false} style={cardStyle} title={<span><LineChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />资产净值演变模拟（趋势展示）</span>} extra={<Text type="secondary" style={{ fontSize: 12 }}>报告时间: {report.created_at}</Text>}>
-                <ReactECharts option={getOption()} style={{ height: '460px' }} />
+              <Card bordered={false} style={cardStyle} title={<span><LineChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股累计收益分布</span>} extra={<Text type="secondary" style={{ fontSize: 12 }}>报告时间: {report.created_at}</Text>}>
+                {profitChartData.length ? (
+                  <ReactECharts option={getOption()} style={{ height: '460px' }} />
+                ) : (
+                  <Empty description="当前报告没有可用的图表数据" />
+                )}
               </Card>
 
               <Card bordered={false} style={cardStyle}>
@@ -207,7 +242,7 @@ export default function PredictionPage() {
                   showIcon
                   icon={<InfoCircleOutlined />}
                   message={report.report_title || '最近一份分析报告'}
-                  description="预测页已不再请求不存在的 /analysis/prediction，而是复用最近分析报告的趋势文本。"
+                  description={report.summary_text || '当前预测页复用最近分析报告的数据。'}
                 />
               </Card>
             </Space>

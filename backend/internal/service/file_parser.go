@@ -73,13 +73,13 @@ func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*mod
 	}
 
 	// 解析数量
-	quantity, err := decimal.NewFromString(strings.TrimSpace(record[4]))
+	quantity, err := decimal.NewFromString(strings.TrimSpace(record[5]))
 	if err != nil {
 		return nil, fmt.Errorf("invalid quantity: %w", err)
 	}
 
 	// 解析单价
-	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(record[5]))
+	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(record[6]))
 	if err != nil {
 		return nil, fmt.Errorf("invalid price: %w", err)
 	}
@@ -89,8 +89,8 @@ func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*mod
 
 	// 解析手续费
 	commission := decimal.Zero
-	if len(record) > 6 {
-		commission, _ = decimal.NewFromString(strings.TrimSpace(record[6]))
+	if len(record) > 7 {
+		commission, _ = decimal.NewFromString(strings.TrimSpace(record[7]))
 	}
 
 	transaction := &model.Transaction{
@@ -99,7 +99,7 @@ func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*mod
 		TransactionType: strings.ToLower(strings.TrimSpace(record[1])),
 		AssetType:       strings.TrimSpace(record[2]),
 		AssetCode:       strings.TrimSpace(record[3]),
-		AssetName:       strings.TrimSpace(record[3]),
+		AssetName:       strings.TrimSpace(record[4]),
 		Quantity:        quantity,
 		PricePerUnit:    pricePerUnit,
 		TotalAmount:     totalAmount,
@@ -167,13 +167,13 @@ func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.T
 	}
 
 	// 解析数量
-	quantity, err := decimal.NewFromString(strings.TrimSpace(row[4]))
+	quantity, err := decimal.NewFromString(strings.TrimSpace(row[5]))
 	if err != nil {
 		return nil, fmt.Errorf("invalid quantity: %w", err)
 	}
 
 	// 解析单价
-	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(row[5]))
+	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(row[6]))
 	if err != nil {
 		return nil, fmt.Errorf("invalid price: %w", err)
 	}
@@ -183,8 +183,8 @@ func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.T
 
 	// 解析手续费
 	commission := decimal.Zero
-	if len(row) > 6 {
-		commission, _ = decimal.NewFromString(strings.TrimSpace(row[6]))
+	if len(row) > 7 {
+		commission, _ = decimal.NewFromString(strings.TrimSpace(row[7]))
 	}
 
 	transaction := &model.Transaction{
@@ -193,7 +193,7 @@ func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.T
 		TransactionType: strings.ToLower(strings.TrimSpace(row[1])),
 		AssetType:       strings.TrimSpace(row[2]),
 		AssetCode:       strings.TrimSpace(row[3]),
-		AssetName:       strings.TrimSpace(row[3]),
+		AssetName:       strings.TrimSpace(row[4]),
 		Quantity:        quantity,
 		PricePerUnit:    pricePerUnit,
 		TotalAmount:     totalAmount,

@@ -10,47 +10,24 @@ const { Title, Text } = Typography;
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();          // ← 用 useAuth 的 login，保证 React 状态同步更新
+  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const from = (location.state as { from?: string })?.from ?? '/';
 
-  // 测试账号（后端未启动时使用）
-  const MOCK_USERS: Record<string, string> = {
-    admin: '123456',
-    test:  '123456',
-  };
-
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      // ── 优先尝试真实接口 ──
       const res = await authApi.login({
         username: values.username,
         password: values.password,
       });
-      // 调用 useAuth.login()，同时写 localStorage + 更新 React 状态
-      login(res.user.username, res.user.email, res.user.investment_preference, res.token);
+      login(res.user, res.token);
       message.success('登录成功，正在进入系统...');
       navigate(from, { replace: true });
-
     } catch (err: any) {
-      const isNetworkError = !err?.response;
-
-      if (isNetworkError) {
-        // 后端未启动，走本地测试账号
-        const mockPassword = MOCK_USERS[values.username];
-        if (mockPassword && mockPassword === values.password) {
-          login(values.username, `${values.username}@test.com`, 'balanced', 'mock_token_' + Date.now());
-          message.warning('后端未连接，已使用测试账号登录');
-          navigate(from, { replace: true });
-        } else {
-          message.error('后端未连接。测试账号：admin / 123456 或 test / 123456');
-        }
-      } else {
-        const msg = err?.response?.data?.message ?? err?.response?.data?.error ?? '账号或密码错误';
-        message.error(msg);
-      }
+      const msg = err?.message ?? err?.data?.message ?? '登录失败，请检查账号或密码';
+      message.error(msg);
     } finally {
       setLoading(false);
     }
@@ -86,11 +63,11 @@ export default function Login() {
               <SafetyCertificateOutlined style={{ fontSize: 26, color: '#fff' }} />
             </div>
             <Space size={8} style={{ marginBottom: 14 }}>
-              <Tag color="processing" style={{ borderRadius: 20, padding: '2px 12px' }}>AI 驱动</Tag>
-              <Tag color="blue"       style={{ borderRadius: 20, padding: '2px 12px' }}>实时市场洞察</Tag>
+              <Tag color="processing" style={{ borderRadius: 20, padding: '2px 12px' }}>账户登录</Tag>
+              <Tag color="blue" style={{ borderRadius: 20, padding: '2px 12px' }}>访问受保护页面</Tag>
             </Space>
             <Title level={2} style={{ color: '#fff', marginBottom: 8, marginTop: 0 }}>观势智投</Title>
-            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>请输入凭证以访问 AI 分析系统</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>请输入账号密码后继续访问系统</Text>
           </div>
 
           <Form onFinish={onFinish} size="large" layout="vertical" disabled={loading}>
@@ -119,25 +96,15 @@ export default function Login() {
                   border: 'none', boxShadow: '0 8px 24px rgba(22,119,255,0.4)',
                 }}
               >
-                {loading ? '验证中...' : '开启智能分析'}
+                {loading ? '验证中...' : '登录并继续'}
               </Button>
             </Form.Item>
           </Form>
 
           <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.07)', textAlign: 'center' }}>
             <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12, letterSpacing: '0.04em' }}>
-              DEEPSEEK-V3 安全链路 · 端到端加密
+              登录成功后将返回您刚才访问的页面
             </Text>
-            <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)' }}>
-              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
-                🔧 后端未连接时可用测试账号：
-              </Text>
-              <div style={{ marginTop: 4 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, fontFamily: 'monospace' }}>
-                  admin / 123456&nbsp;&nbsp;·&nbsp;&nbsp;test / 123456
-                </Text>
-              </div>
-            </div>
           </div>
         </Card>
       </div>

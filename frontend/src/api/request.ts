@@ -18,17 +18,28 @@ request.interceptors.request.use((config) => {
 
 // ── 响应拦截器：统一错误处理 ──
 request.interceptors.response.use(
-  (res) => res.data,
+  (res) => {
+    const payload = res.data;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return payload.data;
+    }
+    return payload;
+  },
   (err) => {
     const status = err.response?.status;
-    if (status === 401) {
-      // token 过期或无效，清除登录态跳回登录页
+    const url = err.config?.url ?? '';
+
+    if (status === 401 && !url.includes('/auth/login')) {
       localStorage.removeItem('token');
       localStorage.removeItem('userInfo');
       window.location.href = '/login';
     }
-    // 把后端返回的 message 透传给调用方
-    return Promise.reject(err.response?.data ?? err);
+
+    return Promise.reject({
+      status,
+      message: err.response?.data?.message ?? err.message,
+      data: err.response?.data,
+    });
   }
 );
 

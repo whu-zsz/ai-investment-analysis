@@ -69,11 +69,11 @@ export const mockTransactionList: TransactionListResponse = {
   page: 1,
   page_size: 10,
   transactions: [
-    { id: 1, transaction_date: '2024-03-22', transaction_type: 'buy',  asset_type: 'stock', asset_code: '0700.HK', asset_name: '腾讯控股',    quantity: '100',  price_per_unit: '290.50', total_amount: '29050.00', commission: '29.05', profit: null,     notes: null, created_at: '2024-03-22T14:30:00Z' },
-    { id: 2, transaction_date: '2024-03-21', transaction_type: 'sell', asset_type: 'stock', asset_code: '600519',  asset_name: '贵州茅台',    quantity: '10',   price_per_unit: '1720.00', total_amount: '17200.00', commission: '17.20', profit: '-380.00', notes: null, created_at: '2024-03-21T10:15:00Z' },
-    { id: 3, transaction_date: '2024-03-20', transaction_type: 'buy',  asset_type: 'fund',  asset_code: '513100',  asset_name: '纳指100ETF', quantity: '5000', price_per_unit: '1.25',    total_amount: '6250.00',  commission: '6.25',  profit: null,     notes: null, created_at: '2024-03-20T09:45:00Z' },
-    { id: 4, transaction_date: '2024-03-19', transaction_type: 'buy',  asset_type: 'stock', asset_code: 'NVDA.US', asset_name: '英伟达',      quantity: '5',    price_per_unit: '890.20',  total_amount: '4451.00',  commission: '4.45',  profit: null,     notes: null, created_at: '2024-03-19T15:00:00Z' },
-    { id: 5, transaction_date: '2024-03-18', transaction_type: 'sell', asset_type: 'stock', asset_code: '600036',  asset_name: '招商银行',    quantity: '1000', price_per_unit: '32.10',   total_amount: '32100.00', commission: '32.10', profit: '-120.00', notes: null, created_at: '2024-03-18T11:20:00Z' },
+    { id: 1, transaction_date: '2024-03-22', transaction_type: 'buy',  asset_type: 'stock', asset_code: '0700.HK', asset_name: '腾讯控股',    quantity: '100',  price_per_unit: '290.50', total_amount: '29050.00', commission: '29.05', created_at: '2024-03-22T14:30:00Z' },
+    { id: 2, transaction_date: '2024-03-21', transaction_type: 'sell', asset_type: 'stock', asset_code: '600519',  asset_name: '贵州茅台',    quantity: '10',   price_per_unit: '1720.00', total_amount: '17200.00', commission: '17.20', profit: '-380.00', created_at: '2024-03-21T10:15:00Z' },
+    { id: 3, transaction_date: '2024-03-20', transaction_type: 'buy',  asset_type: 'fund',  asset_code: '513100',  asset_name: '纳指100ETF', quantity: '5000', price_per_unit: '1.25',    total_amount: '6250.00',  commission: '6.25', created_at: '2024-03-20T09:45:00Z' },
+    { id: 4, transaction_date: '2024-03-19', transaction_type: 'buy',  asset_type: 'stock', asset_code: 'NVDA.US', asset_name: '英伟达',      quantity: '5',    price_per_unit: '890.20',  total_amount: '4451.00',  commission: '4.45', created_at: '2024-03-19T15:00:00Z' },
+    { id: 5, transaction_date: '2024-03-18', transaction_type: 'sell', asset_type: 'stock', asset_code: '600036',  asset_name: '招商银行',    quantity: '1000', price_per_unit: '32.10',   total_amount: '32100.00', commission: '32.10', profit: '-120.00', created_at: '2024-03-18T11:20:00Z' },
   ],
 };
 
@@ -97,6 +97,7 @@ export const mockAnalysisReport: AnalysisReportResponse = {
   total_profit: '3700.00',
   profit_rate: '4.15',
   risk_level: 'high',
+  market_data_status: 'fresh',
   investment_style: 'aggressive',
   summary_text: '当前组合仍处于偏进攻状态，收益动能尚可，但需尽快压低集中度与高频换手。',
   risk_analysis: '持仓集中度过高。您的前两大持仓占总资产 65%，极易受单一行业波动影响。',

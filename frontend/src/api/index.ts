@@ -2,10 +2,10 @@ import request from './request';
 import type {
   LoginRequest, RegisterRequest, LoginResponse,
   UserResponse, UpdateProfileRequest,
-  TransactionListResponse, TransactionStats, CreateTransactionRequest,
+  TransactionListResponse, TransactionStats, CreateTransactionRequest, UpdateTransactionRequest, TransactionResponse,
   PortfolioResponse,
   DashboardMarketSnapshotResponse, MarketSnapshotResponse,
-  AnalysisReportResponse,
+  AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
 } from './types';
 
@@ -15,12 +15,16 @@ import type {
 
 export const authApi = {
   /** POST /auth/register */
-  register: (data: RegisterRequest): Promise<LoginResponse> =>
+  register: (data: RegisterRequest): Promise<UserResponse> =>
     request.post('/auth/register', data),
 
   /** POST /auth/login */
   login: (data: LoginRequest): Promise<LoginResponse> =>
     request.post('/auth/login', data),
+
+  /** POST /auth/logout */
+  logout: (): Promise<void> =>
+    request.post('/auth/logout'),
 };
 
 // ══════════════════════════════════════════
@@ -66,15 +70,11 @@ export const uploadApi = {
 export const transactionApi = {
   /**
    * GET /transactions
-   * 支持分页和筛选参数
+   * 当前仅支持分页参数
    */
   getList: (params?: {
     page?: number;
     page_size?: number;
-    start_date?: string;
-    end_date?: string;
-    asset_code?: string;
-    transaction_type?: string;
   }): Promise<TransactionListResponse> =>
     request.get('/transactions', { params }),
 
@@ -82,9 +82,17 @@ export const transactionApi = {
   getStats: (): Promise<TransactionStats> =>
     request.get('/transactions/stats'),
 
+  /** GET /transactions/:id */
+  getDetail: (id: number): Promise<TransactionResponse> =>
+    request.get(`/transactions/${id}`),
+
   /** POST /transactions */
   create: (data: CreateTransactionRequest): Promise<void> =>
     request.post('/transactions', data),
+
+  /** PUT /transactions/:id */
+  update: (id: number, data: UpdateTransactionRequest): Promise<TransactionResponse> =>
+    request.put(`/transactions/${id}`, data),
 
   /** DELETE /transactions/:id */
   delete: (id: number): Promise<void> =>
@@ -128,6 +136,31 @@ export const marketApi = {
 
 export const analysisApi = {
   /**
+   * POST /analysis/tasks
+   * 创建异步分析任务
+   */
+  createTask: (data: {
+    start_date: string;
+    end_date: string;
+    symbols?: string[];
+    force_refresh_market?: boolean;
+    force_refresh_metrics?: boolean;
+  }): Promise<AnalysisTaskResponse> =>
+    request.post('/analysis/tasks', data),
+
+  /** GET /analysis/tasks */
+  getTasks: (params?: {
+    status?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<AnalysisTaskListResponse> =>
+    request.get('/analysis/tasks', { params }),
+
+  /** GET /analysis/tasks/:id */
+  getTask: (id: number): Promise<AnalysisTaskDetailResponse> =>
+    request.get(`/analysis/tasks/${id}`),
+
+  /**
    * POST /analysis/summary
    * 触发 AI 生成分析报告，可能耗时较长
    */
@@ -135,6 +168,10 @@ export const analysisApi = {
     request.post('/analysis/summary', null, { params }),
 
   /** GET /analysis/reports —— 获取历史报告列表 */
-  getReports: (): Promise<AnalysisReportResponse[]> =>
-    request.get('/analysis/reports'),
+  getReports: (params?: { report_type?: string; limit?: number }): Promise<AnalysisReportResponse[]> =>
+    request.get('/analysis/reports', { params }),
+
+  /** GET /analysis/reports/:id */
+  getReportDetail: (id: number): Promise<AnalysisReportDetailResponse> =>
+    request.get(`/analysis/reports/${id}`),
 };

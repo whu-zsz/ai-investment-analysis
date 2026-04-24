@@ -1,18 +1,15 @@
-import { Alert, Button, Card, Col, Descriptions, Divider, Avatar, Dropdown, Popover, Progress, Row, Space, Statistic, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Divider, Avatar, Dropdown, Popover, Row, Space, Statistic, Tag, Typography } from 'antd';
 import {
-  BarChartOutlined,
   BulbOutlined,
-  InfoCircleOutlined,
   LineChartOutlined,
   RadarChartOutlined,
   RiseOutlined,
-  SafetyCertificateOutlined,
   ThunderboltOutlined,
   UserOutlined,
   LogoutOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
@@ -38,7 +35,7 @@ interface KpiChartConfig {
   color: string;
 }
 
-interface KpiCard {
+interface DashboardInsightCard {
   title: string;
   value: number;
   precision: number;
@@ -50,76 +47,71 @@ interface KpiCard {
   chart: KpiChartConfig;
 }
 
-const kpiCards: KpiCard[] = [
-  {
-    title: '总资产估值',
-    value: 128.6,
-    precision: 1,
-    suffix: '万',
-    accent: '#1677ff',
-    tagColor: 'blue',
-    tagText: '较上周 +3.2%',
-    desc: '权益仓位维持高位，资金利用率良好。',
-    chart: {
-      seriesName: '总资产估值',
-      unit: '万',
-      labels: ['03-19', '03-20', '03-21', '03-24', '03-25', '03-26', '03-27'],
-      values: [121.2, 122.4, 123.8, 125.6, 126.9, 127.8, 128.6],
-      color: '#1677ff'
-    }
-  },
-  {
-    title: '今日盈亏',
-    value: 1.84,
-    precision: 2,
-    suffix: '万',
-    accent: '#52c41a',
-    tagColor: 'green',
-    tagText: '跑赢沪深300 +0.68%',
-    desc: '科技与红利双主线贡献主要涨幅。',
-    chart: {
-      seriesName: '日内盈亏',
-      unit: '万',
-      labels: ['09:35', '10:00', '10:30', '11:00', '13:30', '14:30', '15:00'],
-      values: [0.22, 0.45, 0.36, 0.72, 1.15, 1.46, 1.84],
-      color: '#52c41a'
-    }
-  },
-  {
-    title: '累计收益率',
-    value: 24.7,
-    precision: 1,
-    suffix: '%',
-    accent: '#722ed1',
-    tagColor: 'purple',
-    tagText: '年内新高附近',
-    desc: '净值曲线仍保持上升通道，回撤可控。',
-    chart: {
-      seriesName: '累计收益率',
-      unit: '%',
-      labels: ['10月', '11月', '12月', '1月', '2月', '3月', '本周'],
-      values: [12.8, 14.9, 16.7, 18.4, 20.9, 22.6, 24.7],
-      color: '#722ed1'
-    }
-  },
-  {
-    title: '风险健康度',
-    value: 74.2,
-    precision: 1,
-    suffix: '/ 100',
-    accent: '#fa8c16',
-    tagColor: 'orange',
-    tagText: '需关注集中度',
-    desc: '组合进攻性较强，建议关注仓位平衡。',
-    chart: {
-      seriesName: '风险健康度',
-      unit: '分',
-      labels: ['周一', '周二', '周三', '周四', '周五', '本周', '当前'],
-      values: [79.8, 78.6, 77.1, 76.5, 75.4, 74.9, 74.2],
-      color: '#fa8c16'
-    }
+const chartPalette = ['#1677ff', '#52c41a', '#722ed1', '#fa8c16', '#13c2c2', '#eb2f96'];
+
+const statColorMap: Record<string, string> = {
+  指数数量: '#1677ff',
+  上涨数: '#52c41a',
+  下跌数: '#ff4d4f',
+  平均涨跌幅: '#722ed1',
+  总成交额: '#13c2c2',
+};
+
+function toNumber(value?: string): number {
+  if (!value) return 0;
+  const parsed = Number.parseFloat(value.replace(/[%亿,+]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatChangePercent(changePercent?: string): string {
+  if (!changePercent) return '0.00%';
+  const normalized = changePercent.trim();
+  if (normalized.endsWith('%')) {
+    return normalized;
   }
-];
+  const numeric = toNumber(normalized);
+  return `${numeric >= 0 ? '+' : ''}${normalized}%`;
+}
+
+function getTrendTag(changePercent?: string) {
+  const numeric = toNumber(changePercent);
+  if (numeric > 0) {
+    return { color: 'green', text: `涨幅 ${formatChangePercent(changePercent)}` };
+  }
+  if (numeric < 0) {
+    return { color: 'red', text: `跌幅 ${formatChangePercent(changePercent).replace('-', '')}` };
+  }
+  return { color: 'default', text: '平盘' };
+}
+
+function buildInsightCards(marketData: DashboardMarketSnapshotResponse | null): DashboardInsightCard[] {
+  if (!marketData?.indices?.length) {
+    return [];
+  }
+
+  return marketData.indices.slice(0, 4).map((item, index) => {
+    const color = chartPalette[index % chartPalette.length];
+    const trend = getTrendTag(item.change_percent);
+
+    return {
+      title: item.name,
+      value: toNumber(item.last_price),
+      precision: 2,
+      suffix: '点',
+      accent: color,
+      tagColor: trend.color,
+      tagText: trend.text,
+      desc: `${item.symbol} · 最新涨跌额 ${item.change_amount}`,
+      chart: {
+        seriesName: item.name,
+        unit: '点',
+        labels: marketData.main_chart.series.map(point => point.label),
+        values: marketData.main_chart.series.map(point => toNumber(point.value)),
+        color,
+      }
+    };
+  });
+}
 
 
 function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EChartsOption {
@@ -195,7 +187,6 @@ export default function Dashboard() {
 
   // 市场数据状态
   const [marketData, setMarketData] = useState<DashboardMarketSnapshotResponse | null>(null);
-  const [loading, setLoading] = useState(true);
 
   // 获取市场数据
   useEffect(() => {
@@ -205,8 +196,6 @@ export default function Dashboard() {
         setMarketData(res);
       } catch {
         setMarketData(mockDashboardSnapshot);
-      } finally {
-        setLoading(false);
       }
     };
     fetchMarketData();
@@ -238,7 +227,7 @@ export default function Dashboard() {
         const list = params as ChartParam[];
         const data = list[0];
         return `<div style="padding: 4px 6px;">
-                  <div style="color: #888; margin-bottom: 4px;">${data.name} 指数</div>
+                  <div style="color: #888; margin-bottom: 4px;">${data.name}</div>
                   <div style="font-weight: bold; color: #1677ff; font-size: 16px;">${data.value.toLocaleString()} 点</div>
                 </div>`;
       }
@@ -262,11 +251,11 @@ export default function Dashboard() {
     },
     series: [
       {
-        name: marketData?.main_chart.index_name || '上证指数',
+        name: marketData?.main_chart.index_name || '市场走势',
         type: 'line',
         smooth: true,
         showSymbol: false,
-        data: (marketData?.main_chart.series || []).map(point => parseFloat(point.value)),
+        data: (marketData?.main_chart.series || []).map(point => toNumber(point.value)),
         lineStyle: { width: 3, color: '#1677ff' },
         areaStyle: {
           color: {
@@ -285,15 +274,19 @@ export default function Dashboard() {
     ]
   });
 
-  // 在组件内部定义quickStats，以便访问marketData
-  const quickStats = [
-    { label: '区间涨跌幅', value: marketData?.stats?.[0]?.value || '+6.82%', color: '#52c41a' },
-    { label: '跑赢基准', value: marketData?.stats?.[1]?.value || '+1.36%', color: '#1677ff' },
-    { label: '最大回撤', value: marketData?.stats?.[2]?.value || '4.90%', color: '#fa8c16' },
-    { label: '年化波动率', value: marketData?.stats?.[3]?.value || '18.4%', color: '#722ed1' },
-    { label: '月度换手率', value: marketData?.stats?.[4]?.value || '32%', color: '#13c2c2' },
-    { label: '近30日胜率', value: marketData?.stats?.[5]?.value || '61%', color: '#eb2f96' }
-  ];
+  const insightCards = useMemo(() => buildInsightCards(marketData), [marketData]);
+
+  const quickStats = useMemo(() => {
+    if (!marketData?.stats?.length) {
+      return [];
+    }
+
+    return marketData.stats.map((item) => ({
+      label: item.label,
+      value: item.value,
+      color: statColorMap[item.label] || '#1677ff',
+    }));
+  }, [marketData]);
 
   return (
     <div style={{ padding: isPublicHome ? '24px' : '4px' }}>
@@ -345,7 +338,7 @@ export default function Dashboard() {
       )}
 
       <Row gutter={[16, 16]}>
-        {kpiCards.map((item) => (
+        {insightCards.map((item) => (
           <Col xs={24} sm={12} lg={6} key={item.title}>
             <Card
               bordered={false}
@@ -400,8 +393,10 @@ export default function Dashboard() {
         }
         extra={
           <Space size={8} wrap>
-            <Tag color="processing" icon={<RiseOutlined />}>上证指数近 7 日</Tag>
-            <Text type="secondary">更新时间 15:00</Text>
+            <Tag color={marketData?.is_stale ? 'warning' : 'processing'} icon={<RiseOutlined />}>
+              {marketData?.main_chart.index_name || '市场走势'}
+            </Tag>
+            <Text type="secondary">更新时间 {marketData?.snapshot_time || '--'}</Text>
           </Space>
         }
         bordered={false}
@@ -425,47 +420,21 @@ export default function Dashboard() {
         <Col span={24} lg={12}>
           <Card
             bordered={false}
-            title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />风险与仓位摘要</span>}
+            title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />市场快照</span>}
             style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
           >
-            <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Card bordered={false} style={{ background: '#f8fafc' }}>
-                  <Statistic
-                    title="风险健康分"
-                    value={74.2}
-                    suffix="/ 100"
-                    prefix={<SafetyCertificateOutlined />}
-                    valueStyle={{ color: '#52c41a' }}
-                  />
-                  <Progress percent={74.2} showInfo={false} strokeColor="#52c41a" style={{ marginTop: 8 }} />
-                </Card>
-              </Col>
-              <Col span={12}>
-                <Card bordered={false} style={{ background: '#fff7e6' }}>
-                  <Statistic
-                    title="仓位使用率"
-                    value={81}
-                    suffix="%"
-                    prefix={<BarChartOutlined />}
-                    valueStyle={{ color: '#fa8c16' }}
-                  />
-                  <Progress percent={81} showInfo={false} strokeColor="#fa8c16" style={{ marginTop: 8 }} />
-                </Card>
-              </Col>
-            </Row>
-
-            <Divider><InfoCircleOutlined /> 关键参数</Divider>
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="持仓集中度">
-                前 3 大持仓占比 <Text strong>58%</Text>，单一行业暴露偏高。
-              </Descriptions.Item>
-              <Descriptions.Item label="组合 Beta">
-                当前 Beta 为 <Text strong>1.18</Text>，高于稳健配置区间。
-              </Descriptions.Item>
-              <Descriptions.Item label="现金仓位">
-                可用现金 <Text strong>19%</Text>，具备一定防御和补仓弹性。
-              </Descriptions.Item>
+              {(marketData?.indices || []).map((item) => (
+                <Descriptions.Item key={item.symbol} label={item.name}>
+                  <Space split={<Divider type="vertical" />} size={8} wrap>
+                    <Text strong>{item.last_price}</Text>
+                    <Text type={toNumber(item.change_percent) >= 0 ? 'success' : 'danger'}>
+                      {formatChangePercent(item.change_percent)}
+                    </Text>
+                    <Text type="secondary">{item.symbol}</Text>
+                  </Space>
+                </Descriptions.Item>
+              ))}
             </Descriptions>
           </Card>
         </Col>
@@ -473,30 +442,25 @@ export default function Dashboard() {
         <Col span={24} lg={12}>
           <Card
             bordered={false}
-            title={<span><ThunderboltOutlined style={{ color: '#722ed1', marginRight: 8 }} />交易与行为摘要</span>}
+            title={<span><ThunderboltOutlined style={{ color: '#722ed1', marginRight: 8 }} />数据状态</span>}
             style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
           >
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="近 30 日交易次数">
-                共交易 <Text strong>26</Text> 次，节奏略高于当前市场波动所需。
+              <Descriptions.Item label="数据源">
+                <Text strong>{marketData?.source || '未知'}</Text>
               </Descriptions.Item>
-              <Descriptions.Item label="月度胜率与盈亏比">
-                胜率 <Text strong>61%</Text>，盈亏比 <Text strong>1.47</Text>，策略仍有优化空间。
+              <Descriptions.Item label="快照时间">
+                <Text strong>{marketData?.snapshot_time || '--'}</Text>
               </Descriptions.Item>
-              <Descriptions.Item label="平均持仓天数">
-                平均持仓 <Text strong>11</Text> 天，短线切换偏多。
+              <Descriptions.Item label="新鲜度">
+                <Tag color={marketData?.is_stale ? 'warning' : 'success'}>
+                  {marketData?.is_stale ? '数据可能已过期' : '数据新鲜'}
+                </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="手续费侵蚀估计">
-                本月摩擦成本约 <Text type="danger">0.8%</Text>，建议降低无效换手。
+              <Descriptions.Item label="统计口径">
+                基于当前最新批次指数快照自动聚合。
               </Descriptions.Item>
             </Descriptions>
-
-            <div style={{ background: '#f8fafc', padding: 18, borderRadius: 12, marginTop: 16 }}>
-              <Title level={5} style={{ marginTop: 0 }}>行为特征提示</Title>
-              <Paragraph style={{ marginBottom: 0 }}>
-                近期止盈执行较为积极，但亏损头寸处理偏慢，存在轻微“盈利先跑、亏损后拖”倾向。若市场进入震荡期，建议提高纪律性阈值。
-              </Paragraph>
-            </div>
           </Card>
         </Col>
       </Row>
@@ -506,14 +470,14 @@ export default function Dashboard() {
         style={{ marginTop: 16, borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
       >
         <Alert
-          type="info"
+          type={marketData?.is_stale ? 'warning' : 'info'}
           showIcon
           icon={<BulbOutlined />}
-          message="AI 一句话结论：当前组合仍处于偏进攻状态，收益动能尚可，但需尽快压低集中度与高频换手。"
+          message={`数据结论：当前共追踪 ${marketData?.indices.length || 0} 个指数，${marketData?.stats.find(item => item.label === '上涨数')?.value || '0'} 个上涨，${marketData?.stats.find(item => item.label === '下跌数')?.value || '0'} 个下跌。`}
           description={
             <Space direction="vertical" size={6}>
-              <Text>主要风险点：科技权重偏高、Beta 略高、交易摩擦成本持续累积。</Text>
-              <Text>建议动作：将高波动板块仓位下调 10%-15%，增加红利低波或现金缓冲，并进一步查看 AI 风险分析页获取调仓细项。</Text>
+              <Text>主图展示 {marketData?.main_chart.index_name || '市场走势'}，数据来源为 {marketData?.source || '未知'}。</Text>
+              <Text>{marketData?.is_stale ? '当前快照超过阈值，建议先刷新行情数据后再继续分析。' : '当前快照处于有效窗口，可继续联调其他依赖 dashboard 的页面。'}</Text>
             </Space>
           }
         />

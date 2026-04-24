@@ -84,6 +84,104 @@ export interface CreateTransactionRequest {
   notes?: string;
 }
 
+export interface UpdateTransactionRequest {
+  transaction_date: string;
+  transaction_type: 'buy' | 'sell' | 'dividend';
+  asset_type: string;
+  asset_code: string;
+  asset_name: string;
+  quantity: string;
+  price_per_unit: string;
+  commission?: string;
+  notes?: string;
+}
+
+export interface AnalysisTaskResponse {
+  id: number;
+  status: string;
+  progress_stage: string;
+  created_at: string;
+}
+
+export interface AnalysisTaskDetailResponse {
+  id: number;
+  task_type: string;
+  status: string;
+  progress_stage: string;
+  analysis_period_start: string;
+  analysis_period_end: string;
+  result_report_id?: number;
+  error_message: string;
+  started_at: string;
+  finished_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnalysisTaskListResponse {
+  items: AnalysisTaskDetailResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AnalysisReportItemResponse {
+  id: number;
+  symbol: string;
+  asset_name: string;
+  market: string;
+  trade_count: number;
+  buy_count: number;
+  sell_count: number;
+  buy_amount: string;
+  sell_amount: string;
+  net_quantity: string;
+  realized_profit: string;
+  realized_profit_rate: string;
+  ending_position_qty: string;
+  ending_avg_cost: string;
+  latest_price: string;
+  latest_market_value: string;
+  unrealized_profit: string;
+  total_profit: string;
+  change_percent_7d: string;
+  period_price_change_pct: string;
+  market_data_status: string;
+  risk_level: string;
+  investment_style: string;
+  analysis_text: string;
+  recommendation: string;
+  key_points: string[];
+  created_at: string;
+}
+
+export interface AnalysisReportDetailResponse {
+  id: number;
+  task_id?: number;
+  report_type: string;
+  report_title: string;
+  analysis_period_start: string;
+  analysis_period_end: string;
+  symbols_count: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_investment: string;
+  total_profit: string;
+  profit_rate: string;
+  risk_level: string;
+  market_data_status: string;
+  investment_style: string;
+  summary_text: string;
+  risk_analysis: string;
+  pattern_insights: string;
+  prediction_text: string;
+  chart_data: string;
+  recommendations: string[];
+  ai_model: string;
+  created_at: string;
+  items: AnalysisReportItemResponse[];
+}
+
 // ─────────────────────────────────────────
 //  对应 dto/response/portfolio.go
 // ─────────────────────────────────────────
@@ -168,12 +266,13 @@ export interface AnalysisReportResponse {
   total_profit: string;
   profit_rate: string;
   risk_level: string;
+  market_data_status: string;
   investment_style: string;
   summary_text: string;
   risk_analysis: string;
   pattern_insights: string;
   prediction_text: string;
-  chart_data: string;        // JSON 字符串，使用时需 JSON.parse
+  chart_data: string;
   recommendations: string;
   ai_model: string;
   created_at: string;
