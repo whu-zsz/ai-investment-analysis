@@ -3,11 +3,105 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-04-21
+> **更新日期**: 2026-04-24
 
 ---
 
 ## 0. 测试代码更新日志
+
+### 2026-04-24 更新记录 (续)
+
+#### 第六批测试代码 (Service: Upload + Portfolio) - 11:00
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:30 | `internal/service/upload_service_test.go` | 上传服务测试 | 11 | ✅ 通过 |
+| 11:00 | `internal/service/portfolio_service_test.go` | 持仓服务测试 | 14 | ✅ 通过 |
+
+**测试内容：**
+- UploadService: 文件处理/类型验证/大小验证/解析错误/批量创建
+- PortfolioService: 持仓获取/买入/卖出/分红/重新计算
+
+#### 测试覆盖进度
+
+```
+第六批: service/upload + service/portfolio (25 用例)
+├── upload_service_test.go      █████░░░░░  48.7%
+└── portfolio_service_test.go   █████░░░░░  48.7%
+
+Service 覆盖率: 38.7% → 48.7% (提升 10%)
+总计: 16 个测试文件, 189 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**MockUploadedFileRepository** (`upload_service_test.go`)
+```go
+type MockUploadedFileRepository struct {
+    Files  map[uint64]*model.UploadedFile
+    NextID uint64
+}
+// 实现: Create, FindByID, FindByUserID, UpdateStatus
+```
+
+**MockPortfolioRepository** (`portfolio_service_test.go`)
+```go
+type MockPortfolioRepository struct {
+    Portfolios map[uint64]*model.Portfolio
+    NextID     uint64
+}
+// 实现: Create, FindByID, FindByUserID, FindByUserAndAsset, Update, Delete, UpdateCurrentPrice
+```
+
+### 2026-04-24 更新记录
+
+#### 第五批测试代码 (Handler: Market + Analysis) - 10:30
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 10:00 | `internal/handler/market_test.go` | 市场数据处理器测试 | 10 | ✅ 通过 |
+| 10:30 | `internal/handler/analysis_test.go` | 分析处理器测试 | 18 | ✅ 通过 |
+
+**测试内容：**
+- MarketHandler: 快照列表/历史查询/仪表盘数据/时间解析
+- AnalysisHandler: 任务创建/任务查询/报告详情/投资总结
+
+#### 测试覆盖进度
+
+```
+第五批: handler/market + handler/analysis (28 用例)
+├── market_test.go              ████████░░  86.9%
+└── analysis_test.go            ████████░░  86.9%
+
+Handler 覆盖率: 49.6% → 86.9% (提升 37.3%)
+总计: 14 个测试文件, 162 个用例, 100% 通过率
+```
+
+#### Mock 实现说明
+
+**MockMarketSnapshotService** (`market_test.go`)
+```go
+type MockMarketSnapshotService struct {
+    Snapshots        []response.MarketSnapshotResponse
+    DashboardSnapshot *response.DashboardMarketSnapshotResponse
+    Err              error
+}
+// 实现: GetLatestSnapshots, GetHistory, GetDashboardSnapshot
+```
+
+**MockAIService** (`analysis_test.go`)
+```go
+type MockAIService struct {
+    CreateTaskResult       *response.AnalysisTaskResponse
+    GetTaskResult          *response.AnalysisTaskDetailResponse
+    GetTasksResult         *response.AnalysisTaskListResponse
+    GetReportDetailResult  *response.AnalysisReportDetailResponse
+    GenerateSummaryResult  *response.AnalysisReportResponse
+    GetReportsResult       []response.AnalysisReportResponse
+}
+// 实现: CreateStockAnalysisTask, GetAnalysisTask, GetAnalysisTasks,
+//       GetAnalysisReportDetail, GenerateInvestmentSummary, GetReports
+```
 
 ### 2026-04-21 更新记录
 
