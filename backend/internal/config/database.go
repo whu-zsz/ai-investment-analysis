@@ -50,8 +50,13 @@ func CloseDB(db *gorm.DB) error {
 }
 
 func AutoMigrate(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.User{}) {
+		if err := db.AutoMigrate(&model.User{}); err != nil {
+			return err
+		}
+	}
+
 	if err := db.AutoMigrate(
-		&model.User{},
 		&model.Transaction{},
 		&model.Portfolio{},
 		&model.AnalysisTask{},
