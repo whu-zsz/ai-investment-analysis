@@ -228,6 +228,7 @@ main() {
 
     # 测试模块列表（按层级顺序）
     local modules=(
+        "internal/model"
         "internal/utils"
         "internal/middleware"
         "internal/repository"

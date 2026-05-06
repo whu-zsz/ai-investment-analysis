@@ -3,11 +3,70 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-04-24
+> **更新日期**: 2026-05-05
 
 ---
 
 ## 0. 测试代码更新日志
+
+### 2026-05-05 更新记录
+
+#### 第九批测试代码 (Model 层) - 21:15
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 21:00 | `internal/model/portfolio_test.go` | Portfolio BeforeSave 钩子测试 | 10 | ✅ 通过 |
+| 21:10 | `internal/model/table_name_test.go` | TableName 方法验证测试 | 8 | ✅ 通过 |
+
+**测试内容：**
+- Portfolio.BeforeSave: 市值计算、盈亏计算、盈亏百分比计算
+- Portfolio.BeforeSave: 成本为零时避免除以零
+- Portfolio.BeforeSave: 当前价格为 nil 时不计算
+- Portfolio.BeforeSave: 亏损情况（负盈亏）
+- Portfolio.BeforeSave: 小数精度计算
+- TableName: 所有 9 个模型的表名验证
+
+#### 测试覆盖进度
+
+```
+第九批: model 层完整覆盖 (18 用例)
+├── portfolio_test.go           ████████░░  -
+└── table_name_test.go          ████████░░  -
+
+Model 层: 2 个测试文件, 18 个用例, 100% 通过率
+总计: 31 个测试文件, 332 个用例, 100% 通过率
+```
+
+#### Model 层测试详情
+
+**portfolio_test.go** - BeforeSave 钩子测试
+```go
+// 测试用例列表
+TestPortfolio_TableName                    // TableName 方法
+TestPortfolio_BeforeSave_CalculatesMarketValue    // 市值计算
+TestPortfolio_BeforeSave_CalculatesProfitLoss     // 盈亏计算
+TestPortfolio_BeforeSave_CalculatesProfitLossPercent  // 盈亏百分比
+TestPortfolio_BeforeSave_ZeroAverageCost   // 成本为零避免除以零
+TestPortfolio_BeforeSave_NilCurrentPrice   // 价格为 nil 不计算
+TestPortfolio_BeforeSave_NegativeProfitLoss // 亏损情况
+TestPortfolio_BeforeSave_DecimalPrecision  // 小数精度
+TestPortfolio_BeforeSave_ReturnsNil        // 返回 nil
+TestPortfolio_BeforeSave_WithGormDB        // GORM DB 参数
+```
+
+**table_name_test.go** - TableName 方法验证
+```go
+// 验证所有模型的 TableName() 方法
+TestUser_TableName              // users
+TestTransaction_TableName       // transactions
+TestPortfolio_TableName         // portfolios
+TestMarketSnapshot_TableName    // market_snapshots
+TestAnalysisTask_TableName      // ai_analysis_tasks
+TestAnalysisReport_TableName    // ai_analysis_reports
+TestAnalysisReportItem_TableName // ai_analysis_report_items
+TestStockAnalysisMetric_TableName // stock_analysis_metrics
+TestUploadedFile_TableName      // uploaded_files
+```
 
 ### 2026-04-24 更新记录 (续)
 
@@ -155,14 +214,15 @@ Service 覆盖率:   48.7% → 52.7% (提升 4%)
 #### 当前测试总览
 
 ```
-测试文件统计 (截至 2026-04-24 21:10):
-├── Handler 层:    6 个文件, 70 个用例, 86.9% 覆盖率
-├── Service 层:   11 个文件, 126 个用例, 76.4% 覆盖率
-├── Repository 层: 9 个文件, 96 个用例, 31.9% 覆盖率
-├── Middleware:    1 个文件, 6 个用例, 69.0% 覆盖率
-└── Utils 层:      1 个文件, 18 个用例, 92.9% 覆盖率
+测试文件统计 (截至 2026-05-05 21:15):
+├── Model 层:     2 个文件, 18 个用例, - 覆盖率
+├── Handler 层:   6 个文件, 72 个用例, 86.9% 覆盖率
+├── Service 层:  11 个文件, 120 个用例, 76.4% 覆盖率
+├── Repository 层: 9 个文件, 87 个用例, 31.9% 覆盖率
+├── Middleware:   1 个文件, 13 个用例, 69.0% 覆盖率
+└── Utils 层:     2 个文件, 22 个用例, 92.9% 覆盖率
 
-总计: 29 个测试文件, 314 个测试用例, 100% 通过率
+总计: 31 个测试文件, 332 个测试用例, 100% 通过率
 ```
 
 #### Mock 实现说明
@@ -1027,7 +1087,7 @@ cd test
 ```
 
 **脚本功能：**
-- 分模块执行测试（Utils → Middleware → Repository → Service → Handler）
+- 分模块执行测试（Model → Utils → Middleware → Repository → Service → Handler）
 - 实时显示测试进度和状态（✓ 通过 / ✗ 失败）
 - 统计每个模块的测试耗时
 - 自动生成测试覆盖率报告
@@ -1052,8 +1112,8 @@ cd test
 ║                      测试执行完成                             ║
 ╚══════════════════════════════════════════════════════════════╝
 
-  总测试用例:      314
-  通过用例:        314
+  总测试用例:      332
+  通过用例:        332
   失败用例:        0
   通过率:          100.0%
 
