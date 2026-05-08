@@ -374,11 +374,68 @@ func TestAnalysisReportRepository_FindLatestByUser(t *testing.T) {
 	}
 }
 
+
+func TestAnalysisReportRepository_FindByUserID_PrioritizesTaskBackedSummary(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+
+	now := time.Now()
+	legacySummary := &model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "Legacy Summary",
+		AnalysisPeriodStart: now,
+		AnalysisPeriodEnd:   now.AddDate(0, 1, 0),
+		RiskLevel:           "medium",
+		SummaryText:         "Legacy Summary Text",
+		TotalInvestment:     decimal.Zero,
+		TotalProfit:         decimal.Zero,
+		ProfitRate:          decimal.Zero,
+	}
+	if err := repo.Create(legacySummary); err != nil {
+		t.Fatalf("Create() legacy summary error = %v", err)
+	}
+
+	taskID := uint64(123)
+	structuredSummary := &model.AnalysisReport{
+		TaskID:              &taskID,
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "Structured Summary",
+		AnalysisPeriodStart: now,
+		AnalysisPeriodEnd:   now.AddDate(0, 1, 0),
+		RiskLevel:           "low",
+		SummaryText:         "Structured Summary Text",
+		TotalInvestment:     decimal.Zero,
+		TotalProfit:         decimal.Zero,
+		ProfitRate:          decimal.Zero,
+	}
+	if err := repo.Create(structuredSummary); err != nil {
+		t.Fatalf("Create() structured summary error = %v", err)
+	}
+
+	reports, err := repo.FindByUserID(1, "summary", 10)
+	if err != nil {
+		t.Fatalf("FindByUserID() error = %v", err)
+	}
+
+	if len(reports) != 2 {
+		t.Fatalf("FindByUserID() returned %d reports, want 2", len(reports))
+	}
+
+	if reports[0].TaskID == nil {
+		t.Fatalf("FindByUserID() first report should be task-backed summary")
+	}
+
+	if reports[0].ReportTitle != "Structured Summary" {
+		t.Fatalf("FindByUserID() first report title = %v, want Structured Summary", reports[0].ReportTitle)
+	}
+}
+
 func TestAnalysisReportRepository_Delete(t *testing.T) {
 	db := setupAnalysisReportTestDB(t)
 	repo := repository.NewAnalysisReportRepository(db)
 
-	// 创建测试数据
 	report := &model.AnalysisReport{
 		UserID:              1,
 		ReportType:          "summary",
@@ -391,15 +448,15 @@ func TestAnalysisReportRepository_Delete(t *testing.T) {
 		TotalProfit:         decimal.Zero,
 		ProfitRate:          decimal.Zero,
 	}
-	repo.Create(report)
+	if err := repo.Create(report); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
 
-	// 删除
 	err := repo.Delete(report.ID)
 	if err != nil {
 		t.Errorf("Delete() error = %v", err)
 	}
 
-	// 验证删除
 	_, err = repo.FindByID(report.ID)
 	if err == nil {
 		t.Error("Delete() should remove report")

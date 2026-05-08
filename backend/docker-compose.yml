@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # MySQL数据库
   mysql:
     image: mysql:8.0
     container_name: stock-mysql
@@ -19,10 +18,15 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot123"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     networks:
       - stock-network
 
-  # Go后端服务
   backend:
     build:
       context: .
@@ -52,11 +56,11 @@ services:
     volumes:
       - ./uploads:/app/uploads
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     networks:
       - stock-network
 
-  # Redis缓存（可选）
   redis:
     image: redis:7-alpine
     container_name: stock-redis

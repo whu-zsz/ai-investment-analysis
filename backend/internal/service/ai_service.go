@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	requestdto "stock-analysis-backend/internal/dto/request"
 	responsedto "stock-analysis-backend/internal/dto/response"
@@ -48,6 +49,7 @@ type AIService interface {
 	GetAnalysisTasks(userID uint64, status string, page, pageSize int) (*responsedto.AnalysisTaskListResponse, error)
 	GetAnalysisTask(userID, taskID uint64) (*responsedto.AnalysisTaskDetailResponse, error)
 	GetAnalysisReportDetail(userID, reportID uint64) (*responsedto.AnalysisReportDetailResponse, error)
+	ExportAnalysisReportPDF(userID, reportID uint64) ([]byte, string, error)
 }
 
 type aiService struct {
@@ -57,6 +59,7 @@ type aiService struct {
 	transactionRepo        repository.TransactionRepository
 	stockMetricService     StockAnalysisMetricService
 	llmProvider            llm.Provider
+	pdfRenderer            PDFRenderer
 	logger                 *zap.Logger
 }
 
@@ -98,10 +101,60 @@ type aiStockOutput struct {
 	KeyPoints       []string `json:"key_points"`
 }
 
+type chartPoint struct {
+	Symbol string `json:"symbol"`
+	Value  string `json:"value"`
+}
+
+type chartDataEnvelope struct {
+	Version int          `json:"version"`
+	Kind    string       `json:"kind"`
+	Metric  string       `json:"metric"`
+	Points  []chartPoint `json:"points"`
+}
+
 type aiAnalysisOutput struct {
 	Summary aiSummaryOutput `json:"summary"`
 	Stocks  []aiStockOutput `json:"stocks"`
 }
+
+func normalizeChartData(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	var envelope chartDataEnvelope
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err == nil && envelope.Kind == "profit_by_symbol" {
+		if envelope.Version == 0 {
+			envelope.Version = 2
+		}
+		if strings.TrimSpace(envelope.Metric) == "" {
+			envelope.Metric = "total_profit"
+		}
+		data, err := json.Marshal(envelope)
+		if err == nil {
+			return string(data)
+		}
+	}
+
+	var legacyPoints []chartPoint
+	if err := json.Unmarshal([]byte(trimmed), &legacyPoints); err == nil {
+		wrapped := chartDataEnvelope{
+			Version: 2,
+			Kind:    "profit_by_symbol",
+			Metric:  "total_profit",
+			Points:  legacyPoints,
+		}
+		data, err := json.Marshal(wrapped)
+		if err == nil {
+			return string(data)
+		}
+	}
+
+	return ""
+}
+
 
 func NewAIService(
 	analysisTaskRepo repository.AnalysisTaskRepository,
@@ -112,6 +165,31 @@ func NewAIService(
 	llmProvider llm.Provider,
 	logger *zap.Logger,
 ) AIService {
+	return NewAIServiceWithPDFRenderer(
+		analysisTaskRepo,
+		analysisReportRepo,
+		analysisReportItemRepo,
+		transactionRepo,
+		stockMetricService,
+		llmProvider,
+		NewChromedpPDFRenderer(),
+		logger,
+	)
+}
+
+func NewAIServiceWithPDFRenderer(
+	analysisTaskRepo repository.AnalysisTaskRepository,
+	analysisReportRepo repository.AnalysisReportRepository,
+	analysisReportItemRepo repository.AnalysisReportItemRepository,
+	transactionRepo repository.TransactionRepository,
+	stockMetricService StockAnalysisMetricService,
+	llmProvider llm.Provider,
+	pdfRenderer PDFRenderer,
+	logger *zap.Logger,
+) AIService {
+	if pdfRenderer == nil {
+		pdfRenderer = NewChromedpPDFRenderer()
+	}
 	return &aiService{
 		analysisTaskRepo:       analysisTaskRepo,
 		analysisReportRepo:     analysisReportRepo,
@@ -119,11 +197,17 @@ func NewAIService(
 		transactionRepo:        transactionRepo,
 		stockMetricService:     stockMetricService,
 		llmProvider:            llmProvider,
+		pdfRenderer:            pdfRenderer,
 		logger:                 logger,
 	}
 }
 
 func (s *aiService) GenerateInvestmentSummary(userID uint64, startDate, endDate string) (*responsedto.AnalysisReportResponse, error) {
+	startTime, endTime, err := validateAnalysisRange(startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+
 	transactions, err := s.transactionRepo.FindByDateRange(userID, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -132,26 +216,22 @@ func (s *aiService) GenerateInvestmentSummary(userID uint64, startDate, endDate 
 		return nil, fmt.Errorf("no transactions found in the specified period")
 	}
 
-	systemPrompt := "你是一位专业的投资顾问，擅长分析投资数据并提供专业建议。"
-	userPrompt := s.buildSummaryPrompt(transactions, startDate, endDate)
-	aiContent, err := s.llmProvider.GetContent(context.Background(), systemPrompt, userPrompt)
+	metrics, err := s.stockMetricService.PrepareMetrics(context.Background(), userID, nil, startTime, endTime, nil, false, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(metrics) == 0 {
+		return nil, fmt.Errorf("no stock metrics found in the specified period")
+	}
+
+	output, rawOutput, err := s.generateStructuredAnalysis(startTime, endTime, metrics, transactions)
 	if err != nil {
 		return nil, err
 	}
 
-	report := &model.AnalysisReport{
-		UserID:              userID,
-		ReportType:          "summary",
-		ReportTitle:         fmt.Sprintf("投资总结 (%s 至 %s)", startDate, endDate),
-		AnalysisPeriodStart: parseDate(startDate),
-		AnalysisPeriodEnd:   parseDate(endDate),
-		TotalInvestment:     modelDecimalZero(),
-		TotalProfit:         modelDecimalZero(),
-		ProfitRate:          modelDecimalZero(),
-		RiskLevel:           "medium",
-		MarketDataStatus:    marketDataStatusUnavailable,
-		SummaryText:         aiContent,
-		AIModel:             fallbackString(s.llmProvider.ModelName(), "unknown"),
+	report, err := buildSummaryReport(userID, startTime, endTime, rawOutput, output, metrics, s.llmProvider.ModelName())
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.analysisReportRepo.Create(report); err != nil {
@@ -265,6 +345,25 @@ func (s *aiService) GetAnalysisReportDetail(userID, reportID uint64) (*responsed
 	return s.convertToDetailResponse(report, items), nil
 }
 
+func (s *aiService) ExportAnalysisReportPDF(userID, reportID uint64) ([]byte, string, error) {
+	detail, err := s.GetAnalysisReportDetail(userID, reportID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	html, err := renderAnalysisReportPDFHTML(detail)
+	if err != nil {
+		return nil, "", err
+	}
+
+	pdfBytes, err := s.pdfRenderer.RenderHTMLToPDF(context.Background(), html)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return pdfBytes, buildAnalysisReportPDFFilename(detail), nil
+}
+
 func (s *aiService) runAnalysisTask(taskID, userID uint64, req *requestdto.CreateAnalysisTaskRequest, startTime, endTime time.Time) {
 	startedAt := time.Now()
 	_ = s.analysisTaskRepo.UpdateProgress(taskID, analysisStatusProcessing, analysisStageCollectTransactions, nil, nil, &startedAt, nil)
@@ -360,7 +459,11 @@ func (s *aiService) generateStructuredAnalysis(startTime, endTime time.Time, met
 	if err != nil {
 		return nil, content, err
 	}
-	return parsed, content, nil
+	sanitized := sanitizeAIAnalysisOutput(parsed, metrics)
+	if err := validateAIAnalysisOutput(sanitized, metrics); err != nil {
+		return nil, content, err
+	}
+	return sanitized, content, nil
 }
 
 func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics []model.StockAnalysisMetric, transactions []model.Transaction) string {
@@ -378,6 +481,26 @@ func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics 
 股票数：%d
 总买入金额：%s
 总盈亏：%s
+
+硬性要求：
+- 只能输出一个合法 JSON 对象，禁止 markdown、代码块、解释文字。
+- 不要使用空泛套话，例如“市场有风险”“建议谨慎观察”“结合自身情况”。
+- 所有叙述都必须直接引用输入里的真实指标，不要编造外部新闻、宏观判断或未提供的数据。
+- summary_text、risk_analysis、pattern_insights、prediction_text、analysis_text 不能只写一句空话，必须包含具体指标。
+- recommendations 和 key_points 必须是可执行、可核对的短句；recommendations 每条尽量写成完整动作句，key_points 每条必须带出明确事实或指标依据，去重后仍要保留有效信息。
+
+字段写作规则：
+1. summary.report_title：具体、简短，要体现分析周期或结果倾向。
+2. summary.summary_text：按“现状 + 指标依据 + 总体判断”组织，2-3 句或分句，至少提到 2 个真实指标，并给出总体判断。
+3. summary.risk_level：只能是 low、medium、high。
+4. summary.investment_style：只能输出 conservative、balanced、aggressive 三者之一。
+5. summary.risk_analysis：按“风险点 + 指标依据/触发条件 + 可能影响”组织，2-3 句或分句，必须能对应到持仓、盈亏、交易频率或数据状态。
+6. summary.pattern_insights：按“行为模式 + 证据”组织，2-3 句或分句，总结交易行为模式，不要重复 summary_text。
+7. summary.prediction_text：按“条件/场景 + 可能结果”组织，用条件式或场景式表达，描述后续可能走势。
+8. summary.recommendations：3-5 条，每条一个动作，优先使用“减仓、持有、买入、卖出、观察、复盘、分散、止损”这类动词开头。
+9. stocks[].analysis_text：按“现状 + 指标依据 + 结论”组织，每只股票 2-3 句，至少提到 2 个指标。
+10. stocks[].recommendation：只能是 buy、hold、reduce、sell、observe。
+11. stocks[].key_points：2-4 条短句，只写最关键的事实或结论。
 
 个股指标：
 %s
@@ -461,8 +584,8 @@ func (s *aiService) convertToResponse(report *model.AnalysisReport) *responsedto
 		RiskAnalysis:        derefString(report.RiskAnalysis),
 		PatternInsights:     derefString(report.PatternInsights),
 		PredictionText:      derefString(report.PredictionText),
-		ChartData:           derefString(report.ChartData),
-		Recommendations:     derefString(report.Recommendations),
+		ChartData:           normalizeChartData(derefString(report.ChartData)),
+		Recommendations:     splitJSONOrLines(derefString(report.Recommendations)),
 		AIModel:             report.AIModel,
 		CreatedAt:           report.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
@@ -513,7 +636,7 @@ func (s *aiService) convertToDetailResponse(report *model.AnalysisReport, items 
 		RiskAnalysis:        derefString(report.RiskAnalysis),
 		PatternInsights:     derefString(report.PatternInsights),
 		PredictionText:      derefString(report.PredictionText),
-		ChartData:           derefString(report.ChartData),
+		ChartData:           normalizeChartData(derefString(report.ChartData)),
 		Recommendations:     splitJSONOrLines(derefString(report.Recommendations)),
 		AIModel:             report.AIModel,
 		CreatedAt:           report.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -597,6 +720,51 @@ func summarizeMetricRows(metrics []model.StockAnalysisMetric) (decimal.Decimal, 
 	return totalInvestment, totalProfit, marketStatuses
 }
 
+func buildSummaryReport(userID uint64, startTime, endTime time.Time, rawOutput string, output *aiAnalysisOutput, metrics []model.StockAnalysisMetric, modelName string) (*model.AnalysisReport, error) {
+	totalInvestment, totalProfit, marketStatuses := summarizeMetricRows(metrics)
+	recommendationsJSON := marshalJSONArray(output.Summary.Recommendations)
+	chartData := buildChartData(metrics)
+	raw := rawOutput
+	report := &model.AnalysisReport{
+		UserID:              userID,
+		ReportType:          "summary",
+		ReportTitle:         fallbackString(output.Summary.ReportTitle, fmt.Sprintf("投资总结 (%s 至 %s)", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))),
+		AnalysisPeriodStart: startTime,
+		AnalysisPeriodEnd:   endTime,
+		SymbolsCount:        len(metrics),
+		RiskLevel:           normalizeRiskLevel(output.Summary.RiskLevel),
+		MarketDataStatus:    summarizeMarketDataStatus(marketStatuses),
+		InvestmentStyle:     stringPointerIfNotEmpty(output.Summary.InvestmentStyle),
+		SummaryText:         output.Summary.SummaryText,
+		RiskAnalysis:        stringPointerIfNotEmpty(output.Summary.RiskAnalysis),
+		PatternInsights:     stringPointerIfNotEmpty(output.Summary.PatternInsights),
+		PredictionText:      stringPointerIfNotEmpty(output.Summary.PredictionText),
+		ChartData:           stringPointerIfNotEmpty(chartData),
+		Recommendations:     stringPointerIfNotEmpty(recommendationsJSON),
+		RawAIOutput:         stringPointerIfNotEmpty(raw),
+		AIModel:             fallbackString(modelName, "unknown"),
+		TotalInvestment:     totalInvestment,
+		TotalProfit:         totalProfit,
+		ProfitRate:          modelDecimalZero(),
+	}
+	winningTrades := 0
+	losingTrades := 0
+	for _, metric := range metrics {
+		if metric.TotalProfit.GreaterThan(modelDecimalZero()) {
+			winningTrades++
+		}
+		if metric.TotalProfit.LessThan(modelDecimalZero()) {
+			losingTrades++
+		}
+	}
+	report.WinningTrades = winningTrades
+	report.LosingTrades = losingTrades
+	if !totalInvestment.IsZero() {
+		report.ProfitRate = totalProfit.Div(totalInvestment).Mul(decimal.NewFromInt(100))
+	}
+	return report, nil
+}
+
 func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawOutput string, output *aiAnalysisOutput, metrics []model.StockAnalysisMetric, stockOutputMap map[string]aiStockOutput, modelName string) (*model.AnalysisReport, []model.AnalysisReportItem) {
 	totalInvestment, totalProfit, marketStatuses := summarizeMetricRows(metrics)
 	winningTrades := 0
@@ -614,7 +782,7 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 		SymbolsCount:        len(metrics),
 		RiskLevel:           normalizeRiskLevel(output.Summary.RiskLevel),
 		InvestmentStyle:     stringPointerIfNotEmpty(output.Summary.InvestmentStyle),
-		SummaryText:         fallbackString(output.Summary.SummaryText, "暂无总结"),
+		SummaryText:         output.Summary.SummaryText,
 		RiskAnalysis:        stringPointerIfNotEmpty(output.Summary.RiskAnalysis),
 		PatternInsights:     stringPointerIfNotEmpty(output.Summary.PatternInsights),
 		PredictionText:      stringPointerIfNotEmpty(output.Summary.PredictionText),
@@ -636,6 +804,10 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 		}
 		aiStock := stockOutputMap[metric.Symbol]
 		keyPoints := marshalJSONArray(aiStock.KeyPoints)
+		analysisText := normalizeNarrativeText(aiStock.AnalysisText)
+		if isWeakNarrative(analysisText, 18) {
+			analysisText = buildTransparentStockAnalysis(metric)
+		}
 		item := model.AnalysisReportItem{
 			UserID:               userID,
 			Symbol:               metric.Symbol,
@@ -660,7 +832,7 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 			MarketDataStatus:     metric.MarketDataStatus,
 			RiskLevel:            normalizeRiskLevel(aiStock.RiskLevel),
 			InvestmentStyle:      stringPointerIfNotEmpty(aiStock.InvestmentStyle),
-			AnalysisText:         fallbackString(aiStock.AnalysisText, fmt.Sprintf("%s 在分析期内共有 %d 次交易。", metric.Symbol, metric.TradeCount)),
+			AnalysisText:         analysisText,
 			Recommendation:       normalizeRecommendation(aiStock.Recommendation),
 			KeyPoints:            stringPointerIfNotEmpty(keyPoints),
 			RawAIOutput:          stringPointerIfNotEmpty(raw),
@@ -693,26 +865,297 @@ func parseAIAnalysisOutput(content string) (*aiAnalysisOutput, error) {
 	if err := json.Unmarshal([]byte(cleaned), &output); err != nil {
 		return nil, fmt.Errorf("failed to parse AI output: %w", err)
 	}
+	output.Summary.ReportTitle = normalizeNarrativeText(output.Summary.ReportTitle)
+	output.Summary.SummaryText = normalizeNarrativeText(output.Summary.SummaryText)
 	output.Summary.RiskLevel = normalizeRiskLevel(output.Summary.RiskLevel)
+	output.Summary.InvestmentStyle = normalizeInvestmentStyle(output.Summary.InvestmentStyle)
+	output.Summary.RiskAnalysis = normalizeNarrativeText(output.Summary.RiskAnalysis)
+	output.Summary.PatternInsights = normalizeNarrativeText(output.Summary.PatternInsights)
+	output.Summary.PredictionText = normalizeNarrativeText(output.Summary.PredictionText)
+	output.Summary.Recommendations = normalizeRecommendationList(output.Summary.Recommendations)
 	for i := range output.Stocks {
 		output.Stocks[i].Symbol = normalizeSymbol(output.Stocks[i].Symbol)
+		output.Stocks[i].AssetName = normalizeNarrativeText(output.Stocks[i].AssetName)
 		output.Stocks[i].RiskLevel = normalizeRiskLevel(output.Stocks[i].RiskLevel)
+		output.Stocks[i].InvestmentStyle = normalizeInvestmentStyle(output.Stocks[i].InvestmentStyle)
+		output.Stocks[i].AnalysisText = normalizeNarrativeText(output.Stocks[i].AnalysisText)
 		output.Stocks[i].Recommendation = normalizeRecommendation(output.Stocks[i].Recommendation)
+		output.Stocks[i].KeyPoints = normalizeKeyPointsList(output.Stocks[i].KeyPoints)
 	}
 	return &output, nil
 }
 
-func buildChartData(metrics []model.StockAnalysisMetric) string {
-	type chartPoint struct {
-		Symbol string `json:"symbol"`
-		Value  string `json:"value"`
+func sanitizeAIAnalysisOutput(output *aiAnalysisOutput, metrics []model.StockAnalysisMetric) *aiAnalysisOutput {
+	if output == nil {
+		return nil
 	}
+	metricMap := make(map[string]model.StockAnalysisMetric, len(metrics))
+	for _, metric := range metrics {
+		metricMap[normalizeSymbol(metric.Symbol)] = metric
+	}
+	seen := make(map[string]struct{}, len(metrics))
+	filteredStocks := make([]aiStockOutput, 0, len(output.Stocks))
+	for _, stock := range output.Stocks {
+		normalizedSymbol := normalizeSymbol(stock.Symbol)
+		metric, ok := metricMap[normalizedSymbol]
+		if !ok || normalizedSymbol == "" {
+			continue
+		}
+		if _, exists := seen[normalizedSymbol]; exists {
+			continue
+		}
+		seen[normalizedSymbol] = struct{}{}
+		if strings.TrimSpace(stock.AssetName) == "" {
+			stock.AssetName = metric.AssetName
+		}
+		stock.Symbol = normalizedSymbol
+		stock.AssetName = normalizeNarrativeText(stock.AssetName)
+		stock.RiskLevel = normalizeRiskLevel(stock.RiskLevel)
+		stock.InvestmentStyle = normalizeInvestmentStyle(stock.InvestmentStyle)
+		stock.AnalysisText = normalizeNarrativeText(stock.AnalysisText)
+		stock.Recommendation = normalizeRecommendation(stock.Recommendation)
+		stock.KeyPoints = normalizeKeyPointsList(stock.KeyPoints)
+		filteredStocks = append(filteredStocks, stock)
+	}
+	output.Stocks = filteredStocks
+	output.Summary.ReportTitle = normalizeNarrativeText(output.Summary.ReportTitle)
+	output.Summary.SummaryText = normalizeNarrativeText(output.Summary.SummaryText)
+	output.Summary.InvestmentStyle = normalizeInvestmentStyle(output.Summary.InvestmentStyle)
+	output.Summary.RiskAnalysis = normalizeNarrativeText(output.Summary.RiskAnalysis)
+	output.Summary.PatternInsights = normalizeNarrativeText(output.Summary.PatternInsights)
+	output.Summary.PredictionText = normalizeNarrativeText(output.Summary.PredictionText)
+	output.Summary.Recommendations = normalizeRecommendationList(output.Summary.Recommendations)
+	return output
+}
+
+func validateAIAnalysisOutput(output *aiAnalysisOutput, metrics []model.StockAnalysisMetric) error {
+	if output == nil {
+		return fmt.Errorf("AI output is empty")
+	}
+	if isWeakNarrative(output.Summary.SummaryText, 10) {
+		return fmt.Errorf("AI summary_text is too weak")
+	}
+	if !hasSummaryNarrativeShape(output.Summary.SummaryText) {
+		return fmt.Errorf("AI summary_text lacks structured narrative")
+	}
+	if len(output.Summary.Recommendations) == 0 {
+		return fmt.Errorf("AI recommendations are empty")
+	}
+	strongSections := 0
+	if !isWeakNarrative(output.Summary.RiskAnalysis, 8) {
+		if !hasRiskNarrativeShape(output.Summary.RiskAnalysis) {
+			return fmt.Errorf("AI risk_analysis lacks structured narrative")
+		}
+		strongSections++
+	}
+	if !isWeakNarrative(output.Summary.PatternInsights, 8) {
+		if !hasPatternNarrativeShape(output.Summary.PatternInsights) {
+			return fmt.Errorf("AI pattern_insights lacks structured narrative")
+		}
+		strongSections++
+	}
+	if !isWeakNarrative(output.Summary.PredictionText, 8) {
+		if !hasPredictionNarrativeShape(output.Summary.PredictionText) {
+			return fmt.Errorf("AI prediction_text lacks conditional narrative")
+		}
+		strongSections++
+	}
+	if strongSections == 0 {
+		return fmt.Errorf("AI summary sections are too weak")
+	}
+	if len(output.Stocks) == 0 {
+		return fmt.Errorf("AI stock analysis is empty")
+	}
+	return nil
+}
+
+func normalizeNarrativeText(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	return strings.TrimSpace(text)
+}
+
+func countNarrativeSegments(value string) int {
+	text := normalizeNarrativeText(value)
+	if text == "" {
+		return 0
+	}
+	segments := 0
+	tokenStart := 0
+	for i, r := range text {
+		switch r {
+		case '。', '；', ';', '!', '！', '?', '？':
+			if strings.TrimSpace(text[tokenStart:i]) != "" {
+				segments++
+			}
+			tokenStart = i + utf8.RuneLen(r)
+		}
+	}
+	if strings.TrimSpace(text[tokenStart:]) != "" {
+		segments++
+	}
+	return segments
+}
+
+func containsAnyFold(text string, terms []string) bool {
+	lowered := strings.ToLower(normalizeNarrativeText(text))
+	for _, term := range terms {
+		if strings.Contains(lowered, strings.ToLower(term)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSummaryNarrativeShape(value string) bool {
+	if countNarrativeSegments(value) >= 2 {
+		return true
+	}
+	return containsAnyFold(value, []string{"偏高", "偏低", "放大", "改善", "承压", "贡献", "集中", "分散", "盈利", "亏损"})
+}
+
+func hasRiskNarrativeShape(value string) bool {
+	return containsAnyFold(value, []string{"风险", "回撤", "波动", "集中", "亏损", "过期", "触发", "影响"})
+}
+
+func hasPatternNarrativeShape(value string) bool {
+	return containsAnyFold(value, []string{"交易", "持有", "加仓", "减仓", "频率", "集中", "低频", "高频"})
+}
+
+func hasPredictionNarrativeShape(value string) bool {
+	return containsAnyFold(value, []string{"若", "如果", "一旦", "继续", "当"}) && containsAnyFold(value, []string{"可能", "将", "则", "容易", "风险", "回撤", "改善", "放大"})
+}
+
+func normalizeListItem(value string) string {
+	text := normalizeNarrativeText(value)
+	for {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			return ""
+		}
+		if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "•") || strings.HasPrefix(trimmed, "·") {
+			text = strings.TrimSpace(trimmed[1:])
+			continue
+		}
+		if len(trimmed) >= 2 && trimmed[0] >= '0' && trimmed[0] <= '9' {
+			rest := strings.TrimSpace(trimmed[1:])
+			if rest != "" {
+				r, size := utf8.DecodeRuneInString(rest)
+				switch r {
+				case '.', '、', ')', '）':
+					text = strings.TrimSpace(rest[size:])
+					continue
+				}
+			}
+		}
+		return trimmed
+	}
+}
+
+func normalizeAndDeduplicateList(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		item := normalizeListItem(value)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func normalizeRecommendationList(values []string) []string {
+	items := normalizeAndDeduplicateList(values)
+	if len(items) > 5 {
+		items = items[:5]
+	}
+	return items
+}
+
+func normalizeKeyPointsList(values []string) []string {
+	items := normalizeAndDeduplicateList(values)
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if isWeakKeyPoint(item) {
+			continue
+		}
+		result = append(result, item)
+		if len(result) >= 4 {
+			break
+		}
+	}
+	return result
+}
+
+func isWeakKeyPoint(value string) bool {
+	text := normalizeNarrativeText(value)
+	if text == "" || utf8.RuneCountInString(text) < 4 {
+		return true
+	}
+	if containsAnyFold(text, []string{"总盈亏", "已实现盈亏", "未实现盈亏", "净持仓", "期末持仓", "交易次数", "买入金额", "卖出金额", "买入股数", "卖出股数", "最新价", "最新市值", "持仓均价", "周期涨跌幅", "回撤", "波动", "集中度", "仓位", "成本", "收益率", "风险"}) {
+		return false
+	}
+	for _, r := range text {
+		if r >= '0' && r <= '9' {
+			return false
+		}
+	}
+	return true
+}
+
+
+func isWeakNarrative(value string, minRunes int) bool {
+	text := normalizeNarrativeText(value)
+	if text == "" || utf8.RuneCountInString(text) < minRunes {
+		return true
+	}
+	lowered := strings.ToLower(text)
+	weakPhrases := []string{
+		"市场有风险",
+		"建议谨慎",
+		"结合自身情况",
+		"请结合市场情况",
+		"总体表现一般",
+		"暂无总结",
+		"无法判断",
+		"观望为主",
+		"保持关注",
+	}
+	for _, phrase := range weakPhrases {
+		if strings.Contains(lowered, strings.ToLower(phrase)) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildTransparentStockAnalysis(metric model.StockAnalysisMetric) string {
+	return fmt.Sprintf("%s 在分析期内共 %d 次交易，买入%d次、卖出%d次，总盈亏%s，最新价%s，期末持仓%s。", metric.Symbol, metric.TradeCount, metric.BuyCount, metric.SellCount, metric.TotalProfit.StringFixed(2), metric.LatestPrice.StringFixed(4), metric.EndingPositionQty.StringFixed(2))
+}
+
+func buildChartData(metrics []model.StockAnalysisMetric) string {
 	points := make([]chartPoint, 0, len(metrics))
 	for _, metric := range metrics {
 		points = append(points, chartPoint{Symbol: metric.Symbol, Value: metric.TotalProfit.StringFixed(2)})
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].Symbol < points[j].Symbol })
-	data, _ := json.Marshal(points)
+	data, _ := json.Marshal(chartDataEnvelope{
+		Version: 2,
+		Kind:    "profit_by_symbol",
+		Metric:  "total_profit",
+		Points:  points,
+	})
 	return string(data)
 }
 
@@ -787,11 +1230,36 @@ func normalizeRiskLevel(value string) string {
 }
 
 func normalizeRecommendation(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
 	case "buy", "hold", "reduce", "sell":
-		return strings.ToLower(strings.TrimSpace(value))
+		return normalized
+	case "observe", "watch", "watchlist", "monitor", "观察", "观望":
+		return "observe"
+	case "加仓", "买入", "增持":
+		return "buy"
+	case "持有", "继续持有", "拿住":
+		return "hold"
+	case "减仓", "降低仓位", "部分卖出":
+		return "reduce"
+	case "卖出", "止盈", "止损", "清仓":
+		return "sell"
 	default:
 		return "observe"
+	}
+}
+
+func normalizeInvestmentStyle(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "conservative", "保守", "保守型", "保守防御", "稳健偏保守":
+		return "conservative"
+	case "aggressive", "激进", "激进型", "进攻型", "高弹性":
+		return "aggressive"
+	case "balanced", "均衡", "稳健", "稳健型", "平衡型", "balanced_growth", "value":
+		return "balanced"
+	default:
+		return "balanced"
 	}
 }
 

@@ -96,6 +96,9 @@ export interface UpdateTransactionRequest {
   notes?: string;
 }
 
+export type MarketDataStatus = 'complete' | 'fetched_live' | 'partial' | 'unavailable';
+export type AnalysisReportType = 'summary' | 'risk' | 'prediction' | 'pattern';
+
 export interface AnalysisTaskResponse {
   id: number;
   status: string;
@@ -146,7 +149,7 @@ export interface AnalysisReportItemResponse {
   total_profit: string;
   change_percent_7d: string;
   period_price_change_pct: string;
-  market_data_status: string;
+  market_data_status: MarketDataStatus;
   risk_level: string;
   investment_style: string;
   analysis_text: string;
@@ -158,7 +161,7 @@ export interface AnalysisReportItemResponse {
 export interface AnalysisReportDetailResponse {
   id: number;
   task_id?: number;
-  report_type: string;
+  report_type: AnalysisReportType;
   report_title: string;
   analysis_period_start: string;
   analysis_period_end: string;
@@ -169,7 +172,7 @@ export interface AnalysisReportDetailResponse {
   total_profit: string;
   profit_rate: string;
   risk_level: string;
-  market_data_status: string;
+  market_data_status: MarketDataStatus;
   investment_style: string;
   summary_text: string;
   risk_analysis: string;
@@ -258,7 +261,7 @@ export interface MarketSnapshotResponse {
 // ─────────────────────────────────────────
 export interface AnalysisReportResponse {
   id: number;
-  report_type: string;
+  report_type: AnalysisReportType;
   report_title: string;
   analysis_period_start: string;
   analysis_period_end: string;
@@ -266,14 +269,14 @@ export interface AnalysisReportResponse {
   total_profit: string;
   profit_rate: string;
   risk_level: string;
-  market_data_status: string;
+  market_data_status: MarketDataStatus;
   investment_style: string;
   summary_text: string;
   risk_analysis: string;
   pattern_insights: string;
   prediction_text: string;
   chart_data: string;
-  recommendations: string;
+  recommendations: string[];
   ai_model: string;
   created_at: string;
 }

@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"errors"
+	"net/http"
 	"stock-analysis-backend/internal/dto/request"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type AnalysisHandler struct {
@@ -128,6 +131,29 @@ func (h *AnalysisHandler) GetReportDetail(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) ExportReportPDF(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	reportID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid report id")
+		return
+	}
+
+	pdfBytes, filename, err := h.aiService.ExportAnalysisReportPDF(userID, reportID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "analysis report not found")
+			return
+		}
+		response.InternalServerError(c, "failed to export analysis report pdf")
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 // GenerateSummary godoc

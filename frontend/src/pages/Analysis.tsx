@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   Row, Col, Card, Statistic, Typography, Tag,
-  Descriptions, Space, Skeleton, Progress, Alert, Button, Spin, Empty,
+  Descriptions, Space, Skeleton, Alert, Button, Spin, Empty,
 } from 'antd';
 import {
-  RadarChartOutlined, SafetyCertificateOutlined, BulbOutlined,
+  BarChartOutlined, SafetyCertificateOutlined, BulbOutlined,
   InfoCircleOutlined, ArrowLeftOutlined, ThunderboltOutlined, ReloadOutlined,
+  DownloadOutlined, PieChartOutlined, FundOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
@@ -14,29 +15,24 @@ import { analysisApi, transactionApi } from '../api/index';
 import type {
   AnalysisReportDetailResponse,
   AnalysisTaskDetailResponse,
+  AnalysisReportItemResponse,
 } from '../api/types';
+import {
+  buildOutcomeDistributionData,
+  buildProfitBySymbolViewData,
+  buildProfitCompositionData,
+  formatProfitValue,
+  summarizeProfitBySymbolData,
+} from '../utils/analysisChart';
+import { getMarketStatusMeta } from '../utils/analysisMeta';
 
 const { Title, Paragraph, Text } = Typography;
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
-
-const riskScoreMap: Record<string, number> = {
-  low: 90,
-  medium: 74,
-  high: 52,
-  very_high: 35,
-};
 
 const styleMap: Record<string, string> = {
   aggressive: '激进型成长',
   balanced: '稳健均衡',
   conservative: '保守防御',
-};
-
-const marketStatusMap: Record<string, { color: string; text: string }> = {
-  complete: { color: 'success', text: '市场数据完整' },
-  fetched_live: { color: 'processing', text: '市场数据实时拉取' },
-  partial: { color: 'warning', text: '市场数据部分缺失' },
-  unavailable: { color: 'error', text: '市场数据不可用' },
 };
 
 const taskStageMap: Record<string, string> = {
@@ -49,62 +45,6 @@ const taskStageMap: Record<string, string> = {
   completed: '分析已完成',
 };
 
-function getMarketStatusMeta(status?: string) {
-  return marketStatusMap[status ?? ''] ?? { color: 'default', text: status || '未知状态' };
-}
-
-type ParsedChartData =
-  | { type: 'radar'; labels: string[]; values: number[] }
-  | { type: 'bar'; labels: string[]; values: number[] }
-  | null;
-
-function parseChartData(chartData?: string): ParsedChartData {
-  if (!chartData) return null;
-
-  try {
-    const parsed = JSON.parse(chartData) as unknown;
-
-    if (Array.isArray(parsed)) {
-      const points = parsed
-        .map((item) => {
-          if (typeof item !== 'object' || item === null) return null;
-          const point = item as { symbol?: unknown; value?: unknown };
-          if (typeof point.symbol !== 'string') return null;
-          const value = Number(point.value);
-          if (Number.isNaN(value)) return null;
-          return { label: point.symbol, value };
-        })
-        .filter((item): item is { label: string; value: number } => Boolean(item));
-
-      if (points.length) {
-        return {
-          type: 'bar',
-          labels: points.map((item) => item.label),
-          values: points.map((item) => item.value),
-        };
-      }
-    }
-
-    if (typeof parsed === 'object' && parsed !== null) {
-      const data = parsed as { labels?: unknown; radar?: unknown };
-      if (Array.isArray(data.labels) && Array.isArray(data.radar)) {
-        const labels = data.labels.filter((item): item is string => typeof item === 'string');
-        const values = data.radar
-          .map((item) => Number(item))
-          .filter((item) => !Number.isNaN(item));
-
-        if (labels.length && labels.length === values.length) {
-          return { type: 'radar', labels, values };
-        }
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
 function formatValue(value?: string) {
   const text = value?.trim();
   return text ? text : '—';
@@ -113,6 +53,12 @@ function formatValue(value?: string) {
 function formatDateTime(value?: string) {
   if (!value?.trim()) return '—';
   return value.replace('T', ' ').replace('Z', '').slice(0, 19);
+}
+
+function getRiskTagColor(level?: string) {
+  if (level === 'low') return 'success';
+  if (level === 'medium') return 'warning';
+  return 'error';
 }
 
 function buildQuickMetrics(report: AnalysisReportDetailResponse | null) {
@@ -153,11 +99,62 @@ function renderRecommendations(recommendations: string[]) {
   );
 }
 
+function renderKeyPoints(keyPoints: string[]) {
+  if (!keyPoints.length) {
+    return '—';
+  }
+
+  return (
+    <Space direction="vertical" size={4}>
+      {keyPoints.map((item, index) => (
+        <Text key={`${index}-${item}`}>{index + 1}. {item}</Text>
+      ))}
+    </Space>
+  );
+}
+
+function renderStockCards(items: AnalysisReportItemResponse[]) {
+  if (!items.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无个股分析数据" />;
+  }
+
+  return (
+    <Row gutter={[12, 12]}>
+      {items.slice(0, 5).map((item) => (
+        <Col span={24} key={item.id}>
+          <Card size="small" bordered style={{ borderRadius: 12 }}>
+            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+              <Space wrap>
+                <Text strong>{item.symbol}</Text>
+                <Tag color="blue">{item.asset_name}</Tag>
+                <Tag color={item.recommendation === 'buy' ? 'success' : item.recommendation === 'sell' ? 'red' : 'processing'}>
+                  {item.recommendation}
+                </Tag>
+              </Space>
+              <Space wrap>
+                <Text type="secondary">总盈亏 {formatValue(item.total_profit)}</Text>
+                <Text type="secondary">风险 {formatValue(item.risk_level)}</Text>
+                <Text type="secondary">风格 {styleMap[item.investment_style] ?? formatValue(item.investment_style)}</Text>
+              </Space>
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                {formatValue(item.analysis_text)}
+              </Paragraph>
+              <Text type="secondary" style={{ fontSize: 12 }}>要点</Text>
+              {renderKeyPoints(item.key_points)}
+            </Space>
+          </Card>
+        </Col>
+      ))}
+    </Row>
+  );
+}
+
 export default function AnalysisPage() {
   const navigate = useNavigate();
   const [report, setReport] = useState<AnalysisReportDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [taskStage, setTaskStage] = useState('');
 
@@ -269,59 +266,163 @@ export default function AnalysisPage() {
     }
   };
 
-  const score = report ? (riskScoreMap[report.risk_level] ?? null) : null;
-  const marketStatus = getMarketStatusMeta(report?.market_data_status);
-  const chartData = parseChartData(report?.chart_data);
-  const quickMetrics = buildQuickMetrics(report);
-  const profitRateText = report?.profit_rate?.trim() ? `${report.profit_rate}%` : '—';
+  const handleExportPDF = async () => {
+    if (!report?.id) return;
 
-  const getChartOption = (): EChartsOption => {
-    if (chartData?.type === 'radar') {
-      return {
-        radar: {
-          indicator: chartData.labels.map((name) => ({ name, max: 100 })),
-          shape: 'circle',
-          splitNumber: 5,
-          axisName: { color: '#8c8c8c' },
-          splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          splitArea: { show: false },
-        },
-        series: [{
-          type: 'radar',
-          data: [{
-            value: chartData.values,
-            name: '特征评分',
-            itemStyle: { color: '#1677ff' },
-            lineStyle: { color: '#1677ff' },
-            areaStyle: { color: 'rgba(22, 96, 255, 0.15)' },
-          }],
-        }],
-      };
+    setExporting(true);
+    setError('');
+    try {
+      const blob = await analysisApi.downloadReportPDF(report.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `analysis-report-${report.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const error = err as { message?: string; data?: { message?: string } };
+      setError(error.message ?? error.data?.message ?? 'PDF 导出失败');
+    } finally {
+      setExporting(false);
     }
-
-    return {
-      tooltip: { trigger: 'axis' },
-      grid: { left: 48, right: 24, top: 24, bottom: 48 },
-      xAxis: {
-        type: 'category',
-        data: chartData?.labels ?? [],
-        axisLabel: { color: '#8c8c8c', interval: 0, rotate: 20 },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { color: '#8c8c8c' },
-        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-      },
-      series: [{
-        type: 'bar',
-        data: chartData?.values ?? [],
-        itemStyle: {
-          color: '#1677ff',
-          borderRadius: [6, 6, 0, 0],
-        },
-      }],
-    };
   };
+
+  const marketStatus = getMarketStatusMeta(report?.market_data_status);
+  const chartData = useMemo(() => buildProfitBySymbolViewData(report?.chart_data, report?.items), [report?.chart_data, report?.items]);
+  const chartSummary = useMemo(() => summarizeProfitBySymbolData(chartData), [chartData]);
+  const outcomeDistribution = useMemo(() => buildOutcomeDistributionData(report), [report]);
+  const profitComposition = useMemo(() => buildProfitCompositionData(report?.items), [report?.items]);
+  const quickMetrics = buildQuickMetrics(report);
+
+  const getProfitChartOption = (): EChartsOption => ({
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.96)',
+      borderColor: '#d9e6ff',
+      borderWidth: 1,
+      formatter: (params: unknown) => {
+        const list = params as Array<{ dataIndex?: number }>;
+        const point = chartData[list[0]?.dataIndex ?? -1];
+        if (!point) {
+          return '';
+        }
+        return `<div style="padding: 4px 6px;">
+                  <div style="color: #888; margin-bottom: 4px;">${point.symbol}</div>
+                  <div style="font-weight: bold; color: ${point.color}; font-size: 16px;">${formatProfitValue(point.numericValue)}</div>
+                  <div style="margin-top: 4px; color: #666;">${point.semanticLabel}</div>
+                </div>`;
+      },
+    },
+    grid: { left: 48, right: 24, top: 24, bottom: 48 },
+    xAxis: {
+      type: 'category',
+      data: chartData.map((item) => item.symbol),
+      axisLabel: { color: '#8c8c8c', interval: 0, rotate: 20 },
+      axisLine: { lineStyle: { color: '#d9d9d9' } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#8c8c8c' },
+      axisLine: { show: false },
+      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+    },
+    series: [{
+      type: 'bar',
+      name: '累计收益',
+      data: chartData.map((item) => ({ value: item.numericValue, itemStyle: { color: item.color } })),
+      itemStyle: { borderRadius: [6, 6, 0, 0] },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: '#bfbfbf', type: 'dashed' },
+        data: [{ yAxis: 0 }],
+      },
+    }],
+  });
+
+  const getOutcomeDistributionOption = (): EChartsOption => ({
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)',
+    },
+    legend: {
+      bottom: 0,
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: '#8c8c8c' },
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['52%', '74%'],
+        center: ['50%', '42%'],
+        avoidLabelOverlap: false,
+        label: {
+          show: true,
+          formatter: '{b}\n{d}%',
+          color: '#595959',
+          fontSize: 12,
+        },
+        labelLine: { length: 12, length2: 10 },
+        data: outcomeDistribution.points.map((item) => ({
+          name: item.label,
+          value: item.value,
+          itemStyle: { color: item.color },
+        })),
+      },
+    ],
+  });
+
+  const getProfitCompositionOption = (): EChartsOption => ({
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params: unknown) => {
+        const list = params as Array<{ seriesName?: string; value?: number; color?: string }>;
+        const rowIndex = (params as Array<{ dataIndex?: number }>)[0]?.dataIndex ?? -1;
+        const point = profitComposition.points[rowIndex];
+        if (!point) {
+          return '';
+        }
+        const rows = list.map((item) => `<div style="color:${item.color}">${item.seriesName}：${formatProfitValue(item.value ?? 0)}</div>`).join('');
+        return `<div style="padding: 4px 6px;"><div style="font-weight:700;margin-bottom:4px;">${point.symbol}</div>${rows}</div>`;
+      },
+    },
+    grid: { left: 48, right: 20, top: 24, bottom: 24, containLabel: true },
+    xAxis: {
+      type: 'value',
+      axisLabel: { color: '#8c8c8c' },
+      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+    },
+    yAxis: {
+      type: 'category',
+      data: profitComposition.points.map((item) => item.symbol),
+      axisLabel: { color: '#8c8c8c' },
+      axisLine: { show: false },
+    },
+    legend: {
+      top: 0,
+      textStyle: { color: '#8c8c8c' },
+    },
+    series: [
+      {
+        name: '已实现收益',
+        type: 'bar',
+        stack: 'profit',
+        itemStyle: { color: '#1677ff', borderRadius: [0, 8, 8, 0] },
+        data: profitComposition.points.map((item) => item.realizedProfit),
+      },
+      {
+        name: '浮动收益',
+        type: 'bar',
+        stack: 'profit',
+        itemStyle: { color: '#73d13d', borderRadius: [0, 8, 8, 0] },
+        data: profitComposition.points.map((item) => item.unrealizedProfit),
+      },
+    ],
+  });
 
   return (
     <div style={{ padding: '24px' }}>
@@ -356,9 +457,9 @@ export default function AnalysisPage() {
             </Paragraph>
           </div>
           <Space wrap>
-            {score !== null && (
-              <Tag color="success" icon={<SafetyCertificateOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-                健康分 {score}
+            {report?.risk_level && (
+              <Tag color={getRiskTagColor(report.risk_level)} icon={<SafetyCertificateOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
+                风险等级 {report.risk_level}
               </Tag>
             )}
             {report?.investment_style && (
@@ -371,6 +472,16 @@ export default function AnalysisPage() {
                 {marketStatus.text}
               </Tag>
             )}
+            <Button
+              ghost
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              onClick={handleExportPDF}
+              disabled={!report}
+              style={{ borderRadius: 10 }}
+            >
+              导出 PDF
+            </Button>
             <Button ghost icon={<ReloadOutlined />} loading={generating} onClick={handleGenerate} style={{ borderRadius: 10 }}>
               重新生成
             </Button>
@@ -391,54 +502,28 @@ export default function AnalysisPage() {
                 <Empty description="暂无结构化分析报告，请先导入交易记录后再生成分析。" />
               </Card>
             ) : (
-              <Row gutter={[16, 16]}>
-                <Col span={24} lg={8}>
-                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+              <>
+                <Row gutter={[16, 16]}>
+                  <Col span={24} lg={8}>
                     <Card bordered={false} style={cardStyle}>
                       <Statistic
-                        title="账户健康分"
-                        value={score ?? '—'}
-                        suffix={score !== null ? '/ 100' : undefined}
+                        title="累计收益率"
+                        value={report.profit_rate || '—'}
+                        suffix={report.profit_rate ? '%' : undefined}
                         prefix={<SafetyCertificateOutlined />}
-                        valueStyle={{ color: score !== null ? '#52c41a' : '#8c8c8c', fontSize: 34 }}
+                        valueStyle={{ color: '#52c41a', fontSize: 34 }}
                       />
-                      {score !== null && (
-                        <Progress
-                          percent={score}
-                          showInfo={false}
-                          strokeColor={{ '0%': '#52c41a', '100%': '#95de64' }}
-                          style={{ marginTop: 12 }}
-                        />
-                      )}
                       <Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'block' }}>
-                        盈利率 {profitRateText}
+                        风险等级 {report.risk_level} · 数据状态 {marketStatus.text}
                       </Text>
                     </Card>
-
-                    <Card
-                      bordered={false}
-                      style={cardStyle}
-                      title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />分析图表</span>}
-                    >
-                      {chartData ? (
-                        <>
-                          <ReactECharts option={getChartOption()} style={{ height: 260 }} />
-                          <div style={{ textAlign: 'center', marginTop: 4 }}>
-                            <Tag color="processing" style={{ borderRadius: 20, padding: '2px 14px' }}>
-                              {styleMap[report.investment_style] ?? formatValue(report.investment_style)}
-                            </Tag>
-                          </div>
-                        </>
-                      ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无图表数据" />
-                      )}
-                    </Card>
-
+                  </Col>
+                  <Col span={24} lg={16}>
                     <Card bordered={false} style={cardStyle}>
                       <Row gutter={[12, 12]}>
                         {quickMetrics.map((item) => (
-                          <Col span={12} key={item.label}>
-                            <div style={{ background: item.bg, borderRadius: 12, padding: '14px 16px' }}>
+                          <Col span={12} md={6} key={item.label}>
+                            <div style={{ background: item.bg, borderRadius: 12, padding: '14px 16px', height: '100%' }}>
                               <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
                               <div style={{ color: item.color, fontSize: 22, fontWeight: 700, marginTop: 4 }}>{item.value}</div>
                             </div>
@@ -446,11 +531,108 @@ export default function AnalysisPage() {
                         ))}
                       </Row>
                     </Card>
-                  </Space>
-                </Col>
+                  </Col>
+                </Row>
 
-                <Col span={24} lg={16}>
-                  <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={14}>
+                    <Card
+                      bordered={false}
+                      style={cardStyle}
+                      title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股累计收益分布</span>}
+                    >
+                      {chartData.length ? (
+                        <>
+                          <ReactECharts option={getProfitChartOption()} style={{ height: 320 }} />
+                          <Row gutter={[8, 8]} style={{ marginTop: 12 }}>
+                            <Col span={12}>
+                              <div style={{ background: '#f6ffed', borderRadius: 12, padding: '10px 12px' }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>最高收益</Text>
+                                <div style={{ color: '#52c41a', fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+                                  {chartSummary.topPoint ? `${chartSummary.topPoint.symbol} ${formatProfitValue(chartSummary.topPoint.numericValue)}` : '—'}
+                                </div>
+                              </div>
+                            </Col>
+                            <Col span={12}>
+                              <div style={{ background: '#fff1f0', borderRadius: 12, padding: '10px 12px' }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>最低收益</Text>
+                                <div style={{ color: '#ff4d4f', fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+                                  {chartSummary.bottomPoint ? `${chartSummary.bottomPoint.symbol} ${formatProfitValue(chartSummary.bottomPoint.numericValue)}` : '—'}
+                                </div>
+                              </div>
+                            </Col>
+                          </Row>
+                        </>
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无可用收益分布数据" />
+                      )}
+                    </Card>
+                  </Col>
+
+                  <Col span={24} xl={10}>
+                    <Card
+                      bordered={false}
+                      style={cardStyle}
+                      title={<span><PieChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />胜负占比</span>}
+                    >
+                      {outcomeDistribution.total ? (
+                        <>
+                          <ReactECharts option={getOutcomeDistributionOption()} style={{ height: 320 }} />
+                          <Row gutter={[8, 8]} style={{ marginTop: 12 }}>
+                            {outcomeDistribution.points.map((item) => (
+                              <Col span={8} key={item.key}>
+                                <div style={{ borderRadius: 12, padding: '10px 12px', background: `${item.color}12` }}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
+                                  <div style={{ color: item.color, fontSize: 18, fontWeight: 700, marginTop: 4 }}>{item.value}</div>
+                                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>{item.percent}%</div>
+                                </div>
+                              </Col>
+                            ))}
+                          </Row>
+                        </>
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无可用占比数据" />
+                      )}
+                    </Card>
+                  </Col>
+                </Row>
+
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={12}>
+                    <Card
+                      bordered={false}
+                      style={cardStyle}
+                      title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />已实现与浮动收益构成</span>}
+                    >
+                      {profitComposition.points.length ? (
+                        <>
+                          <ReactECharts option={getProfitCompositionOption()} style={{ height: 300 }} />
+                          <Row gutter={[8, 8]} style={{ marginTop: 12 }}>
+                            <Col span={12}>
+                              <div style={{ background: '#e6f4ff', borderRadius: 12, padding: '10px 12px' }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>已实现收益汇总</Text>
+                                <div style={{ color: '#1677ff', fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+                                  {formatProfitValue(profitComposition.realizedTotal)}
+                                </div>
+                              </div>
+                            </Col>
+                            <Col span={12}>
+                              <div style={{ background: '#f6ffed', borderRadius: 12, padding: '10px 12px' }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>浮动收益汇总</Text>
+                                <div style={{ color: '#52c41a', fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+                                  {formatProfitValue(profitComposition.unrealizedTotal)}
+                                </div>
+                              </div>
+                            </Col>
+                          </Row>
+                        </>
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无可用收益构成数据" />
+                      )}
+                    </Card>
+                  </Col>
+
+                  <Col span={24} xl={12}>
                     <Card
                       bordered={false}
                       style={cardStyle}
@@ -471,7 +653,11 @@ export default function AnalysisPage() {
                         </Descriptions.Item>
                       </Descriptions>
                     </Card>
+                  </Col>
+                </Row>
 
+                <Row gutter={[16, 16]}>
+                  <Col span={24} lg={10}>
                     <Card
                       bordered={false}
                       style={cardStyle}
@@ -491,24 +677,30 @@ export default function AnalysisPage() {
                         <Descriptions.Item label="生成时间">{formatDateTime(report.created_at)}</Descriptions.Item>
                       </Descriptions>
                     </Card>
+                  </Col>
 
-                    <Card bordered={false} style={cardStyle}>
-                      <Alert
-                        type="info"
-                        showIcon
-                        icon={<BulbOutlined />}
-                        message={`AI 总结：${formatValue(report.summary_text)}`}
-                        description={
-                          <Space direction="vertical" size={4}>
-                            <Text type="secondary">分析周期：{formatValue(report.analysis_period_start)} ~ {formatValue(report.analysis_period_end)}</Text>
-                            <Text type="secondary">模型版本：{formatValue(report.ai_model)}</Text>
-                          </Space>
-                        }
-                      />
+                  <Col span={24} lg={14}>
+                    <Card bordered={false} style={cardStyle} title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股分析</span>}>
+                      {renderStockCards(report.items)}
                     </Card>
-                  </Space>
-                </Col>
-              </Row>
+                  </Col>
+                </Row>
+
+                <Card bordered={false} style={cardStyle}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    icon={<BulbOutlined />}
+                    message={`AI 总结：${formatValue(report.summary_text)}`}
+                    description={
+                      <Space direction="vertical" size={4}>
+                        <Text type="secondary">分析周期：{formatValue(report.analysis_period_start)} ~ {formatValue(report.analysis_period_end)}</Text>
+                        <Text type="secondary">模型版本：{formatValue(report.ai_model)}</Text>
+                      </Space>
+                    }
+                  />
+                </Card>
+              </>
             )}
           </Space>
         </Spin>

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // MockAIService 模拟 AI 服务
@@ -25,6 +26,9 @@ type MockAIService struct {
 	GetTasksErr               error
 	GetReportDetailResult     *response.AnalysisReportDetailResponse
 	GetReportDetailErr        error
+	ExportReportPDFResult     []byte
+	ExportReportPDFFilename   string
+	ExportReportPDFErr        error
 	GenerateSummaryResult     *response.AnalysisReportResponse
 	GenerateSummaryErr        error
 	GetReportsResult          []response.AnalysisReportResponse
@@ -57,6 +61,13 @@ func (m *MockAIService) GetAnalysisReportDetail(userID, reportID uint64) (*respo
 		return nil, m.GetReportDetailErr
 	}
 	return m.GetReportDetailResult, nil
+}
+
+func (m *MockAIService) ExportAnalysisReportPDF(userID, reportID uint64) ([]byte, string, error) {
+	if m.ExportReportPDFErr != nil {
+		return nil, "", m.ExportReportPDFErr
+	}
+	return m.ExportReportPDFResult, m.ExportReportPDFFilename, nil
 }
 
 func (m *MockAIService) GenerateInvestmentSummary(userID uint64, startDate, endDate string) (*response.AnalysisReportResponse, error) {
@@ -381,14 +392,119 @@ func TestAnalysisHandler_GetReportDetail_NotFound(t *testing.T) {
 	}
 }
 
+// TestAnalysisHandler_ExportReportPDF 测试导出 PDF
+func TestAnalysisHandler_ExportReportPDF(t *testing.T) {
+	mockService := &MockAIService{
+		ExportReportPDFResult:   []byte("%PDF-1.4"),
+		ExportReportPDFFilename: "analysis-report-1.pdf",
+	}
+
+	h := handler.NewAnalysisHandler(mockService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports/:id/pdf", h.ExportReportPDF)
+
+	req := httptest.NewRequest("GET", "/analysis/reports/1/pdf", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Errorf("Expected Content-Type application/pdf, got %s", got)
+	}
+	if got := w.Header().Get("Content-Disposition"); got != "attachment; filename=\"analysis-report-1.pdf\"" {
+		t.Errorf("Unexpected Content-Disposition: %s", got)
+	}
+	if string(w.Body.Bytes()) != "%PDF-1.4" {
+		t.Errorf("Unexpected response body: %s", w.Body.String())
+	}
+}
+
+// TestAnalysisHandler_ExportReportPDF_InvalidID 测试导出 PDF 时无效报告 ID
+func TestAnalysisHandler_ExportReportPDF_InvalidID(t *testing.T) {
+	mockService := &MockAIService{}
+
+	h := handler.NewAnalysisHandler(mockService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports/:id/pdf", h.ExportReportPDF)
+
+	req := httptest.NewRequest("GET", "/analysis/reports/invalid/pdf", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+// TestAnalysisHandler_ExportReportPDF_NotFound 测试导出 PDF 时报告不存在
+func TestAnalysisHandler_ExportReportPDF_NotFound(t *testing.T) {
+	mockService := &MockAIService{
+		ExportReportPDFErr: gorm.ErrRecordNotFound,
+	}
+
+	h := handler.NewAnalysisHandler(mockService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports/:id/pdf", h.ExportReportPDF)
+
+	req := httptest.NewRequest("GET", "/analysis/reports/999/pdf", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+// TestAnalysisHandler_ExportReportPDF_ServiceError 测试导出 PDF 时服务错误
+func TestAnalysisHandler_ExportReportPDF_ServiceError(t *testing.T) {
+	mockService := &MockAIService{
+		ExportReportPDFErr: service.ErrTransactionNotFound,
+	}
+
+	h := handler.NewAnalysisHandler(mockService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports/:id/pdf", h.ExportReportPDF)
+
+	req := httptest.NewRequest("GET", "/analysis/reports/1/pdf", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status %d, got %d", http.StatusInternalServerError, w.Code)
+	}
+}
+
 // TestAnalysisHandler_GenerateSummary 测试生成投资总结
 func TestAnalysisHandler_GenerateSummary(t *testing.T) {
 	mockService := &MockAIService{
 		GenerateSummaryResult: &response.AnalysisReportResponse{
-			ID:          1,
-			ReportType:  "summary",
-			ReportTitle: "投资总结 (2024-01-01 至 2024-12-31)",
-			SummaryText: "这是投资总结内容",
+			ID:              1,
+			ReportType:      "summary",
+			ReportTitle:     "投资总结 (2024-01-01 至 2024-12-31)",
+			SummaryText:     "这是投资总结内容",
+			Recommendations: []string{"控制仓位"},
 		},
 	}
 

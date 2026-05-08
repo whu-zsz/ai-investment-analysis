@@ -79,11 +79,15 @@ func (r *analysisReportRepository) FindByUserID(userID uint64, reportType string
 		query = query.Where("report_type = ?", reportType)
 	}
 
+	if reportType == "summary" {
+		query = query.Order("task_id IS NULL ASC")
+	}
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 
-	err := query.Order("created_at DESC").Find(&reports).Error
+	err := query.Order("created_at DESC").Order("id DESC").Find(&reports).Error
 	return reports, err
 }
 

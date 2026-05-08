@@ -174,4 +174,8 @@ export const analysisApi = {
   /** GET /analysis/reports/:id */
   getReportDetail: (id: number): Promise<AnalysisReportDetailResponse> =>
     request.get(`/analysis/reports/${id}`),
+
+  /** GET /analysis/reports/:id/pdf */
+  downloadReportPDF: (id: number): Promise<Blob> =>
+    request.get(`/analysis/reports/${id}/pdf`, { responseType: 'blob' }),
 };

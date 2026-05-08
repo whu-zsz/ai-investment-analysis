@@ -6,6 +6,7 @@ import (
 	"stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/service"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,8 +98,10 @@ func (r *MockAnalysisTaskRepository) HasRunningTask(userID uint64, taskType stri
 
 // MockAnalysisReportRepository 模拟分析报告仓储
 type MockAnalysisReportRepository struct {
-	Reports map[uint64]*model.AnalysisReport
-	NextID  uint64
+	Reports    map[uint64]*model.AnalysisReport
+	NextID     uint64
+	LastReport *model.AnalysisReport
+	LastItems  []model.AnalysisReportItem
 }
 
 func NewMockAnalysisReportRepository() *MockAnalysisReportRepository {
@@ -111,6 +114,7 @@ func NewMockAnalysisReportRepository() *MockAnalysisReportRepository {
 func (r *MockAnalysisReportRepository) Create(report *model.AnalysisReport) error {
 	report.ID = r.NextID
 	r.Reports[r.NextID] = report
+	r.LastReport = report
 	r.NextID++
 	return nil
 }
@@ -155,7 +159,11 @@ func (r *MockAnalysisReportRepository) FindLatestByUser(userID uint64, reportTyp
 }
 
 func (r *MockAnalysisReportRepository) CreateWithItems(report *model.AnalysisReport, items []model.AnalysisReportItem) error {
-	return r.Create(report)
+	if err := r.Create(report); err != nil {
+		return err
+	}
+	r.LastItems = append([]model.AnalysisReportItem(nil), items...)
+	return nil
 }
 
 func (r *MockAnalysisReportRepository) Delete(id uint64) error {
@@ -293,20 +301,104 @@ func TestAIService_GetReports(t *testing.T) {
 }
 
 // TestAIService_GetReports_Empty 测试空报告列表
-func TestAIService_GetReports_Empty(t *testing.T) {
-	aiService, _, _, _ := createTestAIService()
+
+func TestAIService_GetReports_NormalizesLegacyChartData(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	legacyChartData := `[{"symbol":"600519.SH","value":"5000.00"}]`
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:      1,
+		ReportType:  "summary",
+		ReportTitle: "历史图表报告",
+		ChartData:   &legacyChartData,
+	})
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
 
 	reports, err := aiService.GetReports(1, "", 10)
 	if err != nil {
 		t.Fatalf("GetReports() error = %v", err)
 	}
+	if len(reports) != 1 {
+		t.Fatalf("Expected 1 report, got %d", len(reports))
+	}
 
-	if len(reports) != 0 {
-		t.Errorf("Expected 0 reports, got %d", len(reports))
+	expected := `{"version":2,"kind":"profit_by_symbol","metric":"total_profit","points":[{"symbol":"600519.SH","value":"5000.00"}]}`
+	if reports[0].ChartData != expected {
+		t.Errorf("Expected normalized chart_data %s, got %s", expected, reports[0].ChartData)
 	}
 }
 
-// TestAIService_GetReports_DefaultLimit 测试默认限制
+func TestAIService_GetAnalysisReportDetail_NormalizesLegacyChartData(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	legacyChartData := `[{"symbol":"000001.SH","value":"-120.50"}]`
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:      1,
+		ReportType:  "summary",
+		ReportTitle: "历史详情报告",
+		ChartData:   &legacyChartData,
+	})
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+
+	expected := `{"version":2,"kind":"profit_by_symbol","metric":"total_profit","points":[{"symbol":"000001.SH","value":"-120.50"}]}`
+	if detail.ChartData != expected {
+		t.Errorf("Expected normalized chart_data %s, got %s", expected, detail.ChartData)
+	}
+}
+
+func TestAIService_GetReports_DropsInvalidChartData(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	invalidChartData := `{"radar":[1,2,3]}`
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:      1,
+		ReportType:  "summary",
+		ReportTitle: "非法图表报告",
+		ChartData:   &invalidChartData,
+	})
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	reports, err := aiService.GetReports(1, "", 10)
+	if err != nil {
+		t.Fatalf("GetReports() error = %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("Expected 1 report, got %d", len(reports))
+	}
+	if reports[0].ChartData != "" {
+		t.Errorf("Expected empty chart_data for invalid input, got %s", reports[0].ChartData)
+	}
+}
+
 func TestAIService_GetReports_DefaultLimit(t *testing.T) {
 	aiService, _, _, _ := createTestAIService()
 
@@ -614,8 +706,22 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 	}
 
 	llmProvider := &MockLLMProvider{
-		Content:   "这是投资总结内容",
+		Content:   `{"summary":{"report_title":"测试总结报告","summary_text":"组合总盈亏为正，贵州茅台贡献了主要收益。当前交易次数较少，但单一标的集中度偏高。","risk_level":"medium","investment_style":"balanced","risk_analysis":"持仓集中在单一标的，若价格回撤会放大波动。","pattern_insights":"交易集中在少数标的，偏向低频持有。","prediction_text":"若继续维持当前集中仓位，后续收益弹性与回撤风险都会同时放大。","recommendations":["控制仓位","关注回撤"]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"value","analysis_text":"贵州茅台当前总盈亏为正，且交易次数较少，更接近持有型行为。由于仓位集中，后续波动会更直接影响组合表现。","recommendation":"hold","key_points":["龙头白酒"]}]}`,
 		modelName: "test-model",
+	}
+
+	metricService := &MockStockMetricService{
+		Metrics: []model.StockAnalysisMetric{
+			{
+				Symbol:           "600519.SH",
+				AssetName:        "贵州茅台",
+				TradeCount:       1,
+				BuyCount:         1,
+				BuyAmount:        decimal.NewFromFloat(185000),
+				TotalProfit:      decimal.NewFromFloat(5000),
+				MarketDataStatus: "complete",
+			},
+		},
 	}
 
 	aiService := service.NewAIService(
@@ -623,7 +729,7 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 		NewMockAnalysisReportRepository(),
 		NewMockAnalysisReportItemRepository(),
 		txRepo,
-		&MockStockMetricService{},
+		metricService,
 		llmProvider,
 		zap.NewNop(),
 	)
@@ -633,35 +739,26 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 		t.Fatalf("GenerateInvestmentSummary() error = %v", err)
 	}
 
-	if report.SummaryText != "这是投资总结内容" {
+	if report.SummaryText != "组合总盈亏为正，贵州茅台贡献了主要收益。当前交易次数较少，但单一标的集中度偏高。" {
 		t.Errorf("Expected summary text, got %s", report.SummaryText)
 	}
-}
-
-// TestAIService_GenerateInvestmentSummary_RepositoryError 测试仓储错误
-func TestAIService_GenerateInvestmentSummary_RepositoryError(t *testing.T) {
-	txRepo := &MockTransactionRepositoryForAI{
-		Err: gorm.ErrInvalidDB,
+	if len(report.Recommendations) != 2 {
+		t.Fatalf("Expected 2 recommendations, got %d", len(report.Recommendations))
 	}
-
-	aiService := service.NewAIService(
-		NewMockAnalysisTaskRepository(),
-		NewMockAnalysisReportRepository(),
-		NewMockAnalysisReportItemRepository(),
-		txRepo,
-		&MockStockMetricService{},
-		&MockLLMProvider{modelName: "test-model"},
-		zap.NewNop(),
-	)
-
-	_, err := aiService.GenerateInvestmentSummary(1, "2024-01-01", "2024-12-31")
-	if err == nil {
-		t.Error("Expected error for repository error")
+	if report.Recommendations[0] != "控制仓位" {
+		t.Errorf("Expected first recommendation to be 控制仓位, got %s", report.Recommendations[0])
+	}
+	if report.ChartData == "" {
+		t.Error("Expected chart_data to be populated")
+	}
+	if report.RiskAnalysis != "持仓集中在单一标的，若价格回撤会放大波动。" {
+		t.Errorf("Expected structured risk analysis, got %s", report.RiskAnalysis)
 	}
 }
 
-// TestAIService_CreateStockAnalysisTask_Success 测试创建分析任务成功
-func TestAIService_CreateStockAnalysisTask_Success(t *testing.T) {
+
+// TestAIService_GenerateInvestmentSummary_NoMetrics 测试无指标数据
+func TestAIService_GenerateInvestmentSummary_NoMetrics(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{
 		Transactions: []model.Transaction{
 			{
@@ -675,48 +772,191 @@ func TestAIService_CreateStockAnalysisTask_Success(t *testing.T) {
 		},
 	}
 
-	metricService := &MockStockMetricService{
-		Metrics: []model.StockAnalysisMetric{
-			{
-				Symbol:      "600519.SH",
-				AssetName:   "贵州茅台",
-				TradeCount:  1,
-				BuyCount:    1,
-				TotalProfit: decimal.NewFromInt(5000),
-			},
-		},
-	}
-
-	llmProvider := &MockLLMProvider{
-		Content: `{"summary":{"report_title":"测试报告","summary_text":"测试总结","risk_level":"medium","investment_style":"balanced","risk_analysis":"","pattern_insights":"","prediction_text":"","recommendations":[]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"value","analysis_text":"分析","recommendation":"hold","key_points":[]}]}`,
-		modelName: "test-model",
-	}
-
 	aiService := service.NewAIService(
 		NewMockAnalysisTaskRepository(),
 		NewMockAnalysisReportRepository(),
 		NewMockAnalysisReportItemRepository(),
 		txRepo,
-		metricService,
-		llmProvider,
+		&MockStockMetricService{Metrics: []model.StockAnalysisMetric{}},
+		&MockLLMProvider{modelName: "test-model"},
 		zap.NewNop(),
 	)
 
-	req := &request.CreateAnalysisTaskRequest{
-		StartDate: "2024-01-01",
-		EndDate:   "2024-12-31",
+	_, err := aiService.GenerateInvestmentSummary(1, "2024-01-01", "2024-12-31")
+	if err == nil {
+		t.Error("Expected error for no stock metrics")
 	}
+}
 
-	task, err := aiService.CreateStockAnalysisTask(1, req)
+// TestAIService_CreateStockAnalysisTask_Success 测试创建分析任务成功
+func waitForTaskStatus(t *testing.T, taskRepo *MockAnalysisTaskRepository, taskID uint64) *model.AnalysisTask {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		task := taskRepo.Tasks[taskID]
+		if task != nil && (task.Status == "success" || task.Status == "failed") {
+			return task
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("task %d did not finish", taskID)
+	return nil
+}
+
+func TestAIService_CreateStockAnalysisTask_WeakOutputFails(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
+		UserID:          1,
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		TransactionType: "buy",
+		Quantity:        decimal.NewFromInt(100),
+		TotalAmount:     decimal.NewFromFloat(185000),
+	}}}
+	metricService := &MockStockMetricService{Metrics: []model.StockAnalysisMetric{{
+		Symbol:           "600519.SH",
+		AssetName:        "贵州茅台",
+		TradeCount:       1,
+		BuyCount:         1,
+		TotalProfit:      decimal.NewFromInt(5000),
+		MarketDataStatus: "complete",
+	}}}
+	taskRepo := NewMockAnalysisTaskRepository()
+	reportRepo := NewMockAnalysisReportRepository()
+	aiService := service.NewAIService(
+		taskRepo,
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		metricService,
+		&MockLLMProvider{Content: `{"summary":{"report_title":"测试报告","summary_text":"测试总结","risk_level":"medium","investment_style":"balanced","risk_analysis":"","pattern_insights":"","prediction_text":"","recommendations":[]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"value","analysis_text":"分析","recommendation":"hold","key_points":[]}]}`,
+			modelName: "test-model",
+		},
+		zap.NewNop(),
+	)
+	task, err := aiService.CreateStockAnalysisTask(1, &request.CreateAnalysisTaskRequest{StartDate: "2024-01-01", EndDate: "2024-12-31"})
 	if err != nil {
 		t.Fatalf("CreateStockAnalysisTask() error = %v", err)
 	}
-
-	if task.Status != "pending" {
-		t.Errorf("Expected status pending, got %s", task.Status)
+	finished := waitForTaskStatus(t, taskRepo, task.ID)
+	if finished.Status != "failed" {
+		t.Fatalf("expected failed task, got %s", finished.Status)
 	}
+	if reportRepo.LastReport != nil {
+		t.Fatalf("expected no report, got %+v", reportRepo.LastReport)
+	}
+}
 
-	if task.ProgressStage != "pending" {
-		t.Errorf("Expected progressStage pending, got %s", task.ProgressStage)
+func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
+		UserID:          1,
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		TransactionType: "buy",
+		Quantity:        decimal.NewFromInt(100),
+		TotalAmount:     decimal.NewFromFloat(185000),
+	}}}
+	metricService := &MockStockMetricService{Metrics: []model.StockAnalysisMetric{{
+		Symbol:           "600519.SH",
+		AssetName:        "贵州茅台",
+		TradeCount:       1,
+		BuyCount:         1,
+		TotalProfit:      decimal.NewFromInt(5000),
+		MarketDataStatus: "complete",
+	}}}
+	taskRepo := NewMockAnalysisTaskRepository()
+	reportRepo := NewMockAnalysisReportRepository()
+	aiService := service.NewAIService(
+		taskRepo,
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		metricService,
+		&MockLLMProvider{Content: `{"summary":{"report_title":"  测试报告  ","summary_text":"  组合总盈亏为正，贵州茅台贡献明显。  ","risk_level":"medium","investment_style":"稳健型","risk_analysis":"  风险在于集中度较高  ","pattern_insights":"  重复交易集中在单一标的  ","prediction_text":"  若继续集中持仓，波动可能放大  ","recommendations":["- 减仓","1. 减仓","  复盘  ","复盘"]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"价值型","analysis_text":"  该标的交易次数较少但总盈亏为正，持仓较集中。  ","recommendation":"hold","key_points":["- 贡献利润","1. 贡献利润","关注集中度"]}]}`,
+			modelName: "test-model",
+		},
+		zap.NewNop(),
+	)
+	task, err := aiService.CreateStockAnalysisTask(1, &request.CreateAnalysisTaskRequest{StartDate: "2024-01-01", EndDate: "2024-12-31"})
+	if err != nil {
+		t.Fatalf("CreateStockAnalysisTask() error = %v", err)
+	}
+	finished := waitForTaskStatus(t, taskRepo, task.ID)
+	if finished.Status != "success" {
+		t.Fatalf("expected success task, got %s", finished.Status)
+	}
+	if reportRepo.LastReport == nil {
+		t.Fatal("expected report to be persisted")
+	}
+	if reportRepo.LastReport.InvestmentStyle == nil || *reportRepo.LastReport.InvestmentStyle != "balanced" {
+		t.Fatalf("expected normalized summary investment style, got %+v", reportRepo.LastReport.InvestmentStyle)
+	}
+	if reportRepo.LastReport.SummaryText != "组合总盈亏为正，贵州茅台贡献明显。" {
+		t.Fatalf("unexpected summary text: %s", reportRepo.LastReport.SummaryText)
+	}
+	if reportRepo.LastReport.Recommendations == nil || *reportRepo.LastReport.Recommendations == "" {
+		t.Fatal("expected recommendations to be persisted")
+	}
+	if len(reportRepo.LastItems) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(reportRepo.LastItems))
+	}
+	if reportRepo.LastItems[0].InvestmentStyle == nil || *reportRepo.LastItems[0].InvestmentStyle != "balanced" {
+		t.Fatalf("expected normalized item investment style, got %+v", reportRepo.LastItems[0].InvestmentStyle)
+	}
+	if reportRepo.LastItems[0].KeyPoints == nil || *reportRepo.LastItems[0].KeyPoints == "" {
+		t.Fatal("expected key points to be persisted")
+	}
+	if strings.Contains(*reportRepo.LastItems[0].KeyPoints, "贡献利润") {
+		t.Fatalf("expected weak key point to be filtered, got %s", *reportRepo.LastItems[0].KeyPoints)
+	}
+	if !strings.Contains(*reportRepo.LastItems[0].KeyPoints, "关注集中度") {
+		t.Fatalf("unexpected key points: %s", *reportRepo.LastItems[0].KeyPoints)
+	}
+}
+
+
+
+func TestAIService_CreateStockAnalysisTask_TransparentFallbackForWeakStockAnalysis(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
+		UserID:          1,
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		TransactionType: "buy",
+		Quantity:        decimal.NewFromInt(100),
+		TotalAmount:     decimal.NewFromFloat(185000),
+	}}}
+	metricService := &MockStockMetricService{Metrics: []model.StockAnalysisMetric{{
+		Symbol:           "600519.SH",
+		AssetName:        "贵州茅台",
+		TradeCount:       1,
+		BuyCount:         1,
+		TotalProfit:      decimal.NewFromInt(5000),
+		MarketDataStatus: "complete",
+	}}}
+	taskRepo := NewMockAnalysisTaskRepository()
+	reportRepo := NewMockAnalysisReportRepository()
+	aiService := service.NewAIService(
+		taskRepo,
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		metricService,
+		&MockLLMProvider{Content: `{"summary":{"report_title":"测试报告","summary_text":"组合总盈亏为正，贵州茅台贡献主要收益。当前持仓较集中，整体收益弹性较高。","risk_level":"medium","investment_style":"稳健型","risk_analysis":"单一标的集中度较高，若价格回撤则组合波动会被放大。","pattern_insights":"交易主要集中在贵州茅台，买入后以持有为主，呈现低频集中持有特征。","prediction_text":"若继续集中持仓，收益弹性可能提升，但回撤风险也会放大。","recommendations":["减仓","复盘"]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"价值型","analysis_text":"分析","recommendation":"hold","key_points":["关注集中度"]}]}`,
+			modelName: "test-model",
+		},
+		zap.NewNop(),
+	)
+	task, err := aiService.CreateStockAnalysisTask(1, &request.CreateAnalysisTaskRequest{StartDate: "2024-01-01", EndDate: "2024-12-31"})
+	if err != nil {
+		t.Fatalf("CreateStockAnalysisTask() error = %v", err)
+	}
+	finished := waitForTaskStatus(t, taskRepo, task.ID)
+	if finished.Status != "success" {
+		t.Fatalf("expected success task, got %s", finished.Status)
+	}
+	if reportRepo.LastReport == nil || len(reportRepo.LastItems) != 1 {
+		t.Fatal("expected persisted report and items")
+	}
+	if !strings.Contains(reportRepo.LastItems[0].AnalysisText, "总盈亏") {
+		t.Fatalf("expected transparent fallback analysis text, got %s", reportRepo.LastItems[0].AnalysisText)
 	}
 }

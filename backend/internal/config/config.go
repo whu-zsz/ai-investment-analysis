@@ -2,6 +2,9 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -67,58 +70,64 @@ type UploadConfig struct {
 }
 
 func LoadConfig() (*Config, error) {
-	viper.SetConfigFile(".env")
-	viper.AutomaticEnv()
+	v := viper.New()
+	v.AutomaticEnv()
 
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+	configFile, err := resolveConfigFile()
+	if err != nil {
+		return nil, err
+	}
+	if configFile != "" {
+		v.SetConfigFile(configFile)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
+		}
 	}
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Port: viper.GetString("SERVER_PORT"),
+			Port: v.GetString("SERVER_PORT"),
 		},
 		Database: DatabaseConfig{
-			Host:     viper.GetString("DB_HOST"),
-			Port:     viper.GetString("DB_PORT"),
-			User:     viper.GetString("DB_USER"),
-			Password: viper.GetString("DB_PASSWORD"),
-			DBName:   viper.GetString("DB_NAME"),
+			Host:     v.GetString("DB_HOST"),
+			Port:     v.GetString("DB_PORT"),
+			User:     v.GetString("DB_USER"),
+			Password: v.GetString("DB_PASSWORD"),
+			DBName:   v.GetString("DB_NAME"),
 		},
 		JWT: JWTConfig{
-			Secret:      viper.GetString("JWT_SECRET"),
-			ExpireHours: viper.GetInt("JWT_EXPIRE_HOURS"),
+			Secret:      v.GetString("JWT_SECRET"),
+			ExpireHours: v.GetInt("JWT_EXPIRE_HOURS"),
 		},
 		LLM: LLMConfig{
-			Provider: viper.GetString("LLM_PROVIDER"),
+			Provider: v.GetString("LLM_PROVIDER"),
 		},
 		Deepseek: DeepseekConfig{
-			APIKey: viper.GetString("DEEPSEEK_API_KEY"),
-			APIURL: viper.GetString("DEEPSEEK_API_URL"),
-			Model:  viper.GetString("DEEPSEEK_MODEL"),
+			APIKey: v.GetString("DEEPSEEK_API_KEY"),
+			APIURL: v.GetString("DEEPSEEK_API_URL"),
+			Model:  v.GetString("DEEPSEEK_MODEL"),
 		},
 		Doubao: DoubaoConfig{
-			APIKey: viper.GetString("DOUBAO_API_KEY"),
-			APIURL: viper.GetString("DOUBAO_API_URL"),
-			Model:  viper.GetString("DOUBAO_MODEL"),
+			APIKey: v.GetString("DOUBAO_API_KEY"),
+			APIURL: v.GetString("DOUBAO_API_URL"),
+			Model:  v.GetString("DOUBAO_MODEL"),
 		},
 		Market: MarketConfig{
-			Provider:           viper.GetString("MARKET_PROVIDER"),
-			Symbols:            viper.GetString("MARKET_SYMBOLS"),
-			SnapshotInterval:   viper.GetInt("MARKET_SNAPSHOT_INTERVAL"),
-			Enabled:            viper.GetBool("MARKET_ENABLED"),
-			TimeoutSeconds:     viper.GetInt("MARKET_TIMEOUT_SECONDS"),
-			EastmoneyBaseURL:   viper.GetString("MARKET_EASTMONEY_BASE_URL"),
-			EastmoneyUserAgent: viper.GetString("MARKET_EASTMONEY_USER_AGENT"),
-			EastmoneyReferer:   viper.GetString("MARKET_EASTMONEY_REFERER"),
+			Provider:           v.GetString("MARKET_PROVIDER"),
+			Symbols:            v.GetString("MARKET_SYMBOLS"),
+			SnapshotInterval:   v.GetInt("MARKET_SNAPSHOT_INTERVAL"),
+			Enabled:            v.GetBool("MARKET_ENABLED"),
+			TimeoutSeconds:     v.GetInt("MARKET_TIMEOUT_SECONDS"),
+			EastmoneyBaseURL:   v.GetString("MARKET_EASTMONEY_BASE_URL"),
+			EastmoneyUserAgent: v.GetString("MARKET_EASTMONEY_USER_AGENT"),
+			EastmoneyReferer:   v.GetString("MARKET_EASTMONEY_REFERER"),
 		},
 		Upload: UploadConfig{
-			Path:          viper.GetString("UPLOAD_PATH"),
-			MaxUploadSize: viper.GetInt64("MAX_UPLOAD_SIZE"),
+			Path:          v.GetString("UPLOAD_PATH"),
+			MaxUploadSize: v.GetInt64("MAX_UPLOAD_SIZE"),
 		},
 	}
 
-	// 设置默认值
 	if cfg.Server.Port == "" {
 		cfg.Server.Port = "8080"
 	}
@@ -162,8 +171,61 @@ func LoadConfig() (*Config, error) {
 		cfg.Upload.Path = "./uploads"
 	}
 	if cfg.Upload.MaxUploadSize == 0 {
-		cfg.Upload.MaxUploadSize = 10485760 // 10MB
+		cfg.Upload.MaxUploadSize = 10485760
+	}
+
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
+}
+
+func resolveConfigFile() (string, error) {
+	candidates := make([]string, 0, 3)
+	if envFile := strings.TrimSpace(os.Getenv("ENV_FILE")); envFile != "" {
+		candidates = append(candidates, envFile)
+	}
+	candidates = append(candidates, ".env", filepath.Join("backend", ".env"))
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to access config file %s: %w", candidate, err)
+		}
+	}
+
+	return "", nil
+}
+
+func validateConfig(cfg *Config) error {
+	missing := make([]string, 0, 5)
+	if strings.TrimSpace(cfg.Database.Host) == "" {
+		missing = append(missing, "DB_HOST")
+	}
+	if strings.TrimSpace(cfg.Database.Port) == "" {
+		missing = append(missing, "DB_PORT")
+	}
+	if strings.TrimSpace(cfg.Database.User) == "" {
+		missing = append(missing, "DB_USER")
+	}
+	if strings.TrimSpace(cfg.Database.Password) == "" {
+		missing = append(missing, "DB_PASSWORD")
+	}
+	if strings.TrimSpace(cfg.Database.DBName) == "" {
+		missing = append(missing, "DB_NAME")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required database configuration: %s", strings.Join(missing, ", "))
+	}
+
+	if strings.TrimSpace(cfg.JWT.Secret) == "" {
+		return fmt.Errorf("missing required configuration: JWT_SECRET")
+	}
+
+	return nil
 }
