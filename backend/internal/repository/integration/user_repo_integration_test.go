@@ -1,13 +1,12 @@
 //go:build integration
 // +build integration
 
-package repository_test
+package integration
 
 import (
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/repository"
 	"testing"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -21,17 +20,18 @@ func TestUserRepository_Integration(t *testing.T) {
 	repo := repository.NewUserRepository(db)
 
 	t.Run("Create", func(t *testing.T) {
+		phone := "13800138000"
+		avatarURL := "https://example.com/avatar.jpg"
 		user := &model.User{
 			Username:            "testuser1",
 			Email:               "test1@example.com",
 			PasswordHash:        "$2a$10$abcdefghijklmnopqrstuvwxyz123456",
-			Phone:               "13800138000",
-			AvatarURL:           "https://example.com/avatar.jpg",
+			Phone:               &phone,
+			AvatarURL:           &avatarURL,
 			InvestmentPreference: "balanced",
 			RiskTolerance:       "medium",
 			TotalProfit:         decimal.NewFromFloat(1000.50),
 			IsActive:            true,
-			LastLoginAt:         time.Now(),
 		}
 
 		err := repo.Create(user)
@@ -113,7 +113,8 @@ func TestUserRepository_Integration(t *testing.T) {
 		require.NoError(t, err)
 
 		// 更新用户信息
-		user.Phone = "13900139000"
+		phone := "13900139000"
+		user.Phone = &phone
 		user.InvestmentPreference = "aggressive"
 		err = repo.Update(user)
 		require.NoError(t, err)
@@ -121,7 +122,7 @@ func TestUserRepository_Integration(t *testing.T) {
 		// 验证更新
 		found, err := repo.FindByID(user.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "13900139000", found.Phone)
+		assert.Equal(t, "13900139000", *found.Phone)
 		assert.Equal(t, "aggressive", found.InvestmentPreference)
 	})
 

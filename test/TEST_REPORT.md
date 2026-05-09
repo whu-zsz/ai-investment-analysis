@@ -1,7 +1,7 @@
 # 后端单元测试报告
 
 > **项目**: AI 投资分析系统后端
-> **执行日期**: 2026-04-24 ~ 2026-05-05
+> **执行日期**: 2026-04-24 ~ 2026-05-06
 > **执行人**: Claude AI
 > **Go 版本**: 1.26.1
 > **测试状态**: ✅ **全部通过**
@@ -43,17 +43,67 @@
 | repository/analysis_report_item | `internal/repository/analysis_report_item_repo_test.go` | 5 | 5 | 0 | 31.9% |
 | repository/market_snapshot | `internal/repository/market_snapshot_repo_test.go` | 10 | 10 | 0 | 31.9% |
 | repository/stock_analysis_metric | `internal/repository/stock_analysis_metric_repo_test.go` | 10 | 10 | 0 | 31.9% |
-| **总计** | **31 个文件** | **332** | **332** | **0** | **~70%** |
+| **单元测试总计** | **31 个文件** | **332** | **332** | **0** | **~70%** |
+| integration/user | `internal/repository/integration/user_repo_integration_test.go` | 12 | 12 | 0 | - |
+| integration/transaction | `internal/repository/integration/transaction_repo_integration_test.go` | 11 | 11 | 0 | - |
+| integration/portfolio | `internal/repository/integration/portfolio_repo_integration_test.go` | 10 | 10 | 0 | - |
+| **集成测试总计** | **3 个文件** | **33** | **33** | **0** | **-** |
+| **总计** | **34 个文件** | **365** | **365** | **0** | **~70%** |
 
 ### 测试状态
 
-✅ **全部通过** - 332 个测试用例，0 个失败
+✅ **全部通过** - 365 个测试用例，0 个失败
 
 ---
 
 ## 2. 本次新增测试模块 ⭐
 
-### 2.0 model/portfolio_test.go (Portfolio 模型测试) - 2026-05-05 新增
+### 2.0 integration/user_repo_integration_test.go (用户仓储集成测试) - 2026-05-06 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestUserRepository_Integration/Create | 创建用户 | ✅ PASS |
+| TestUserRepository_Integration/FindByID | 按ID查找 | ✅ PASS |
+| TestUserRepository_Integration/FindByID_NotFound | ID不存在 | ✅ PASS |
+| TestUserRepository_Integration/FindByUsername | 按用户名查找 | ✅ PASS |
+| TestUserRepository_Integration/FindByUsername_NotFound | 用户名不存在 | ✅ PASS |
+| TestUserRepository_Integration/FindByEmail | 按邮箱查找 | ✅ PASS |
+| TestUserRepository_Integration/FindByEmail_NotFound | 邮箱不存在 | ✅ PASS |
+| TestUserRepository_Integration/Update | 更新用户 | ✅ PASS |
+| TestUserRepository_Integration/Delete | 删除用户 | ✅ PASS |
+| TestUserRepository_Integration/UpdateLastLogin | 更新登录时间 | ✅ PASS |
+| TestUserRepository_Integration/UpdateTotalProfit | 更新总收益 | ✅ PASS |
+
+### 2.0.1 integration/transaction_repo_integration_test.go (交易仓储集成测试) - 2026-05-06 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestTransactionRepository_Integration/Create | 创建交易 | ✅ PASS |
+| TestTransactionRepository_Integration/BatchCreate | 批量创建 | ✅ PASS |
+| TestTransactionRepository_Integration/FindByID | 按ID查找 | ✅ PASS |
+| TestTransactionRepository_Integration/FindByID_NotFound | ID不存在 | ✅ PASS |
+| TestTransactionRepository_Integration/FindByUserID | 按用户ID分页查找 | ✅ PASS |
+| TestTransactionRepository_Integration/FindByAssetCode | 按资产代码查找 | ✅ PASS |
+| TestTransactionRepository_Integration/FindByDateRange | 按日期范围查找 | ✅ PASS |
+| TestTransactionRepository_Integration/Update | 更新交易 | ✅ PASS |
+| TestTransactionRepository_Integration/Delete | 删除交易 | ✅ PASS |
+| TestTransactionRepository_Integration/GetTransactionStats | 获取交易统计 | ✅ PASS |
+
+### 2.0.2 integration/portfolio_repo_integration_test.go (持仓仓储集成测试) - 2026-05-06 新增
+
+| 测试用例 | 描述 | 结果 |
+|----------|------|------|
+| TestPortfolioRepository_Integration/Create | 创建持仓 | ✅ PASS |
+| TestPortfolioRepository_Integration/FindByID | 按ID查找 | ✅ PASS |
+| TestPortfolioRepository_Integration/FindByID_NotFound | ID不存在 | ✅ PASS |
+| TestPortfolioRepository_Integration/FindByUserID | 按用户ID查找 | ✅ PASS |
+| TestPortfolioRepository_Integration/FindByUserAndAsset | 按用户和资产查找 | ✅ PASS |
+| TestPortfolioRepository_Integration/FindByUserAndAsset_NotFound | 用户资产不存在 | ✅ PASS |
+| TestPortfolioRepository_Integration/Update | 更新持仓 | ✅ PASS |
+| TestPortfolioRepository_Integration/Delete | 删除持仓 | ✅ PASS |
+| TestPortfolioRepository_Integration/UpdateCurrentPrice | 更新当前价格 | ✅ PASS |
+
+### 2.1 model/portfolio_test.go (Portfolio 模型测试) - 2026-05-05 新增
 
 | 测试用例 | 描述 | 结果 |
 |----------|------|------|
@@ -198,6 +248,7 @@
 | handler | 86.9% | 86.9% | - |
 | service | 52.7% | 76.4% | +23.7% |
 | repository | 31.9% | 31.9% | - |
+| repository integration | 0% | - | 新增 (真实数据库测试) |
 | middleware | 69.0% | 69.0% | - |
 | utils | 92.9% | 92.9% | - |
 
@@ -215,7 +266,11 @@
 | market_data_service_test.go | 10 |
 | market_scheduler_test.go | 7 |
 | stock_analysis_metric_service_test.go | 10 |
-| **合计** | **83** |
+| integration/test_helpers_integration.go | - |
+| integration/user_repo_integration_test.go | 12 |
+| integration/transaction_repo_integration_test.go | 11 |
+| integration/portfolio_repo_integration_test.go | 10 |
+| **合计** | **116** |
 
 ---
 
@@ -294,7 +349,12 @@ backend/
 │       ├── analysis_report_repo_test.go
 │       ├── analysis_report_item_repo_test.go        ⭐ 新增
 │       ├── market_snapshot_repo_test.go             ⭐ 新增
-│       └── stock_analysis_metric_repo_test.go       ⭐ 新增
+│       ├── stock_analysis_metric_repo_test.go       ⭐ 新增
+│       └── integration/                             ⭐ 新增 (集成测试)
+│           ├── test_helpers_integration.go
+│           ├── user_repo_integration_test.go
+│           ├── transaction_repo_integration_test.go
+│           └── portfolio_repo_integration_test.go
 ```
 
 ---
@@ -317,9 +377,57 @@ backend/
 | Handler | 6 | 72 | 86.9% |
 | Service | 11 | 120 | 76.4% |
 | Repository | 9 | 87 | 31.9% |
+| Repository Integration | 3 | 33 | - |
 | Middleware | 1 | 13 | 69.0% |
 | Utils | 2 | 22 | 92.9% |
-| **总计** | **31** | **332** | **~70%** |
+| **总计** | **34** | **365** | **~70%** |
+
+### 6.3 测试运行命令
+
+#### 单元测试
+
+```bash
+# 运行所有单元测试（推荐）
+./test/run_tests.sh
+
+# 手动运行所有单元测试
+cd backend && go test ./... -v
+
+# 运行特定层级测试
+go test ./internal/model/... -v          # Model 层
+go test ./internal/handler/... -v        # Handler 层
+go test ./internal/service/... -v        # Service 层
+go test ./internal/repository/... -v     # Repository 层
+go test ./internal/middleware/... -v      # Middleware 层
+go test ./internal/utils/... -v          # Utils 层
+
+# 查看覆盖率
+go test ./... -cover
+
+# 生成覆盖率报告
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
+```
+
+#### 集成测试
+
+```bash
+# 运行所有集成测试（需要本地 MySQL）
+go test -tags integration -v ./internal/repository/integration/...
+
+# 运行特定集成测试
+go test -tags integration -v ./internal/repository/integration/... -run TestUserRepository_Integration
+go test -tags integration -v ./internal/repository/integration/... -run TestTransactionRepository_Integration
+go test -tags integration -v ./internal/repository/integration/... -run TestPortfolioRepository_Integration
+
+# 使用测试脚本运行（包含集成测试）
+./test/run_tests.sh --with-integration
+```
+
+**集成测试前置条件：**
+- 本地 MySQL 服务运行
+- 测试数据库 `stock_analysis_test` 已创建
+- 数据库连接信息配置正确（默认：root/soyorin114@localhost:3306）
 
 ---
 
@@ -332,8 +440,9 @@ backend/
 | 测试框架 | Go testing |
 | HTTP 测试 | httptest |
 | Mock 方式 | 内存存储模拟 + 接口实现 |
-| 数据库驱动 | gorm.io/driver/sqlite (测试用) |
+| 数据库驱动 | gorm.io/driver/sqlite (单元测试) / gorm.io/driver/mysql (集成测试) |
+| 集成测试数据库 | MySQL 8.0 (stock_analysis_test) |
 
 ---
 
-**报告生成时间**: 2026-05-05 21:20
+**报告生成时间**: 2026-05-06 10:10

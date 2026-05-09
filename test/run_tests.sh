@@ -29,8 +29,8 @@ START_TIME=0
 print_header() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║           AI 投资分析系统 - 单元测试执行器                    ║${NC}"
-    echo -e "${CYAN}║                   Unit Test Runner                           ║${NC}"
+    echo -e "${CYAN}║           AI 投资分析系统 - 测试执行器                        ║${NC}"
+    echo -e "${CYAN}║                   Test Runner                                ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -115,6 +115,57 @@ run_module_test() {
     done <<< "$output"
 
     print_module_result "$module" "$passed" "$failed" "${duration}s"
+
+    # 更新全局统计
+    TOTAL_PASSED=$((TOTAL_PASSED + passed))
+    TOTAL_FAILED=$((TOTAL_FAILED + failed))
+
+    return $exit_code
+}
+
+# 运行集成测试
+run_integration_tests() {
+    echo ""
+    echo -e "${YELLOW}▶ 正在运行集成测试 (需要本地 MySQL)...${NC}"
+    echo -e "${BLUE}  测试数据库: stock_analysis_test${NC}"
+    print_separator
+
+    local start=$(date +%s.%N)
+
+    # 运行集成测试
+    local output
+    output=$(cd "$BACKEND_DIR" && go test -tags integration -v ./internal/repository/integration/... 2>&1)
+    local exit_code=$?
+
+    local end=$(date +%s.%N)
+    local duration=$(echo "$end - $start" | bc | xargs printf "%.2f")
+
+    # 解析测试结果
+    local passed=0
+    local failed=0
+    local total=0
+
+    while IFS= read -r line; do
+        if [[ "$line" == *"=== RUN"* && "$line" != *"=== RUN   Test"*"_Integration/"* ]]; then
+            total=$((total + 1))
+        elif [[ "$line" == *"--- PASS"* ]]; then
+            passed=$((passed + 1))
+            local test_name=$(echo "$line" | sed 's/--- PASS: //' | sed 's/ (.*)//')
+            print_progress "$passed" "$total" "$test_name" "PASS"
+        elif [[ "$line" == *"--- FAIL"* ]]; then
+            failed=$((failed + 1))
+            local test_name=$(echo "$line" | sed 's/--- FAIL: //' | sed 's/ (.*)//')
+            print_progress "$((passed + failed))" "$total" "$test_name" "FAIL"
+        fi
+    done <<< "$output"
+
+    echo ""
+    if [ "$failed" -eq 0 ]; then
+        echo -e "${GREEN}  ✓ 集成测试通过${NC}"
+    else
+        echo -e "${RED}  ✗ 集成测试失败 (${failed} 个失败)${NC}"
+    fi
+    echo -e "    通过: ${passed} | 失败: ${failed} | 耗时: ${duration}s"
 
     # 更新全局统计
     TOTAL_PASSED=$((TOTAL_PASSED + passed))
@@ -246,6 +297,15 @@ main() {
             print_separator
         fi
     done
+
+    # 运行集成测试（可选，默认跳过）
+    if [ "$1" == "--with-integration" ]; then
+        run_integration_tests
+        print_separator
+    else
+        echo ""
+        echo -e "${YELLOW}▶ 跳过集成测试 (使用 --with-integration 参数运行)${NC}"
+    fi
 
     # 运行覆盖率测试
     run_coverage_test
