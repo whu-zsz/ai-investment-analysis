@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package repository_test
+package integration
 
 import (
 	"fmt"
@@ -57,6 +57,20 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("Failed to connect to test database: %v", err)
 	}
 
+	// 先清理数据库
+	db.Exec("SET FOREIGN_KEY_CHECKS = 0")
+	db.Exec("DROP TABLE IF EXISTS stock_analysis_metrics")
+	db.Exec("DROP TABLE IF EXISTS market_snapshots")
+	db.Exec("DROP TABLE IF EXISTS ai_analysis_report_items")
+	db.Exec("DROP TABLE IF EXISTS ai_analysis_reports")
+	db.Exec("DROP TABLE IF EXISTS ai_analysis_tasks")
+	db.Exec("DROP TABLE IF EXISTS uploaded_files")
+	db.Exec("DROP TABLE IF EXISTS portfolios")
+	db.Exec("DROP TABLE IF EXISTS transactions")
+	db.Exec("DROP TABLE IF EXISTS users")
+	db.Exec("SET FOREIGN_KEY_CHECKS = 1")
+
+	// 自动迁移所有模型
 	err = db.AutoMigrate(
 		&model.User{},
 		&model.Transaction{},

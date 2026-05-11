@@ -298,6 +298,58 @@ export interface MarketSnapshotResponse {
   batch_no: string;
 }
 
+export interface AnalysisCandidateSource {
+  type: 'portfolio' | 'transactions' | string;
+}
+
+export interface AnalysisCandidateResponse {
+  symbol: string;
+  asset_name: string;
+  asset_type: string;
+  market: string;
+  sources: AnalysisCandidateSource[];
+  is_held: boolean;
+  trade_count: number;
+  last_price: string;
+  change_percent: string;
+}
+
+export interface AnalysisCandidatesResponse {
+  default_symbol: string;
+  candidates: AnalysisCandidateResponse[];
+}
+
+export interface RecommendationProfileSummary {
+  investment_preference: 'conservative' | 'balanced' | 'aggressive' | string;
+  risk_tolerance: string;
+  total_profit: string;
+  held_positions: number;
+  candidate_count: number;
+}
+
+export interface RecommendationItemResponse {
+  symbol: string;
+  asset_name: string;
+  asset_type: string;
+  market: string;
+  action: 'buy' | 'hold' | 'reduce' | 'sell' | 'observe' | string;
+  score: string;
+  latest_price: string;
+  change_percent: string;
+  match_reason: string;
+  risk_note: string;
+  data_status: MarketDataStatus | string;
+  is_held: boolean;
+  trade_count: number;
+}
+
+export interface AnalysisRecommendationsResponse {
+  generated_at: string;
+  profile_summary: RecommendationProfileSummary;
+  summary_text: string;
+  candidates: RecommendationItemResponse[];
+}
+
 // ─────────────────────────────────────────
 //  对应 dto/response/analysis.go
 // ─────────────────────────────────────────

@@ -3,22 +3,42 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-05-05
+> **更新日期**: 2026-05-06
 
 ---
 
-## 集成测试数据库约定
+## 0. 测试代码更新日志
 
-- 常规 `go test ./...` 默认不包含 `integration` 标签测试。
-- Repository 层集成测试默认连接 `stock_analysis_test`。
-- 默认连接参数现改为可由环境变量覆盖：
-  - `TEST_DB_HOST`（默认 `127.0.0.1`）
-  - `TEST_DB_PORT`（默认 `3306`）
-  - `TEST_DB_USER`（默认 `root`）
-  - `TEST_DB_PASSWORD`（默认 `root123`）
-  - `TEST_DB_NAME`（默认 `stock_analysis_test`）
-- 推荐先通过 `backend/docker-compose.yml` 启动本地 MySQL，再运行集成测试。
+### 2026-05-06 更新记录
 
+#### 第十批测试代码 (集成测试) - 10:00
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 09:30 | `internal/repository/integration/test_helpers_integration.go` | 集成测试基础设施 | - | ✅ 通过 |
+| 09:40 | `internal/repository/integration/user_repo_integration_test.go` | 用户仓储集成测试 | 12 | ✅ 通过 |
+| 09:50 | `internal/repository/integration/transaction_repo_integration_test.go` | 交易仓储集成测试 | 11 | ✅ 通过 |
+| 10:00 | `internal/repository/integration/portfolio_repo_integration_test.go` | 持仓仓储集成测试 | 10 | ✅ 通过 |
+
+**测试内容：**
+- 使用本地 MySQL 数据库 (`stock_analysis_test`)
+- 测试真实 SQL 语句执行
+- 验证 GORM 的 AutoMigrate、CRUD 操作
+- 测试复杂查询（分页、关联、统计）
+
+**运行命令：**
+```bash
+# 运行所有集成测试
+go test -tags integration -v ./internal/repository/integration/...
+
+# 运行特定集成测试
+go test -tags integration -v ./internal/repository/integration/... -run TestUserRepository_Integration
+
+# 使用测试脚本运行（包含集成测试）
+./test/run_tests.sh --with-integration
+```
+
+### 2026-05-05 更新记录
 
 #### 第九批测试代码 (Model 层) - 21:15
 
@@ -223,15 +243,16 @@ Service 覆盖率:   48.7% → 52.7% (提升 4%)
 #### 当前测试总览
 
 ```
-测试文件统计 (截至 2026-05-05 21:15):
-├── Model 层:     2 个文件, 18 个用例, - 覆盖率
-├── Handler 层:   6 个文件, 72 个用例, 86.9% 覆盖率
-├── Service 层:  11 个文件, 120 个用例, 76.4% 覆盖率
-├── Repository 层: 9 个文件, 87 个用例, 31.9% 覆盖率
-├── Middleware:   1 个文件, 13 个用例, 69.0% 覆盖率
-└── Utils 层:     2 个文件, 22 个用例, 92.9% 覆盖率
+测试文件统计 (截至 2026-05-06 10:00):
+├── Model 层:          2 个文件, 18 个用例, - 覆盖率
+├── Handler 层:        6 个文件, 72 个用例, 86.9% 覆盖率
+├── Service 层:       11 个文件, 120 个用例, 76.4% 覆盖率
+├── Repository 层:     9 个文件, 87 个用例, 31.9% 覆盖率
+├── Repository 集成:   3 个文件, 33 个用例, - (真实数据库)
+├── Middleware:        1 个文件, 13 个用例, 69.0% 覆盖率
+└── Utils 层:          2 个文件, 22 个用例, 92.9% 覆盖率
 
-总计: 31 个测试文件, 332 个测试用例, 100% 通过率
+总计: 34 个测试文件, 365 个测试用例, 100% 通过率
 ```
 
 #### Mock 实现说明
@@ -1101,6 +1122,7 @@ cd test
 - 统计每个模块的测试耗时
 - 自动生成测试覆盖率报告
 - 汇总最终测试结果（总用例数、通过数、失败数、通过率）
+- 支持集成测试（使用 `--with-integration` 参数）
 
 **输出示例：**
 ```

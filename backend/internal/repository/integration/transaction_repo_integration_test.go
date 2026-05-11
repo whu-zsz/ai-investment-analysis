@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package repository_test
+package integration
 
 import (
 	"stock-analysis-backend/internal/model"
@@ -40,7 +40,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 			Quantity:        decimal.NewFromInt(100),
 			PricePerUnit:    decimal.NewFromFloat(1850.00),
 			TotalAmount:     decimal.NewFromFloat(185000.00),
-			Currency:        "CNY",
 		}
 
 		err := repo.Create(tx)
@@ -60,7 +59,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 				Quantity:        decimal.NewFromInt(200),
 				PricePerUnit:    decimal.NewFromFloat(180.00),
 				TotalAmount:     decimal.NewFromFloat(36000.00),
-				Currency:        "CNY",
 			},
 			{
 				UserID:          user.ID,
@@ -72,7 +70,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 				Quantity:        decimal.NewFromInt(50),
 				PricePerUnit:    decimal.NewFromFloat(1900.00),
 				TotalAmount:     decimal.NewFromFloat(95000.00),
-				Currency:        "CNY",
 			},
 		}
 
@@ -93,7 +90,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 			Quantity:        decimal.NewFromInt(50),
 			PricePerUnit:    decimal.NewFromFloat(380.00),
 			TotalAmount:     decimal.NewFromFloat(19000.00),
-			Currency:        "CNY",
 		}
 		repo.Create(tx)
 
@@ -121,7 +117,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 				Quantity:        decimal.NewFromInt(10),
 				PricePerUnit:    decimal.NewFromFloat(1850.00),
 				TotalAmount:     decimal.NewFromFloat(18500.00),
-				Currency:        "CNY",
 			}
 			repo.Create(tx)
 		}
@@ -168,7 +163,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 			Quantity:        decimal.NewFromInt(100),
 			PricePerUnit:    decimal.NewFromFloat(10.00),
 			TotalAmount:     decimal.NewFromFloat(1000.00),
-			Currency:        "CNY",
 		}
 		repo.Create(tx)
 
@@ -195,7 +189,6 @@ func TestTransactionRepository_Integration(t *testing.T) {
 			Quantity:        decimal.NewFromInt(100),
 			PricePerUnit:    decimal.NewFromFloat(15.00),
 			TotalAmount:     decimal.NewFromFloat(1500.00),
-			Currency:        "CNY",
 		}
 		repo.Create(tx)
 

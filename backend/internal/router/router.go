@@ -105,6 +105,8 @@ func SetupRouter(
 				analysis.GET("/reports", analysisHandler.GetReports)
 				analysis.GET("/reports/:id", analysisHandler.GetReportDetail)
 				analysis.GET("/reports/:id/pdf", analysisHandler.ExportReportPDF)
+				analysis.GET("/candidates", analysisHandler.GetCandidates)
+				analysis.GET("/recommendations", analysisHandler.GetRecommendations)
 			}
 		}
 	}

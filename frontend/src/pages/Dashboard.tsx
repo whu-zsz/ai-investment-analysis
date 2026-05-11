@@ -328,7 +328,10 @@ export default function Dashboard() {
             </div>
             <Space wrap>
               <Button ghost onClick={() => guardNavigate('/app/upload')}>上传记录</Button>
+              <Button ghost onClick={() => guardNavigate('/app/portfolio')}>持仓总览</Button>
+              <Button ghost onClick={() => guardNavigate('/app/market-trend')}>市场趋势</Button>
               <Button ghost onClick={() => guardNavigate('/app/analysis')}>AI 风险分析</Button>
+              <Button ghost onClick={() => guardNavigate('/app/recommendation')}>AI 推荐</Button>
               <Button ghost onClick={() => guardNavigate('/app/prediction')}>趋势预测</Button>
               <Button ghost onClick={() => guardNavigate('/app/history')}>历史归档</Button>
               {isLoggedIn ? (

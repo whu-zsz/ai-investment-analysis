@@ -7,6 +7,7 @@ import type {
   DashboardMarketSnapshotResponse, MarketSnapshotResponse,
   AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
+  AnalysisCandidatesResponse, AnalysisRecommendationsResponse,
 } from './types';
 
 // ══════════════════════════════════════════
@@ -178,4 +179,12 @@ export const analysisApi = {
   /** GET /analysis/reports/:id/pdf */
   downloadReportPDF: (id: number): Promise<Blob> =>
     request.get(`/analysis/reports/${id}/pdf`, { responseType: 'blob' }),
+
+  /** GET /analysis/candidates */
+  getCandidates: (): Promise<AnalysisCandidatesResponse> =>
+    request.get('/analysis/candidates'),
+
+  /** GET /analysis/recommendations */
+  getRecommendations: (): Promise<AnalysisRecommendationsResponse> =>
+    request.get('/analysis/recommendations'),
 };

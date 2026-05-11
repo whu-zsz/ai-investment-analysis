@@ -35,6 +35,13 @@ type MockAIService struct {
 	GetReportsErr             error
 }
 
+type MockRecommendationService struct {
+	CandidatesResult      *response.AnalysisCandidatesResponse
+	CandidatesErr         error
+	RecommendationsResult *response.AnalysisRecommendationsResponse
+	RecommendationsErr    error
+}
+
 func (m *MockAIService) CreateStockAnalysisTask(userID uint64, req *request.CreateAnalysisTaskRequest) (*response.AnalysisTaskResponse, error) {
 	if m.CreateTaskErr != nil {
 		return nil, m.CreateTaskErr
@@ -84,6 +91,20 @@ func (m *MockAIService) GetReports(userID uint64, reportType string, limit int) 
 	return m.GetReportsResult, nil
 }
 
+func (m *MockRecommendationService) GetCandidates(userID uint64) (*response.AnalysisCandidatesResponse, error) {
+	if m.CandidatesErr != nil {
+		return nil, m.CandidatesErr
+	}
+	return m.CandidatesResult, nil
+}
+
+func (m *MockRecommendationService) GetRecommendations(userID uint64) (*response.AnalysisRecommendationsResponse, error) {
+	if m.RecommendationsErr != nil {
+		return nil, m.RecommendationsErr
+	}
+	return m.RecommendationsResult, nil
+}
+
 // TestAnalysisHandler_CreateTask 测试创建分析任务
 func TestAnalysisHandler_CreateTask(t *testing.T) {
 	mockService := &MockAIService{
@@ -95,7 +116,7 @@ func TestAnalysisHandler_CreateTask(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -127,7 +148,7 @@ func TestAnalysisHandler_CreateTask(t *testing.T) {
 func TestAnalysisHandler_CreateTask_InvalidJSON(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -152,7 +173,7 @@ func TestAnalysisHandler_CreateTask_ServiceError(t *testing.T) {
 		CreateTaskErr: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -183,7 +204,7 @@ func TestAnalysisHandler_GetTask(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -205,7 +226,7 @@ func TestAnalysisHandler_GetTask(t *testing.T) {
 func TestAnalysisHandler_GetTask_InvalidID(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -229,7 +250,7 @@ func TestAnalysisHandler_GetTask_NotFound(t *testing.T) {
 		GetTaskErr: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -261,7 +282,7 @@ func TestAnalysisHandler_GetTasks(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -300,7 +321,7 @@ func TestAnalysisHandler_GetTasks_WithStatus(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -328,7 +349,7 @@ func TestAnalysisHandler_GetReportDetail(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -350,7 +371,7 @@ func TestAnalysisHandler_GetReportDetail(t *testing.T) {
 func TestAnalysisHandler_GetReportDetail_InvalidID(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -374,7 +395,7 @@ func TestAnalysisHandler_GetReportDetail_NotFound(t *testing.T) {
 		GetReportDetailErr: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -399,7 +420,7 @@ func TestAnalysisHandler_ExportReportPDF(t *testing.T) {
 		ExportReportPDFFilename: "analysis-report-1.pdf",
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -430,7 +451,7 @@ func TestAnalysisHandler_ExportReportPDF(t *testing.T) {
 func TestAnalysisHandler_ExportReportPDF_InvalidID(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -454,7 +475,7 @@ func TestAnalysisHandler_ExportReportPDF_NotFound(t *testing.T) {
 		ExportReportPDFErr: gorm.ErrRecordNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -478,7 +499,7 @@ func TestAnalysisHandler_ExportReportPDF_ServiceError(t *testing.T) {
 		ExportReportPDFErr: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -508,7 +529,7 @@ func TestAnalysisHandler_GenerateSummary(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -530,7 +551,7 @@ func TestAnalysisHandler_GenerateSummary(t *testing.T) {
 func TestAnalysisHandler_GenerateSummary_MissingDates(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -552,7 +573,7 @@ func TestAnalysisHandler_GenerateSummary_MissingDates(t *testing.T) {
 func TestAnalysisHandler_GenerateSummary_MissingStartDate(t *testing.T) {
 	mockService := &MockAIService{}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -576,7 +597,7 @@ func TestAnalysisHandler_GenerateSummary_ServiceError(t *testing.T) {
 		GenerateSummaryErr: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -603,7 +624,7 @@ func TestAnalysisHandler_GetReports(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -637,7 +658,7 @@ func TestAnalysisHandler_GetReports_WithType(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -661,7 +682,7 @@ func TestAnalysisHandler_GetReports_Empty(t *testing.T) {
 		GetReportsResult: []response.AnalysisReportResponse{},
 	}
 
-	h := handler.NewAnalysisHandler(mockService)
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uint64(1))
@@ -676,6 +697,79 @@ func TestAnalysisHandler_GetReports_Empty(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+}
+
+func TestAnalysisHandler_GetRecommendations(t *testing.T) {
+	mockService := &MockAIService{}
+	recommendationService := &MockRecommendationService{
+		RecommendationsResult: &response.AnalysisRecommendationsResponse{
+			GeneratedAt: "2026-05-11 12:00:00",
+			SummaryText: "更适合优先关注熟悉标的。",
+			Candidates: []response.RecommendationItemResponse{{
+				Symbol:        "600519.SH",
+				AssetName:     "贵州茅台",
+				Action:        "hold",
+				Score:         "81.00",
+				MatchReason:   "当前已持仓，且近期有交易记录。",
+				RiskNote:      "注意波动。",
+				DataStatus:    "complete",
+				LatestPrice:   "1680.0000",
+				ChangePercent: "1.25",
+			}},
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, recommendationService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/recommendations", h.GetRecommendations)
+
+	req := httptest.NewRequest("GET", "/analysis/recommendations", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+}
+
+func TestAnalysisHandler_GetCandidates(t *testing.T) {
+	mockService := &MockAIService{}
+	recommendationService := &MockRecommendationService{
+		CandidatesResult: &response.AnalysisCandidatesResponse{
+			DefaultSymbol: "600519.SH",
+			Candidates: []response.AnalysisCandidateResponse{{
+				Symbol:        "600519.SH",
+				AssetName:     "贵州茅台",
+				AssetType:     "stock",
+				IsHeld:        true,
+				TradeCount:    4,
+				LastPrice:     "1680.0000",
+				ChangePercent: "1.25",
+			}},
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, recommendationService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/candidates", h.GetCandidates)
+
+	req := httptest.NewRequest("GET", "/analysis/candidates", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
 	}
 }
 
