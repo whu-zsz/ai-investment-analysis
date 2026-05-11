@@ -1,10 +1,19 @@
 package response
 
+type UploadRowError struct {
+	RowNumber int    `json:"row_number"`
+	Reason    string `json:"reason"`
+}
+
 type UploadResponse struct {
-	FileID          int64  `json:"file_id"`
-	FileName        string `json:"file_name"`
-	RecordsImported int    `json:"records_imported"`
-	Message         string `json:"message"`
+	FileID          int64            `json:"file_id"`
+	FileName        string           `json:"file_name"`
+	UploadStatus    string           `json:"upload_status"`
+	RecordsTotal    int              `json:"records_total"`
+	RecordsImported int              `json:"records_imported"`
+	RecordsFailed   int              `json:"records_failed"`
+	Errors          []UploadRowError `json:"errors"`
+	Message         string           `json:"message"`
 }
 
 type UploadHistoryResponse struct {

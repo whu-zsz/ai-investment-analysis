@@ -39,6 +39,43 @@ function pickPredictionReport(reports: AnalysisReportResponse[]) {
   return reports.find(isUsableSummary) ?? reports[0] ?? null;
 }
 
+function getPredictionBiasMeta(bias?: string) {
+  switch (bias) {
+    case 'bullish':
+      return { label: '偏多', color: 'success' as const, statisticValue: '偏多' };
+    case 'bearish':
+      return { label: '偏空', color: 'error' as const, statisticValue: '偏空' };
+    case 'neutral':
+      return { label: '中性', color: 'default' as const, statisticValue: '中性' };
+    default:
+      return { label: '未给出', color: 'default' as const, statisticValue: '—' };
+  }
+}
+
+function getPredictionConfidenceMeta(confidence?: string) {
+  switch (confidence) {
+    case 'high':
+      return { label: '高', color: 'success' as const };
+    case 'medium':
+      return { label: '中', color: 'processing' as const };
+    case 'low':
+      return { label: '低', color: 'warning' as const };
+    default:
+      return { label: '未给出', color: 'default' as const };
+  }
+}
+
+function formatPredictionHorizon(horizon?: string) {
+  switch (horizon) {
+    case 'next_7d':
+      return '未来 7 天';
+    case 'next_30d':
+      return '未来 30 天';
+    default:
+      return '—';
+  }
+}
+
 export default function PredictionPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -77,6 +114,10 @@ export default function PredictionPage() {
   const chartSummary = useMemo(() => summarizeProfitBySymbolData(profitChartData), [profitChartData]);
   const momentumData = useMemo(() => buildChangePercentRankingData(report?.items), [report?.items]);
   const compositionSummary = useMemo(() => buildProfitCompositionData(report?.items), [report?.items]);
+  const prediction = report?.prediction;
+  const predictionNarrative = formatValue(prediction?.narrative || report?.prediction_text);
+  const biasMeta = useMemo(() => getPredictionBiasMeta(prediction?.bias), [prediction?.bias]);
+  const confidenceMeta = useMemo(() => getPredictionConfidenceMeta(prediction?.confidence), [prediction?.confidence]);
 
   const getProfitOption = (): EChartsOption => ({
     tooltip: {
@@ -194,18 +235,18 @@ export default function PredictionPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
-              <Tag color="processing">趋势结论</Tag>
+              <Tag color="processing">预测总览</Tag>
               <Tag color="blue">复用分析报告</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 收益趋势预测</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前后端暂无独立预测接口，本页展示最近一份 summary 报告中的趋势结论、收益分布与结构动量视角。
+              当前页面优先展示 summary 报告中的结构化预测结论，并用历史收益分布、动量与收益构成作为预测依据。
             </Paragraph>
           </div>
           {report && (
             <Space wrap>
-              <Tag color="success" icon={<RiseOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-                参考收益率 {annualRate}%
+              <Tag color={biasMeta.color} icon={<RiseOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
+                方向 {biasMeta.label}
               </Tag>
               <Tag color={marketStatus.color} icon={<StockOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
                 {marketStatus.text}
@@ -238,12 +279,24 @@ export default function PredictionPage() {
         </Card>
       ) : (
         <Row gutter={[16, 16]}>
-          <Col span={24} lg={6}>
+          <Col span={24} lg={8}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              <Card bordered={false} style={cardStyle} title={<span><ThunderboltOutlined style={{ color: '#1677ff', marginRight: 8 }} />趋势结论</span>}>
-                <Paragraph type="secondary" style={{ marginBottom: 0, lineHeight: 1.8 }}>
-                  {formatValue(report.prediction_text)}
-                </Paragraph>
+              <Card bordered={false} style={cardStyle} title={<span><ThunderboltOutlined style={{ color: '#1677ff', marginRight: 8 }} />预测总览</span>}>
+                <Row gutter={[12, 12]}>
+                  <Col span={24}>
+                    <Statistic title="方向判断" value={biasMeta.statisticValue} valueStyle={{ fontSize: 28 }} />
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>置信度</Text>
+                    <div style={{ marginTop: 8 }}>
+                      <Tag color={confidenceMeta.color} style={{ borderRadius: 20, padding: '4px 12px' }}>{confidenceMeta.label}</Tag>
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>观察周期</Text>
+                    <div style={{ marginTop: 8, fontWeight: 600 }}>{formatPredictionHorizon(prediction?.horizon)}</div>
+                  </Col>
+                </Row>
               </Card>
 
               <Card bordered={false} style={cardStyle}>
@@ -256,7 +309,7 @@ export default function PredictionPage() {
                   prefix={<StockOutlined />}
                 />
                 <Tag color="success" style={{ marginTop: 10, borderRadius: 20, padding: '2px 12px' }}>
-                  最近分析报告推导
+                  来自最近分析报告
                 </Tag>
               </Card>
 
@@ -281,7 +334,7 @@ export default function PredictionPage() {
 
               <Alert
                 message="说明"
-                description="该页面当前展示的是最近分析报告中的预测文本、收益分布和结构摘要，不再伪造独立趋势路径。"
+                description="新报告会优先展示结构化 prediction；历史报告若只有 prediction_text，会自动降级为文本与依据图表展示。"
                 type="info"
                 showIcon
                 icon={<InfoCircleOutlined />}
@@ -290,9 +343,51 @@ export default function PredictionPage() {
             </Space>
           </Col>
 
-          <Col span={24} lg={18}>
+          <Col span={24} lg={16}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              <Card bordered={false} style={cardStyle} title={<span><LineChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股累计收益分布</span>} extra={<Text type="secondary" style={{ fontSize: 12 }}>报告时间: {formatValue(report.created_at)}</Text>}>
+              <Row gutter={[16, 16]}>
+                <Col span={24} xl={12}>
+                  <Card bordered={false} style={cardStyle} title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />驱动因素</span>}>
+                    {prediction?.drivers?.length ? (
+                      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                        {prediction.drivers.map((driver) => (
+                          <div key={driver} style={{ background: '#f5faff', borderRadius: 12, padding: '12px 14px', lineHeight: 1.7 }}>
+                            <Text>{driver}</Text>
+                          </div>
+                        ))}
+                      </Space>
+                    ) : (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无结构化驱动因素" />
+                    )}
+                  </Card>
+                </Col>
+                <Col span={24} xl={12}>
+                  <Card bordered={false} style={cardStyle} title={<span><RiseOutlined style={{ color: '#1677ff', marginRight: 8 }} />条件场景</span>}>
+                    {prediction?.scenarios?.length ? (
+                      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                        {prediction.scenarios.map((scenario, index) => (
+                          <div key={`${scenario.condition}-${index}`} style={{ background: '#fffaf0', borderRadius: 12, padding: '12px 14px' }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>条件</Text>
+                            <div style={{ marginTop: 4, fontWeight: 600 }}>{scenario.condition}</div>
+                            <Text type="secondary" style={{ fontSize: 12, marginTop: 10, display: 'block' }}>可能结果</Text>
+                            <div style={{ marginTop: 4, lineHeight: 1.7 }}>{scenario.outcome}</div>
+                          </div>
+                        ))}
+                      </Space>
+                    ) : (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无结构化条件场景" />
+                    )}
+                  </Card>
+                </Col>
+              </Row>
+
+              <Card bordered={false} style={cardStyle} title={<span><ThunderboltOutlined style={{ color: '#1677ff', marginRight: 8 }} />预测文字结论</span>}>
+                <Paragraph type="secondary" style={{ marginBottom: 0, lineHeight: 1.9 }}>
+                  {predictionNarrative}
+                </Paragraph>
+              </Card>
+
+              <Card bordered={false} style={cardStyle} title={<span><LineChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />预测依据：个股累计收益分布</span>} extra={<Text type="secondary" style={{ fontSize: 12 }}>报告时间: {formatValue(report.created_at)}</Text>}>
                 {profitChartData.length ? (
                   <>
                     <ReactECharts option={getProfitOption()} style={{ height: '360px' }} />
@@ -315,7 +410,7 @@ export default function PredictionPage() {
 
               <Row gutter={[16, 16]}>
                 <Col span={24} xl={14}>
-                  <Card bordered={false} style={cardStyle} title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />近 7 日变化率排序</span>}>
+                  <Card bordered={false} style={cardStyle} title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />预测依据：近 7 日变化率排序</span>}>
                     {momentumData.length ? (
                       <ReactECharts option={getMomentumOption()} style={{ height: '320px' }} />
                     ) : (
@@ -324,7 +419,7 @@ export default function PredictionPage() {
                   </Card>
                 </Col>
                 <Col span={24} xl={10}>
-                  <Card bordered={false} style={cardStyle} title={<span><StockOutlined style={{ color: '#1677ff', marginRight: 8 }} />结构摘要</span>}>
+                  <Card bordered={false} style={cardStyle} title={<span><StockOutlined style={{ color: '#1677ff', marginRight: 8 }} />预测依据：结构摘要</span>}>
                     <Space direction="vertical" size={14} style={{ width: '100%' }}>
                       <div style={{ background: '#e6f4ff', borderRadius: 12, padding: '14px 16px' }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>收益分布结论</Text>

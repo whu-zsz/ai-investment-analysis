@@ -1,19 +1,20 @@
 import { useState, useEffect } from 'react';
 import {
   Upload, Card, Typography, Table, message, Button,
-  Space, Progress, Row, Col, Tag, Alert, Spin, Empty,
+  Space, Progress, Row, Col, Tag, Alert, Spin, Empty, Statistic,
 } from 'antd';
 import {
   InboxOutlined, FileSearchOutlined, CloudUploadOutlined,
   CheckCircleTwoTone, BulbOutlined,
   FileExcelOutlined, FileDoneOutlined, ArrowLeftOutlined, HistoryOutlined,
+  CloseCircleTwoTone, ExclamationCircleTwoTone,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import type { RcFile } from 'antd/es/upload';
 import type { ColumnsType } from 'antd/es/table';
 import { uploadApi } from '../api/index';
-import type { UploadHistoryResponse } from '../api/types';
+import type { UploadHistoryResponse, UploadResponse, UploadRowError } from '../api/types';
 
 const { Dragger } = Upload;
 const { Title, Text, Paragraph } = Typography;
@@ -31,6 +32,17 @@ const supportedFormats = [
 
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
 
+function getUploadStatusMeta(status?: string) {
+  switch (status) {
+    case 'success':
+      return { color: 'success' as const, text: '成功', alertType: 'success' as const };
+    case 'partial_success':
+      return { color: 'warning' as const, text: '部分成功', alertType: 'warning' as const };
+    default:
+      return { color: 'error' as const, text: '失败', alertType: 'error' as const };
+  }
+}
+
 export default function UploadPage() {
   const navigate = useNavigate();
   const [dataPreview, setDataPreview] = useState<PreviewRow[]>([]);
@@ -40,7 +52,7 @@ export default function UploadPage() {
   const [fileName, setFileName] = useState('');
   const [fileObj, setFileObj] = useState<File | null>(null);
   const [done, setDone] = useState(false);
-  const [uploadResult, setUploadResult] = useState<{ message: string; recordsImported: number } | null>(null);
+  const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
   const [history, setHistory] = useState<UploadHistoryResponse[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
@@ -114,10 +126,13 @@ export default function UploadPage() {
       window.clearInterval(timer);
       setPercent(100);
       setDone(true);
-      setUploadResult({ message: res.message, recordsImported: res.records_imported });
-      message.success({
-        content: `${res.message}，共导入 ${res.records_imported} 条记录`,
-        icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
+      setUploadResult(res);
+      const statusMeta = getUploadStatusMeta(res.upload_status);
+      message[statusMeta.alertType]({
+        content: `${res.message}，共解析 ${res.records_total} 条`,
+        icon: res.upload_status === 'success'
+          ? <CheckCircleTwoTone twoToneColor="#52c41a" />
+          : <ExclamationCircleTwoTone twoToneColor="#faad14" />,
       });
       void fetchHistory();
     } catch (err: any) {
@@ -146,9 +161,22 @@ export default function UploadPage() {
     { title: '文件名', dataIndex: 'file_name', render: (t) => <Text strong>{t}</Text> },
     { title: '类型', dataIndex: 'file_type', render: (t) => <Tag>{t.toUpperCase()}</Tag> },
     { title: '导入条数', dataIndex: 'records_imported', render: (v) => <Text style={{ color: '#1677ff' }}>{v} 条</Text> },
-    { title: '状态', dataIndex: 'upload_status', render: (s) => <Tag color={s === 'success' ? 'success' : 'error'}>{s === 'success' ? '成功' : '失败'}</Tag> },
+    {
+      title: '状态', dataIndex: 'upload_status', render: (s) => {
+        const meta = getUploadStatusMeta(s);
+        return <Tag color={meta.color}>{meta.text}</Tag>;
+      },
+    },
     { title: '上传时间', dataIndex: 'uploaded_at', render: (t) => <Text type="secondary">{t.slice(0, 10)}</Text> },
   ];
+
+  const errorColumns: ColumnsType<UploadRowError> = [
+    { title: '行号', dataIndex: 'row_number', width: 100, render: (v) => <Text strong>第 {v} 行</Text> },
+    { title: '问题', dataIndex: 'reason', render: (v) => <Text type="secondary">{v}</Text> },
+  ];
+
+  const uploadStatusMeta = getUploadStatusMeta(uploadResult?.upload_status);
+  const uploadErrors = uploadResult?.errors ?? [];
 
   return (
     <div style={{ padding: '24px' }}>
@@ -194,7 +222,7 @@ export default function UploadPage() {
 
             <Card bordered={false} style={cardStyle}
               title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />数据说明</span>}>
-              {['本地仅预览前 5 行，便于提交前核对列顺序。', '服务端当前按第一张工作表解析 Excel 文件。', '是否导入成功以服务端返回的 message 和导入条数为准。'].map((tip, i) => (
+              {['本地仅预览前 5 行，便于提交前核对列顺序。', '服务端当前按第一张工作表解析 Excel 文件。', '最终是否导入成功以下方导入统计、状态和解析问题为准。'].map((tip, i) => (
                 <div key={i} style={{ display: 'flex', gap: 10, marginBottom: i < 2 ? 12 : 0 }}>
                   <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: '#e6f4ff', color: '#1677ff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
                   <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.6 }}>{tip}</Text>
@@ -217,10 +245,64 @@ export default function UploadPage() {
             </Card>
 
             {done && uploadResult && (
-              <Alert type="success" showIcon icon={<CheckCircleTwoTone twoToneColor="#52c41a" />}
-                message={uploadResult.message}
-                description={`本次共导入 ${uploadResult.recordsImported} 条记录。`}
-                style={{ borderRadius: 12 }} />
+              <Card bordered={false} style={cardStyle}>
+                <Alert
+                  type={uploadStatusMeta.alertType}
+                  showIcon
+                  icon={uploadResult.upload_status === 'success'
+                    ? <CheckCircleTwoTone twoToneColor="#52c41a" />
+                    : uploadResult.upload_status === 'partial_success'
+                      ? <ExclamationCircleTwoTone twoToneColor="#faad14" />
+                      : <CloseCircleTwoTone twoToneColor="#ff4d4f" />}
+                  message={uploadResult.message}
+                  description={`文件：${uploadResult.file_name}`}
+                  style={{ borderRadius: 12, marginBottom: 16 }}
+                />
+                <Row gutter={[16, 16]}>
+                  <Col span={24} md={6}>
+                    <Card size="small" style={{ borderRadius: 12 }}>
+                      <Statistic title="解析总行数" value={uploadResult.records_total} />
+                    </Card>
+                  </Col>
+                  <Col span={24} md={6}>
+                    <Card size="small" style={{ borderRadius: 12 }}>
+                      <Statistic title="成功导入" value={uploadResult.records_imported} valueStyle={{ color: '#52c41a' }} />
+                    </Card>
+                  </Col>
+                  <Col span={24} md={6}>
+                    <Card size="small" style={{ borderRadius: 12 }}>
+                      <Statistic title="失败行数" value={uploadResult.records_failed} valueStyle={{ color: uploadResult.records_failed ? '#ff4d4f' : undefined }} />
+                    </Card>
+                  </Col>
+                  <Col span={24} md={6}>
+                    <Card size="small" style={{ borderRadius: 12 }}>
+                      <div style={{ color: '#8c8c8c', fontSize: 14, marginBottom: 10 }}>导入状态</div>
+                      <Tag color={uploadStatusMeta.color} style={{ borderRadius: 20, padding: '4px 12px', fontSize: 14 }}>{uploadStatusMeta.text}</Tag>
+                    </Card>
+                  </Col>
+                </Row>
+              </Card>
+            )}
+
+            {done && uploadResult && uploadErrors.length > 0 && (
+              <Card
+                bordered={false}
+                style={cardStyle}
+                title={<span><ExclamationCircleTwoTone twoToneColor="#faad14" style={{ marginRight: 8 }} />解析问题</span>}
+              >
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`以下展示前 ${uploadErrors.length} 条解析问题，请优先修正对应行后重新上传。`}
+                  style={{ marginBottom: 16, borderRadius: 12 }}
+                />
+                <Table
+                  dataSource={uploadErrors.map((item, index) => ({ ...item, key: `${item.row_number}-${index}` }))}
+                  columns={errorColumns}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
             )}
 
             {dataPreview.length > 0 && (
@@ -235,7 +317,7 @@ export default function UploadPage() {
                 <Alert
                   type="info"
                   showIcon
-                  message="该预览仅用于本地检查，不代表服务端最终解析结果。"
+                  message="该预览仅用于本地检查列顺序，不代表服务端最终解析结果。"
                   style={{ marginBottom: 16, borderRadius: 12 }}
                 />
                 <Table dataSource={dataPreview} columns={columns} pagination={false} size="small" scroll={{ x: 'max-content' }} bordered />

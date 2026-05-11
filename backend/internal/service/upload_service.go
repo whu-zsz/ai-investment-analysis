@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const maxUploadRowErrors = 10
+
 type UploadService interface {
 	ProcessUploadedFile(userID uint64, filePath string, originalFileName string, fileSize int64, fileType string) (*response.UploadResponse, error)
 	GetUploadHistory(userID uint64) ([]response.UploadHistoryResponse, error)
@@ -39,18 +41,15 @@ func NewUploadService(
 }
 
 func (s *uploadService) ProcessUploadedFile(userID uint64, filePath string, originalFileName string, fileSize int64, fileType string) (*response.UploadResponse, error) {
-	// 1. 验证文件类型
 	fileExt := strings.ToLower(filepath.Ext(originalFileName))
 	if fileExt != ".csv" && fileExt != ".xlsx" && fileExt != ".xls" {
 		return nil, errors.New("unsupported file type, only CSV and Excel files are allowed")
 	}
 
-	// 2. 验证文件大小
 	if fileSize > s.uploadCfg.MaxUploadSize {
 		return nil, fmt.Errorf("file size exceeds maximum limit of %d bytes", s.uploadCfg.MaxUploadSize)
 	}
 
-	// 3. 创建uploaded_files记录
 	uploadedFile := &model.UploadedFile{
 		UserID:       userID,
 		FileName:     originalFileName,
@@ -65,14 +64,13 @@ func (s *uploadService) ProcessUploadedFile(userID uint64, filePath string, orig
 		return nil, err
 	}
 
-	// 4. 解析文件
-	var transactions []model.Transaction
+	var parseResult *FileParseResult
 	var parseErr error
 
 	if fileType == "csv" {
-		transactions, parseErr = s.fileParserService.ParseCSV(filePath, userID)
+		parseResult, parseErr = s.fileParserService.ParseCSV(filePath, userID)
 	} else {
-		transactions, parseErr = s.fileParserService.ParseExcel(filePath, userID)
+		parseResult, parseErr = s.fileParserService.ParseExcel(filePath, userID)
 	}
 
 	if parseErr != nil {
@@ -81,24 +79,44 @@ func (s *uploadService) ProcessUploadedFile(userID uint64, filePath string, orig
 		return nil, parseErr
 	}
 
-	// 5. 批量插入交易记录
-	if len(transactions) > 0 {
-		if err := s.transactionRepo.BatchCreate(transactions); err != nil {
-			errorMsg := err.Error()
-			s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, "failed", 0, &errorMsg)
-			return nil, err
-		}
+	if parseResult == nil {
+		parseResult = &FileParseResult{}
 	}
 
-	// 6. 更新uploaded_files状态
-	s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, "success", len(transactions), nil)
+	if parseResult.RecordsImported == 0 {
+		message := "文件中没有可导入的有效记录"
+		if parseResult.RecordsFailed > 0 {
+			message = fmt.Sprintf("导入失败：共解析 %d 条，全部失败", parseResult.RecordsTotal)
+		}
+		errorMsg := message
+		s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, "failed", 0, &errorMsg)
+		return nil, errors.New(message)
+	}
 
-	// 7. 返回结果
+	if err := s.transactionRepo.BatchCreate(parseResult.Transactions); err != nil {
+		errorMsg := err.Error()
+		s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, "failed", 0, &errorMsg)
+		return nil, err
+	}
+
+	uploadStatus := "success"
+	message := fmt.Sprintf("成功导入 %d 条记录", parseResult.RecordsImported)
+	if parseResult.RecordsFailed > 0 {
+		uploadStatus = "partial_success"
+		message = fmt.Sprintf("成功导入 %d 条，失败 %d 条", parseResult.RecordsImported, parseResult.RecordsFailed)
+	}
+
+	s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, uploadStatus, parseResult.RecordsImported, nil)
+
 	return &response.UploadResponse{
 		FileID:          int64(uploadedFile.ID),
 		FileName:        originalFileName,
-		RecordsImported: len(transactions),
-		Message:         fmt.Sprintf("Successfully imported %d transactions", len(transactions)),
+		UploadStatus:    uploadStatus,
+		RecordsTotal:    parseResult.RecordsTotal,
+		RecordsImported: parseResult.RecordsImported,
+		RecordsFailed:   parseResult.RecordsFailed,
+		Errors:          toUploadRowErrors(parseResult.Errors),
+		Message:         message,
 	}, nil
 }
 
@@ -128,4 +146,22 @@ func (s *uploadService) GetUploadHistory(userID uint64) ([]response.UploadHistor
 	}
 
 	return history, nil
+}
+
+func toUploadRowErrors(errors []UploadRowError) []response.UploadRowError {
+	if len(errors) == 0 {
+		return nil
+	}
+	if len(errors) > maxUploadRowErrors {
+		errors = errors[:maxUploadRowErrors]
+	}
+
+	result := make([]response.UploadRowError, 0, len(errors))
+	for _, item := range errors {
+		result = append(result, response.UploadRowError{
+			RowNumber: item.RowNumber,
+			Reason:    item.Reason,
+		})
+	}
+	return result
 }

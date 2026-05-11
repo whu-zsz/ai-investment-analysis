@@ -177,20 +177,24 @@ func (r *MockAnalysisReportRepository) Delete(id uint64) error {
 
 // MockAnalysisReportItemRepository 模拟分析报告项仓储
 type MockAnalysisReportItemRepository struct {
-	Items map[uint64]*model.AnalysisReportItem
+	ItemsByReportID map[uint64][]model.AnalysisReportItem
 }
 
 func NewMockAnalysisReportItemRepository() *MockAnalysisReportItemRepository {
 	return &MockAnalysisReportItemRepository{
-		Items: make(map[uint64]*model.AnalysisReportItem),
+		ItemsByReportID: make(map[uint64][]model.AnalysisReportItem),
 	}
 }
 
 func (r *MockAnalysisReportItemRepository) FindByReportID(reportID uint64) ([]model.AnalysisReportItem, error) {
-	return []model.AnalysisReportItem{}, nil
+	items := r.ItemsByReportID[reportID]
+	return append([]model.AnalysisReportItem(nil), items...), nil
 }
 
 func (r *MockAnalysisReportItemRepository) BatchCreate(items []model.AnalysisReportItem) error {
+	for _, item := range items {
+		r.ItemsByReportID[item.ReportID] = append(r.ItemsByReportID[item.ReportID], item)
+	}
 	return nil
 }
 
@@ -654,28 +658,420 @@ func TestAIService_GetAnalysisReportDetail_NotFound(t *testing.T) {
 }
 
 // TestAIService_GetAnalysisReportDetail_WrongUser 测试获取其他用户的报告
-func TestAIService_GetAnalysisReportDetail_WrongUser(t *testing.T) {
+
+func TestAIService_GetAnalysisReportDetail_BuildsStructuredRiskInsights(t *testing.T) {
 	reportRepo := NewMockAnalysisReportRepository()
 	reportRepo.Create(&model.AnalysisReport{
-		UserID:      1,
-		ReportType:  "summary",
-		ReportTitle: "测试报告",
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "风险预警报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		SymbolsCount:        2,
+		WinningTrades:       1,
+		LosingTrades:        1,
+		TotalInvestment:     decimal.NewFromInt(100000),
+		TotalProfit:         decimal.NewFromInt(-5000),
+		ProfitRate:          decimal.NewFromFloat(-5),
+		RiskLevel:           "medium",
+		MarketDataStatus:    "partial",
+		SummaryText:         "测试总结",
+		AIModel:             "test-model",
 	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{
+		{
+			ID:                   1,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "000001.SZ",
+			AssetName:            "平安银行",
+			TradeCount:           9,
+			BuyCount:             6,
+			SellCount:            2,
+			BuyAmount:            decimal.NewFromInt(60000),
+			SellAmount:           decimal.NewFromInt(20000),
+			NetQuantity:          decimal.NewFromInt(1000),
+			RealizedProfit:       decimal.NewFromInt(-1000),
+			RealizedProfitRate:   decimal.NewFromFloat(-2),
+			EndingPositionQty:    decimal.NewFromInt(1000),
+			EndingAvgCost:        decimal.NewFromFloat(12.5),
+			LatestPrice:          decimal.NewFromFloat(10.2),
+			LatestMarketValue:    decimal.NewFromInt(10200),
+			UnrealizedProfit:     decimal.NewFromInt(-3000),
+			TotalProfit:          decimal.NewFromInt(-4000),
+			ChangePercent7D:      decimal.NewFromInt(10),
+			PeriodPriceChangePct: decimal.NewFromInt(10),
+			MarketDataStatus:     "partial",
+			RiskLevel:            "high",
+			AnalysisText:         "测试个股分析",
+			Recommendation:       "reduce",
+		},
+		{
+			ID:                   2,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "600519.SH",
+			AssetName:            "贵州茅台",
+			TradeCount:           2,
+			BuyCount:             1,
+			SellCount:            1,
+			BuyAmount:            decimal.NewFromInt(40000),
+			SellAmount:           decimal.NewFromInt(42000),
+			NetQuantity:          decimal.Zero,
+			RealizedProfit:       decimal.NewFromInt(2000),
+			RealizedProfitRate:   decimal.NewFromInt(5),
+			EndingPositionQty:    decimal.Zero,
+			EndingAvgCost:        decimal.NewFromFloat(0),
+			LatestPrice:          decimal.NewFromFloat(0),
+			LatestMarketValue:    decimal.Zero,
+			UnrealizedProfit:     decimal.Zero,
+			TotalProfit:          decimal.NewFromInt(2000),
+			ChangePercent7D:      decimal.NewFromInt(2),
+			PeriodPriceChangePct: decimal.NewFromInt(2),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "low",
+			AnalysisText:         "测试个股分析2",
+			Recommendation:       "hold",
+		},
+	}
+
+	recommendationsJSON := `["控制仓位","减少高频交易"]`
+	reportRepo.Reports[1].Recommendations = &recommendationsJSON
 
 	aiService := service.NewAIService(
 		NewMockAnalysisTaskRepository(),
 		reportRepo,
-		NewMockAnalysisReportItemRepository(),
+		itemRepo,
 		&MockTransactionRepositoryForAI{},
 		&MockStockMetricService{},
 		&MockLLMProvider{modelName: "test-model"},
 		zap.NewNop(),
 	)
 
-	// 用户 2 尝试访问用户 1 的报告
-	_, err := aiService.GetAnalysisReportDetail(2, 1)
-	if err == nil {
-		t.Error("Expected error for accessing other user's report")
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+
+	if detail.RiskOverview.RiskLevel != "high" {
+		t.Fatalf("expected overall risk level high, got %s", detail.RiskOverview.RiskLevel)
+	}
+	if detail.RiskOverview.RiskScore != 100 {
+		t.Fatalf("expected overall risk score 100, got %d", detail.RiskOverview.RiskScore)
+	}
+	if len(detail.RiskAlerts) != 5 {
+		t.Fatalf("expected 5 risk alerts, got %d", len(detail.RiskAlerts))
+	}
+	if len(detail.TopRiskSymbols) != 1 {
+		t.Fatalf("expected 1 top risk symbol, got %d", len(detail.TopRiskSymbols))
+	}
+	if detail.TopRiskSymbols[0].Symbol != "000001.SZ" {
+		t.Fatalf("expected top risk symbol 000001.SZ, got %s", detail.TopRiskSymbols[0].Symbol)
+	}
+	if detail.TopRiskSymbols[0].RiskScore != 100 {
+		t.Fatalf("expected top risk score 100, got %d", detail.TopRiskSymbols[0].RiskScore)
+	}
+	if len(detail.TopRiskSymbols[0].TriggerReasons) != 5 {
+		t.Fatalf("expected 5 trigger reasons, got %d", len(detail.TopRiskSymbols[0].TriggerReasons))
+	}
+	if len(detail.RiskOverview.Recommendations) != 2 {
+		t.Fatalf("expected 2 recommendations, got %d", len(detail.RiskOverview.Recommendations))
+	}
+	if !strings.Contains(strings.Join(detail.RiskOverview.RiskFactors, ","), "持仓亏损预警") {
+		t.Fatalf("expected drawdown alert in risk factors, got %v", detail.RiskOverview.RiskFactors)
+	}
+}
+
+func TestAIService_GetAnalysisReportDetail_EmptyRiskInsights(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "低风险报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		SymbolsCount:        1,
+		WinningTrades:       1,
+		LosingTrades:        0,
+		TotalInvestment:     decimal.NewFromInt(20000),
+		TotalProfit:         decimal.NewFromInt(1500),
+		ProfitRate:          decimal.NewFromFloat(7.5),
+		RiskLevel:           "low",
+		MarketDataStatus:    "complete",
+		SummaryText:         "测试总结",
+		AIModel:             "test-model",
+	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{
+		{
+			ID:                   1,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "600036.SH",
+			AssetName:            "招商银行",
+			TradeCount:           2,
+			BuyCount:             1,
+			SellCount:            1,
+			BuyAmount:            decimal.NewFromInt(20000),
+			SellAmount:           decimal.NewFromInt(21500),
+			NetQuantity:          decimal.Zero,
+			RealizedProfit:       decimal.NewFromInt(1500),
+			RealizedProfitRate:   decimal.NewFromFloat(7.5),
+			EndingPositionQty:    decimal.Zero,
+			EndingAvgCost:        decimal.Zero,
+			LatestPrice:          decimal.Zero,
+			LatestMarketValue:    decimal.Zero,
+			UnrealizedProfit:     decimal.Zero,
+			TotalProfit:          decimal.NewFromInt(1500),
+			ChangePercent7D:      decimal.NewFromInt(1),
+			PeriodPriceChangePct: decimal.NewFromInt(1),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "low",
+			AnalysisText:         "测试个股分析",
+			Recommendation:       "hold",
+		},
+	}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		itemRepo,
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+
+	if detail.RiskOverview.RiskLevel != "low" {
+		t.Fatalf("expected overall risk level low, got %s", detail.RiskOverview.RiskLevel)
+	}
+	if detail.RiskOverview.RiskScore != 20 {
+		t.Fatalf("expected overall risk score 20, got %d", detail.RiskOverview.RiskScore)
+	}
+	if len(detail.RiskAlerts) != 0 {
+		t.Fatalf("expected 0 risk alerts, got %d", len(detail.RiskAlerts))
+	}
+	if len(detail.TopRiskSymbols) != 0 {
+		t.Fatalf("expected 0 top risk symbols, got %d", len(detail.TopRiskSymbols))
+	}
+	if len(detail.RiskOverview.RiskFactors) != 0 {
+		t.Fatalf("expected 0 risk factors, got %d", len(detail.RiskOverview.RiskFactors))
+	}
+}
+
+func TestAIService_GetAnalysisReportDetail_UsesStructuredPredictionFromRawAIOutput(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	predictionText := "若组合继续维持当前持仓结构，短期波动可能放大，但盈利弹性仍然存在。"
+	rawOutput := `{"summary":{"report_title":"预测报告","summary_text":"组合总盈亏为正，主要收益来自强势标的。当前持仓集中度较高，组合弹性与波动并存。","risk_level":"medium","investment_style":"balanced","risk_analysis":"单一标的占比较高，若价格回撤会放大净值波动。","pattern_insights":"交易集中在少数标的，近期更偏向持有而非高频切换。","prediction_text":"若组合继续维持当前持仓结构，短期波动可能放大，但盈利弹性仍然存在。","prediction":{"bias":"看多","confidence":"较高","horizon":"未来7天","drivers":[" 600519.SH 周期涨跌幅 8.00% ","600519.SH 周期涨跌幅 8.00%","组合总盈亏为正","市场数据完整"],"scenarios":[{"condition":" 若龙头标的继续强势 ","outcome":" 组合净值有望继续修复 "},{"condition":"若龙头标的继续强势","outcome":"组合净值有望继续修复"},{"condition":"若集中仓位回撤","outcome":"组合波动将被放大"}]},"recommendations":["控制仓位","跟踪波动"]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"value","analysis_text":"贵州茅台当前总盈亏为正，且阶段涨幅较高，对组合贡献明显。由于仓位相对集中，后续价格波动会直接影响组合表现。","recommendation":"hold","key_points":["强势标的贡献收益"]}]}`
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "预测报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		RiskLevel:           "medium",
+		SummaryText:         "测试总结",
+		PredictionText:      &predictionText,
+		RawAIOutput:         &rawOutput,
+		AIModel:             "test-model",
+	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{{
+		ID:                   1,
+		ReportID:             1,
+		UserID:               1,
+		Symbol:               "600519.SH",
+		AssetName:            "贵州茅台",
+		TradeCount:           2,
+		BuyCount:             1,
+		SellCount:            1,
+		BuyAmount:            decimal.NewFromInt(100000),
+		SellAmount:           decimal.NewFromInt(108000),
+		NetQuantity:          decimal.NewFromInt(100),
+		RealizedProfit:       decimal.NewFromInt(8000),
+		RealizedProfitRate:   decimal.NewFromInt(8),
+		EndingPositionQty:    decimal.NewFromInt(100),
+		EndingAvgCost:        decimal.NewFromFloat(1500),
+		LatestPrice:          decimal.NewFromFloat(1580),
+		LatestMarketValue:    decimal.NewFromInt(158000),
+		UnrealizedProfit:     decimal.NewFromInt(5000),
+		TotalProfit:          decimal.NewFromInt(13000),
+		ChangePercent7D:      decimal.NewFromInt(8),
+		PeriodPriceChangePct: decimal.NewFromInt(8),
+		MarketDataStatus:     "complete",
+		RiskLevel:            "low",
+		AnalysisText:         "测试个股分析",
+		Recommendation:       "hold",
+	}}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		itemRepo,
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+	if detail.Prediction == nil {
+		t.Fatal("expected structured prediction")
+	}
+	if detail.Prediction.Bias != "bullish" {
+		t.Fatalf("expected bullish bias, got %s", detail.Prediction.Bias)
+	}
+	if detail.Prediction.Confidence != "high" {
+		t.Fatalf("expected high confidence, got %s", detail.Prediction.Confidence)
+	}
+	if detail.Prediction.Horizon != "next_7d" {
+		t.Fatalf("expected next_7d horizon, got %s", detail.Prediction.Horizon)
+	}
+	if len(detail.Prediction.Drivers) != 3 {
+		t.Fatalf("expected 3 drivers after normalization, got %d", len(detail.Prediction.Drivers))
+	}
+	if detail.Prediction.Drivers[0] != "600519.SH 周期涨跌幅 8.00%" {
+		t.Fatalf("unexpected first driver: %s", detail.Prediction.Drivers[0])
+	}
+	if len(detail.Prediction.Scenarios) != 2 {
+		t.Fatalf("expected 2 scenarios after normalization, got %d", len(detail.Prediction.Scenarios))
+	}
+	if detail.Prediction.Scenarios[0].Condition != "若龙头标的继续强势" {
+		t.Fatalf("unexpected first scenario condition: %s", detail.Prediction.Scenarios[0].Condition)
+	}
+	if detail.Prediction.Scenarios[1].Condition != "若集中仓位回撤" {
+		t.Fatalf("unexpected second scenario condition: %s", detail.Prediction.Scenarios[1].Condition)
+	}
+	if detail.Prediction.Narrative != predictionText {
+		t.Fatalf("expected narrative fallback to prediction_text, got %s", detail.Prediction.Narrative)
+	}
+}
+
+func TestAIService_GetAnalysisReportDetail_FallsBackToPredictionText(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	predictionText := "若继续维持当前交易结构，强势标的可能继续贡献收益，但弱势仓位会放大组合回撤风险。"
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "历史预测报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		RiskLevel:           "medium",
+		SummaryText:         "测试总结",
+		PredictionText:      &predictionText,
+		AIModel:             "test-model",
+	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{
+		{
+			ID:                   1,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "600519.SH",
+			AssetName:            "贵州茅台",
+			TradeCount:           1,
+			BuyCount:             1,
+			SellCount:            0,
+			BuyAmount:            decimal.NewFromInt(100000),
+			SellAmount:           decimal.Zero,
+			NetQuantity:          decimal.NewFromInt(100),
+			RealizedProfit:       decimal.Zero,
+			RealizedProfitRate:   decimal.Zero,
+			EndingPositionQty:    decimal.NewFromInt(100),
+			EndingAvgCost:        decimal.NewFromFloat(1500),
+			LatestPrice:          decimal.NewFromFloat(1580),
+			LatestMarketValue:    decimal.NewFromInt(158000),
+			UnrealizedProfit:     decimal.NewFromInt(5000),
+			TotalProfit:          decimal.NewFromInt(5000),
+			ChangePercent7D:      decimal.NewFromInt(6),
+			PeriodPriceChangePct: decimal.NewFromInt(6),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "low",
+			AnalysisText:         "测试个股分析",
+			Recommendation:       "hold",
+		},
+		{
+			ID:                   2,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "000001.SZ",
+			AssetName:            "平安银行",
+			TradeCount:           2,
+			BuyCount:             1,
+			SellCount:            1,
+			BuyAmount:            decimal.NewFromInt(20000),
+			SellAmount:           decimal.NewFromInt(19000),
+			NetQuantity:          decimal.Zero,
+			RealizedProfit:       decimal.NewFromInt(-1000),
+			RealizedProfitRate:   decimal.NewFromInt(-5),
+			EndingPositionQty:    decimal.Zero,
+			EndingAvgCost:        decimal.Zero,
+			LatestPrice:          decimal.NewFromFloat(10),
+			LatestMarketValue:    decimal.Zero,
+			UnrealizedProfit:     decimal.Zero,
+			TotalProfit:          decimal.NewFromInt(-1000),
+			ChangePercent7D:      decimal.NewFromInt(-3),
+			PeriodPriceChangePct: decimal.NewFromInt(-3),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "medium",
+			AnalysisText:         "测试个股分析2",
+			Recommendation:       "observe",
+		},
+	}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		itemRepo,
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+	if detail.Prediction == nil {
+		t.Fatal("expected fallback prediction")
+	}
+	if detail.Prediction.Bias != "neutral" {
+		t.Fatalf("expected neutral bias, got %s", detail.Prediction.Bias)
+	}
+	if detail.Prediction.Confidence != "medium" {
+		t.Fatalf("expected medium confidence, got %s", detail.Prediction.Confidence)
+	}
+	if detail.Prediction.Horizon != "next_7d" {
+		t.Fatalf("expected next_7d horizon, got %s", detail.Prediction.Horizon)
+	}
+	if len(detail.Prediction.Drivers) != 2 {
+		t.Fatalf("expected 2 fallback drivers, got %d", len(detail.Prediction.Drivers))
+	}
+	if !strings.Contains(detail.Prediction.Drivers[0], "600519.SH") {
+		t.Fatalf("unexpected first driver: %s", detail.Prediction.Drivers[0])
+	}
+	if len(detail.Prediction.Scenarios) != 1 {
+		t.Fatalf("expected 1 fallback scenario, got %d", len(detail.Prediction.Scenarios))
+	}
+	if detail.Prediction.Scenarios[0].Outcome != predictionText {
+		t.Fatalf("unexpected fallback scenario outcome: %s", detail.Prediction.Scenarios[0].Outcome)
+	}
+	if detail.Prediction.Narrative != predictionText {
+		t.Fatalf("unexpected fallback narrative: %s", detail.Prediction.Narrative)
 	}
 }
 

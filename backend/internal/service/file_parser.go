@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,9 +14,22 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+type UploadRowError struct {
+	RowNumber int
+	Reason    string
+}
+
+type FileParseResult struct {
+	Transactions    []model.Transaction
+	RecordsTotal    int
+	RecordsImported int
+	RecordsFailed   int
+	Errors          []UploadRowError
+}
+
 type FileParserService interface {
-	ParseCSV(filePath string, userID uint64) ([]model.Transaction, error)
-	ParseExcel(filePath string, userID uint64) ([]model.Transaction, error)
+	ParseCSV(filePath string, userID uint64) (*FileParseResult, error)
+	ParseExcel(filePath string, userID uint64) (*FileParseResult, error)
 }
 
 type fileParserService struct{}
@@ -26,7 +38,7 @@ func NewFileParserService() FileParserService {
 	return &fileParserService{}
 }
 
-func (s *fileParserService) ParseCSV(filePath string, userID uint64) ([]model.Transaction, error) {
+func (s *fileParserService) ParseCSV(filePath string, userID uint64) (*FileParseResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -34,14 +46,17 @@ func (s *fileParserService) ParseCSV(filePath string, userID uint64) ([]model.Tr
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	var transactions []model.Transaction
+	result := &FileParseResult{}
 
-	// 跳过标题行
 	_, err = reader.Read()
+	if err == io.EOF {
+		return result, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	rowNumber := 1
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
@@ -51,43 +66,68 @@ func (s *fileParserService) ParseCSV(filePath string, userID uint64) ([]model.Tr
 			return nil, err
 		}
 
+		rowNumber++
+		if isBlankCells(record) {
+			continue
+		}
+
+		result.RecordsTotal++
 		transaction, err := s.parseCSVRecord(record, userID)
 		if err != nil {
-			continue // 跳过无效记录
+			result.RecordsFailed++
+			result.Errors = append(result.Errors, UploadRowError{RowNumber: rowNumber, Reason: err.Error()})
+			continue
 		}
-		transactions = append(transactions, *transaction)
+
+		result.Transactions = append(result.Transactions, *transaction)
+		result.RecordsImported++
 	}
 
-	return transactions, nil
+	return result, nil
 }
 
 func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*model.Transaction, error) {
 	if len(record) < 7 {
-		return nil, errors.New("invalid record format")
+		return nil, fmt.Errorf("列数不足，至少需要 7 列")
 	}
 
-	// 解析日期
 	transactionDate, err := time.Parse("2006-01-02", strings.TrimSpace(record[0]))
 	if err != nil {
-		return nil, fmt.Errorf("invalid date format: %w", err)
+		return nil, fmt.Errorf("交易日期格式错误，应为 YYYY-MM-DD")
 	}
 
-	// 解析数量
+	transactionType := strings.ToLower(strings.TrimSpace(record[1]))
+	if transactionType == "" {
+		return nil, fmt.Errorf("交易类型不能为空")
+	}
+
+	assetType := strings.TrimSpace(record[2])
+	if assetType == "" {
+		return nil, fmt.Errorf("资产类型不能为空")
+	}
+
+	assetCode := strings.TrimSpace(record[3])
+	if assetCode == "" {
+		return nil, fmt.Errorf("资产代码不能为空")
+	}
+
+	assetName := strings.TrimSpace(record[4])
+	if assetName == "" {
+		return nil, fmt.Errorf("资产名称不能为空")
+	}
+
 	quantity, err := decimal.NewFromString(strings.TrimSpace(record[5]))
 	if err != nil {
-		return nil, fmt.Errorf("invalid quantity: %w", err)
+		return nil, fmt.Errorf("数量格式错误")
 	}
 
-	// 解析单价
 	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(record[6]))
 	if err != nil {
-		return nil, fmt.Errorf("invalid price: %w", err)
+		return nil, fmt.Errorf("单价格式错误")
 	}
 
-	// 计算总金额
 	totalAmount := quantity.Mul(pricePerUnit)
 
-	// 解析手续费
 	commission := decimal.Zero
 	if len(record) > 7 {
 		commission, _ = decimal.NewFromString(strings.TrimSpace(record[7]))
@@ -96,10 +136,10 @@ func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*mod
 	transaction := &model.Transaction{
 		UserID:          userID,
 		TransactionDate: transactionDate,
-		TransactionType: strings.ToLower(strings.TrimSpace(record[1])),
-		AssetType:       strings.TrimSpace(record[2]),
-		AssetCode:       strings.TrimSpace(record[3]),
-		AssetName:       strings.TrimSpace(record[4]),
+		TransactionType: transactionType,
+		AssetType:       assetType,
+		AssetCode:       assetCode,
+		AssetName:       assetName,
 		Quantity:        quantity,
 		PricePerUnit:    pricePerUnit,
 		TotalAmount:     totalAmount,
@@ -109,79 +149,93 @@ func (s *fileParserService) parseCSVRecord(record []string, userID uint64) (*mod
 	return transaction, nil
 }
 
-func (s *fileParserService) ParseExcel(filePath string, userID uint64) ([]model.Transaction, error) {
+func (s *fileParserService) ParseExcel(filePath string, userID uint64) (*FileParseResult, error) {
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	// 获取第一个工作表
 	sheetName := f.GetSheetName(0)
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		return nil, err
 	}
 
-	var transactions []model.Transaction
-
-	// 跳过标题行
+	result := &FileParseResult{}
 	for i, row := range rows {
-		if i == 0 {
+		if i == 0 || isBlankCells(row) {
 			continue
 		}
 
+		result.RecordsTotal++
 		transaction, err := s.parseExcelRow(row, userID)
 		if err != nil {
-			continue // 跳过无效记录
+			result.RecordsFailed++
+			result.Errors = append(result.Errors, UploadRowError{RowNumber: i + 1, Reason: err.Error()})
+			continue
 		}
-		transactions = append(transactions, *transaction)
+
+		result.Transactions = append(result.Transactions, *transaction)
+		result.RecordsImported++
 	}
 
-	return transactions, nil
+	return result, nil
 }
 
 func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.Transaction, error) {
 	if len(row) < 7 {
-		return nil, errors.New("invalid row format")
+		return nil, fmt.Errorf("列数不足，至少需要 7 列")
 	}
 
-	// 解析日期（Excel日期格式可能是数字或字符串）
 	var transactionDate time.Time
-	var err error
-
 	dateStr := strings.TrimSpace(row[0])
 	if _, err := strconv.ParseFloat(dateStr, 64); err == nil {
-		// 如果是Excel日期数字格式
 		excelDate, _ := strconv.ParseFloat(dateStr, 64)
 		transactionDate, err = excelize.ExcelDateToTime(excelDate, false)
 		if err != nil {
-			return nil, fmt.Errorf("invalid excel date: %w", err)
+			return nil, fmt.Errorf("交易日期格式错误")
 		}
 	} else {
-		// 字符串格式
+		var err error
 		transactionDate, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date format: %w", err)
+			return nil, fmt.Errorf("交易日期格式错误，应为 YYYY-MM-DD")
 		}
 	}
 
-	// 解析数量
+	transactionType := strings.ToLower(strings.TrimSpace(row[1]))
+	if transactionType == "" {
+		return nil, fmt.Errorf("交易类型不能为空")
+	}
+
+	assetType := strings.TrimSpace(row[2])
+	if assetType == "" {
+		return nil, fmt.Errorf("资产类型不能为空")
+	}
+
+	assetCode := strings.TrimSpace(row[3])
+	if assetCode == "" {
+		return nil, fmt.Errorf("资产代码不能为空")
+	}
+
+	assetName := strings.TrimSpace(row[4])
+	if assetName == "" {
+		return nil, fmt.Errorf("资产名称不能为空")
+	}
+
 	quantity, err := decimal.NewFromString(strings.TrimSpace(row[5]))
 	if err != nil {
-		return nil, fmt.Errorf("invalid quantity: %w", err)
+		return nil, fmt.Errorf("数量格式错误")
 	}
 
-	// 解析单价
 	pricePerUnit, err := decimal.NewFromString(strings.TrimSpace(row[6]))
 	if err != nil {
-		return nil, fmt.Errorf("invalid price: %w", err)
+		return nil, fmt.Errorf("单价格式错误")
 	}
 
-	// 计算总金额
 	totalAmount := quantity.Mul(pricePerUnit)
 
-	// 解析手续费
 	commission := decimal.Zero
 	if len(row) > 7 {
 		commission, _ = decimal.NewFromString(strings.TrimSpace(row[7]))
@@ -190,10 +244,10 @@ func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.T
 	transaction := &model.Transaction{
 		UserID:          userID,
 		TransactionDate: transactionDate,
-		TransactionType: strings.ToLower(strings.TrimSpace(row[1])),
-		AssetType:       strings.TrimSpace(row[2]),
-		AssetCode:       strings.TrimSpace(row[3]),
-		AssetName:       strings.TrimSpace(row[4]),
+		TransactionType: transactionType,
+		AssetType:       assetType,
+		AssetCode:       assetCode,
+		AssetName:       assetName,
 		Quantity:        quantity,
 		PricePerUnit:    pricePerUnit,
 		TotalAmount:     totalAmount,
@@ -201,4 +255,13 @@ func (s *fileParserService) parseExcelRow(row []string, userID uint64) (*model.T
 	}
 
 	return transaction, nil
+}
+
+func isBlankCells(cells []string) bool {
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
 }

@@ -112,31 +112,33 @@ func (r *MockTransactionRepositoryForUpload) GetTransactionStats(userID uint64) 
 
 // MockFileParserService 模拟文件解析服务
 type MockFileParserService struct {
-	Transactions []model.Transaction
-	ParseError   error
+	Result     *service.FileParseResult
+	ParseError error
 }
 
-func (m *MockFileParserService) ParseCSV(filePath string, userID uint64) ([]model.Transaction, error) {
+func (m *MockFileParserService) ParseCSV(filePath string, userID uint64) (*service.FileParseResult, error) {
 	if m.ParseError != nil {
 		return nil, m.ParseError
 	}
-	return m.Transactions, nil
+	return m.Result, nil
 }
 
-func (m *MockFileParserService) ParseExcel(filePath string, userID uint64) ([]model.Transaction, error) {
+func (m *MockFileParserService) ParseExcel(filePath string, userID uint64) (*service.FileParseResult, error) {
 	if m.ParseError != nil {
 		return nil, m.ParseError
 	}
-	return m.Transactions, nil
+	return m.Result, nil
 }
 
-// TestUploadService_ProcessUploadedFile_CSV 测试处理CSV文件
 func TestUploadService_ProcessUploadedFile_CSV(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
 	parser := &MockFileParserService{
-		Transactions: []model.Transaction{
-			{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
+		Result: &service.FileParseResult{
+			Transactions:    []model.Transaction{{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"}},
+			RecordsTotal:    1,
+			RecordsImported: 1,
+			RecordsFailed:   0,
 		},
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
@@ -148,23 +150,29 @@ func TestUploadService_ProcessUploadedFile_CSV(t *testing.T) {
 		t.Fatalf("ProcessUploadedFile() error = %v", err)
 	}
 
-	if result.RecordsImported != 1 {
-		t.Errorf("Expected 1 record imported, got %d", result.RecordsImported)
+	if result.UploadStatus != "success" {
+		t.Errorf("Expected upload status success, got %s", result.UploadStatus)
 	}
-
+	if result.RecordsTotal != 1 || result.RecordsImported != 1 || result.RecordsFailed != 0 {
+		t.Errorf("Unexpected stats: %+v", result)
+	}
 	if result.FileName != "test.csv" {
 		t.Errorf("Expected filename test.csv, got %s", result.FileName)
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_Excel 测试处理Excel文件
 func TestUploadService_ProcessUploadedFile_Excel(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
 	parser := &MockFileParserService{
-		Transactions: []model.Transaction{
-			{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
-			{UserID: 1, AssetCode: "000858", AssetName: "五粮液"},
+		Result: &service.FileParseResult{
+			Transactions: []model.Transaction{
+				{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
+				{UserID: 1, AssetCode: "000858", AssetName: "五粮液"},
+			},
+			RecordsTotal:    2,
+			RecordsImported: 2,
+			RecordsFailed:   0,
 		},
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
@@ -181,7 +189,6 @@ func TestUploadService_ProcessUploadedFile_Excel(t *testing.T) {
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_UnsupportedType 测试不支持的文件类型
 func TestUploadService_ProcessUploadedFile_UnsupportedType(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
@@ -196,12 +203,11 @@ func TestUploadService_ProcessUploadedFile_UnsupportedType(t *testing.T) {
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_FileTooLarge 测试文件过大
 func TestUploadService_ProcessUploadedFile_FileTooLarge(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
 	parser := &MockFileParserService{}
-	uploadCfg := config.UploadConfig{MaxUploadSize: 1000} // 1KB limit
+	uploadCfg := config.UploadConfig{MaxUploadSize: 1000}
 
 	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
 
@@ -211,13 +217,10 @@ func TestUploadService_ProcessUploadedFile_FileTooLarge(t *testing.T) {
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_ParseError 测试解析错误
 func TestUploadService_ProcessUploadedFile_ParseError(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
-	parser := &MockFileParserService{
-		ParseError: errors.New("parse error"),
-	}
+	parser := &MockFileParserService{ParseError: errors.New("parse error")}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
 	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
@@ -227,21 +230,83 @@ func TestUploadService_ProcessUploadedFile_ParseError(t *testing.T) {
 		t.Error("Expected error for parse error")
 	}
 
-	// 验证文件状态更新为 failed
 	file, _ := fileRepo.FindByID(1)
 	if file.UploadStatus != "failed" {
 		t.Errorf("Expected status 'failed', got %s", file.UploadStatus)
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_BatchCreateError 测试批量创建错误
+func TestUploadService_ProcessUploadedFile_PartialSuccess(t *testing.T) {
+	fileRepo := NewMockUploadedFileRepository()
+	txRepo := &MockTransactionRepositoryForUpload{}
+	parser := &MockFileParserService{
+		Result: &service.FileParseResult{
+			Transactions: []model.Transaction{{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"}},
+			RecordsTotal: 3,
+			RecordsImported: 1,
+			RecordsFailed: 2,
+			Errors: []service.UploadRowError{
+				{RowNumber: 2, Reason: "交易日期格式错误，应为 YYYY-MM-DD"},
+				{RowNumber: 4, Reason: "数量格式错误"},
+			},
+		},
+	}
+	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
+
+	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+
+	result, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
+	if err != nil {
+		t.Fatalf("ProcessUploadedFile() error = %v", err)
+	}
+
+	if result.UploadStatus != "partial_success" {
+		t.Errorf("Expected partial_success, got %s", result.UploadStatus)
+	}
+	if result.RecordsFailed != 2 || len(result.Errors) != 2 {
+		t.Errorf("Unexpected partial result: %+v", result)
+	}
+	file, _ := fileRepo.FindByID(1)
+	if file.UploadStatus != "partial_success" {
+		t.Errorf("Expected stored status 'partial_success', got %s", file.UploadStatus)
+	}
+}
+
+func TestUploadService_ProcessUploadedFile_AllRowsFailed(t *testing.T) {
+	fileRepo := NewMockUploadedFileRepository()
+	txRepo := &MockTransactionRepositoryForUpload{}
+	parser := &MockFileParserService{
+		Result: &service.FileParseResult{
+			RecordsTotal:    2,
+			RecordsImported: 0,
+			RecordsFailed:   2,
+			Errors: []service.UploadRowError{{RowNumber: 2, Reason: "交易日期格式错误，应为 YYYY-MM-DD"}},
+		},
+	}
+	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
+
+	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+
+	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
+	if err == nil {
+		t.Fatal("Expected error when all rows fail")
+	}
+	file, _ := fileRepo.FindByID(1)
+	if file.UploadStatus != "failed" {
+		t.Errorf("Expected status failed, got %s", file.UploadStatus)
+	}
+}
+
 func TestUploadService_ProcessUploadedFile_BatchCreateError(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
-	txRepo := &MockTransactionRepositoryForUpload{
-		Err: errors.New("database error"),
-	}
+	txRepo := &MockTransactionRepositoryForUpload{Err: errors.New("database error")}
 	parser := &MockFileParserService{
-		Transactions: []model.Transaction{{UserID: 1}},
+		Result: &service.FileParseResult{
+			Transactions:    []model.Transaction{{UserID: 1}},
+			RecordsTotal:    1,
+			RecordsImported: 1,
+			RecordsFailed:   0,
+		},
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
@@ -253,20 +318,19 @@ func TestUploadService_ProcessUploadedFile_BatchCreateError(t *testing.T) {
 	}
 }
 
-// TestUploadService_GetUploadHistory 测试获取上传历史
 func TestUploadService_GetUploadHistory(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	now := time.Now()
 	processedAt := now.Add(time.Minute)
 	fileRepo.Create(&model.UploadedFile{
-		UserID:         1,
-		FileName:       "test.csv",
-		FileSize:       1024,
-		FileType:       "csv",
-		UploadStatus:   "success",
+		UserID:          1,
+		FileName:        "test.csv",
+		FileSize:        1024,
+		FileType:        "csv",
+		UploadStatus:    "success",
 		RecordsImported: 10,
-		UploadedAt:     now,
-		ProcessedAt:    &processedAt,
+		UploadedAt:      now,
+		ProcessedAt:     &processedAt,
 	})
 
 	txRepo := &MockTransactionRepositoryForUpload{}
@@ -283,13 +347,11 @@ func TestUploadService_GetUploadHistory(t *testing.T) {
 	if len(history) != 1 {
 		t.Errorf("Expected 1 history record, got %d", len(history))
 	}
-
 	if history[0].FileName != "test.csv" {
 		t.Errorf("Expected filename test.csv, got %s", history[0].FileName)
 	}
 }
 
-// TestUploadService_GetUploadHistory_Empty 测试空上传历史
 func TestUploadService_GetUploadHistory_Empty(t *testing.T) {
 	fileRepo := NewMockUploadedFileRepository()
 	txRepo := &MockTransactionRepositoryForUpload{}
@@ -308,38 +370,6 @@ func TestUploadService_GetUploadHistory_Empty(t *testing.T) {
 	}
 }
 
-// TestUploadService_ProcessUploadedFile_MultipleRecords 测试多条记录
-func TestUploadService_ProcessUploadedFile_MultipleRecords(t *testing.T) {
-	fileRepo := NewMockUploadedFileRepository()
-	txRepo := &MockTransactionRepositoryForUpload{}
-	parser := &MockFileParserService{
-		Transactions: []model.Transaction{
-			{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
-			{UserID: 1, AssetCode: "000858", AssetName: "五粮液"},
-			{UserID: 1, AssetCode: "000001", AssetName: "平安银行"},
-		},
-	}
-	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
-
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
-
-	result, err := uploadService.ProcessUploadedFile(1, "/tmp/test.xlsx", "test.xlsx", 2048, "excel")
-	if err != nil {
-		t.Fatalf("ProcessUploadedFile() error = %v", err)
-	}
-
-	if result.RecordsImported != 3 {
-		t.Errorf("Expected 3 records imported, got %d", result.RecordsImported)
-	}
-
-	// 验证文件状态更新为 success
-	file, _ := fileRepo.FindByID(1)
-	if file.UploadStatus != "success" {
-		t.Errorf("Expected status 'success', got %s", file.UploadStatus)
-	}
-}
-
-// TestUploadService_ProcessUploadedFile_DifferentExtensions 测试不同扩展名
 func TestUploadService_ProcessUploadedFile_DifferentExtensions(t *testing.T) {
 	tests := []struct {
 		filename    string
@@ -360,7 +390,12 @@ func TestUploadService_ProcessUploadedFile_DifferentExtensions(t *testing.T) {
 		fileRepo := NewMockUploadedFileRepository()
 		txRepo := &MockTransactionRepositoryForUpload{}
 		parser := &MockFileParserService{
-			Transactions: []model.Transaction{{UserID: 1}},
+			Result: &service.FileParseResult{
+				Transactions:    []model.Transaction{{UserID: 1}},
+				RecordsTotal:    1,
+				RecordsImported: 1,
+				RecordsFailed:   0,
+			},
 		}
 		uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 

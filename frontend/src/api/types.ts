@@ -158,6 +158,43 @@ export interface AnalysisReportItemResponse {
   created_at: string;
 }
 
+export interface RiskAnalysisResponse {
+  risk_level: string;
+  risk_score: number;
+  risk_factors: string[];
+  recommendations: string[];
+}
+
+export interface RiskAlertItemResponse {
+  level: string;
+  type: string;
+  title: string;
+  description: string;
+  symbols: string[];
+}
+
+export interface RiskSymbolResponse {
+  symbol: string;
+  asset_name: string;
+  risk_level: string;
+  risk_score: number;
+  trigger_reasons: string[];
+}
+
+export interface PredictionScenarioResponse {
+  condition: string;
+  outcome: string;
+}
+
+export interface PredictionResponse {
+  bias: string;
+  confidence: string;
+  horizon: string;
+  drivers: string[];
+  scenarios: PredictionScenarioResponse[];
+  narrative: string;
+}
+
 export interface AnalysisReportDetailResponse {
   id: number;
   task_id?: number;
@@ -180,10 +217,15 @@ export interface AnalysisReportDetailResponse {
   prediction_text: string;
   chart_data: string;
   recommendations: string[];
+  risk_overview: RiskAnalysisResponse;
+  risk_alerts: RiskAlertItemResponse[];
+  top_risk_symbols: RiskSymbolResponse[];
+  prediction?: PredictionResponse;
   ai_model: string;
   created_at: string;
   items: AnalysisReportItemResponse[];
 }
+
 
 // ─────────────────────────────────────────
 //  对应 dto/response/portfolio.go
@@ -284,10 +326,19 @@ export interface AnalysisReportResponse {
 // ─────────────────────────────────────────
 //  对应 dto/response/upload.go
 // ─────────────────────────────────────────
+export interface UploadRowError {
+  row_number: number;
+  reason: string;
+}
+
 export interface UploadResponse {
   file_id: number;
   file_name: string;
+  upload_status: 'success' | 'partial_success' | 'failed' | string;
+  records_total: number;
   records_imported: number;
+  records_failed: number;
+  errors: UploadRowError[] | null;
   message: string;
 }
 

@@ -81,6 +81,22 @@ type AnalysisReportItemResponse struct {
 	CreatedAt            string   `json:"created_at"`
 }
 
+type RiskAlertItemResponse struct {
+	Level       string   `json:"level"`
+	Type        string   `json:"type"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Symbols     []string `json:"symbols"`
+}
+
+type RiskSymbolResponse struct {
+	Symbol         string   `json:"symbol"`
+	AssetName      string   `json:"asset_name"`
+	RiskLevel      string   `json:"risk_level"`
+	RiskScore      int      `json:"risk_score"`
+	TriggerReasons []string `json:"trigger_reasons"`
+}
+
 type AnalysisReportDetailResponse struct {
 	ID                  uint64                       `json:"id"`
 	TaskID              uint64                       `json:"task_id,omitempty"`
@@ -103,7 +119,11 @@ type AnalysisReportDetailResponse struct {
 	PredictionText      string                       `json:"prediction_text"`
 	ChartData           string                       `json:"chart_data"`
 	Recommendations     []string                     `json:"recommendations"`
-	AIModel             string                       `json:"ai_model"`
+	RiskOverview        RiskAnalysisResponse         `json:"risk_overview"`
+	RiskAlerts          []RiskAlertItemResponse      `json:"risk_alerts"`
+	TopRiskSymbols      []RiskSymbolResponse         `json:"top_risk_symbols"`
+	Prediction         *PredictionResponse          `json:"prediction,omitempty"`
+	AIModel            string                       `json:"ai_model"`
 	CreatedAt           string                       `json:"created_at"`
 	Items               []AnalysisReportItemResponse `json:"items"`
 }
@@ -115,9 +135,16 @@ type RiskAnalysisResponse struct {
 	Recommendations []string `json:"recommendations"`
 }
 
+type PredictionScenarioResponse struct {
+	Condition string `json:"condition"`
+	Outcome   string `json:"outcome"`
+}
+
 type PredictionResponse struct {
-	Prediction string   `json:"prediction"`
-	Trend      string   `json:"trend"`
-	Confidence int      `json:"confidence"`
-	Tips       []string `json:"tips"`
+	Bias       string                       `json:"bias"`
+	Confidence string                       `json:"confidence"`
+	Horizon    string                       `json:"horizon"`
+	Drivers    []string                     `json:"drivers"`
+	Scenarios  []PredictionScenarioResponse `json:"scenarios"`
+	Narrative  string                       `json:"narrative"`
 }

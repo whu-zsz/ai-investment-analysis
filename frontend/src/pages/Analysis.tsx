@@ -1,12 +1,12 @@
 import { useMemo, useState, useEffect } from 'react';
 import {
   Row, Col, Card, Statistic, Typography, Tag,
-  Descriptions, Space, Skeleton, Alert, Button, Spin, Empty,
+  Descriptions, Space, Skeleton, Alert, Button, Spin, Empty, List,
 } from 'antd';
 import {
   BarChartOutlined, SafetyCertificateOutlined, BulbOutlined,
   InfoCircleOutlined, ArrowLeftOutlined, ThunderboltOutlined, ReloadOutlined,
-  DownloadOutlined, PieChartOutlined, FundOutlined,
+  DownloadOutlined, PieChartOutlined, FundOutlined, AlertOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
@@ -16,6 +16,8 @@ import type {
   AnalysisReportDetailResponse,
   AnalysisTaskDetailResponse,
   AnalysisReportItemResponse,
+  RiskAlertItemResponse,
+  RiskSymbolResponse,
 } from '../api/types';
 import {
   buildOutcomeDistributionData,
@@ -57,6 +59,12 @@ function formatDateTime(value?: string) {
 
 function getRiskTagColor(level?: string) {
   if (level === 'low') return 'success';
+  if (level === 'medium') return 'warning';
+  return 'error';
+}
+
+function getAlertTypeColor(level?: string) {
+  if (level === 'low') return 'processing';
   if (level === 'medium') return 'warning';
   return 'error';
 }
@@ -113,39 +121,82 @@ function renderKeyPoints(keyPoints: string[]) {
   );
 }
 
-function renderStockCards(items: AnalysisReportItemResponse[]) {
+function renderStockCards(items: AnalysisReportItemResponse[], topRiskSymbols: RiskSymbolResponse[]) {
   if (!items.length) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无个股分析数据" />;
   }
 
+  const highRiskMap = new Map(topRiskSymbols.map((item) => [item.symbol, item]));
+
   return (
     <Row gutter={[12, 12]}>
-      {items.slice(0, 5).map((item) => (
-        <Col span={24} key={item.id}>
-          <Card size="small" bordered style={{ borderRadius: 12 }}>
+      {items.slice(0, 5).map((item) => {
+        const riskInfo = highRiskMap.get(item.symbol);
+        return (
+          <Col span={24} key={item.id}>
+            <Card size="small" bordered style={{ borderRadius: 12, borderColor: riskInfo ? '#ffd8bf' : undefined }}>
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                <Space wrap>
+                  <Text strong>{item.symbol}</Text>
+                  <Tag color="blue">{item.asset_name}</Tag>
+                  <Tag color={item.recommendation === 'buy' ? 'success' : item.recommendation === 'sell' ? 'red' : 'processing'}>
+                    {item.recommendation}
+                  </Tag>
+                  {riskInfo && <Tag color={getRiskTagColor(riskInfo.risk_level)}>风险分 {riskInfo.risk_score}</Tag>}
+                </Space>
+                <Space wrap>
+                  <Text type="secondary">总盈亏 {formatValue(item.total_profit)}</Text>
+                  <Text type="secondary">风险 {formatValue(item.risk_level)}</Text>
+                  <Text type="secondary">风格 {styleMap[item.investment_style] ?? formatValue(item.investment_style)}</Text>
+                </Space>
+                {riskInfo?.trigger_reasons?.length ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="触发预警"
+                    description={riskInfo.trigger_reasons.join('；')}
+                    style={{ borderRadius: 12 }}
+                  />
+                ) : null}
+                <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  {formatValue(item.analysis_text)}
+                </Paragraph>
+                <Text type="secondary" style={{ fontSize: 12 }}>要点</Text>
+                {renderKeyPoints(item.key_points)}
+              </Space>
+            </Card>
+          </Col>
+        );
+      })}
+    </Row>
+  );
+}
+
+function renderRiskAlerts(alerts: RiskAlertItemResponse[]) {
+  if (!alerts.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告未触发结构化风险预警" />;
+  }
+
+  return (
+    <List
+      dataSource={alerts}
+      renderItem={(item) => (
+        <List.Item style={{ paddingInline: 0 }}>
+          <Card size="small" bordered style={{ width: '100%', borderRadius: 12 }}>
             <Space direction="vertical" style={{ width: '100%' }} size={8}>
               <Space wrap>
-                <Text strong>{item.symbol}</Text>
-                <Tag color="blue">{item.asset_name}</Tag>
-                <Tag color={item.recommendation === 'buy' ? 'success' : item.recommendation === 'sell' ? 'red' : 'processing'}>
-                  {item.recommendation}
-                </Tag>
+                <Tag color={getAlertTypeColor(item.level)}>{item.level.toUpperCase()}</Tag>
+                <Text strong>{item.title}</Text>
               </Space>
-              <Space wrap>
-                <Text type="secondary">总盈亏 {formatValue(item.total_profit)}</Text>
-                <Text type="secondary">风险 {formatValue(item.risk_level)}</Text>
-                <Text type="secondary">风格 {styleMap[item.investment_style] ?? formatValue(item.investment_style)}</Text>
-              </Space>
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                {formatValue(item.analysis_text)}
-              </Paragraph>
-              <Text type="secondary" style={{ fontSize: 12 }}>要点</Text>
-              {renderKeyPoints(item.key_points)}
+              <Text type="secondary">{item.description}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                涉及标的：{item.symbols.length ? item.symbols.join('、') : '—'}
+              </Text>
             </Space>
           </Card>
-        </Col>
-      ))}
-    </Row>
+        </List.Item>
+      )}
+    />
   );
 }
 
@@ -177,9 +228,9 @@ export default function AnalysisPage() {
       const detail = await analysisApi.getReportDetail(latestTask.result_report_id);
       setReport(detail);
     } catch (err: unknown) {
-      const error = err as { message?: string; data?: { message?: string } };
+      const errorObj = err as { message?: string; data?: { message?: string } };
       setReport(null);
-      setError(error.message ?? error.data?.message ?? '分析报告加载失败');
+      setError(errorObj.message ?? errorObj.data?.message ?? '分析报告加载失败');
     } finally {
       setLoading(false);
     }
@@ -258,8 +309,8 @@ export default function AnalysisPage() {
       setReport(detail);
       setTaskStage('分析已完成');
     } catch (err: unknown) {
-      const error = err as { message?: string; data?: { message?: string } };
-      setError(error.message ?? error.data?.message ?? '分析生成失败');
+      const errorObj = err as { message?: string; data?: { message?: string } };
+      setError(errorObj.message ?? errorObj.data?.message ?? '分析生成失败');
       setTaskStage('');
     } finally {
       setGenerating(false);
@@ -282,8 +333,8 @@ export default function AnalysisPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      const error = err as { message?: string; data?: { message?: string } };
-      setError(error.message ?? error.data?.message ?? 'PDF 导出失败');
+      const errorObj = err as { message?: string; data?: { message?: string } };
+      setError(errorObj.message ?? errorObj.data?.message ?? 'PDF 导出失败');
     } finally {
       setExporting(false);
     }
@@ -453,7 +504,7 @@ export default function AnalysisPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 投资分析</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前页面通过后端分析任务生成结构化报告，并展示真实返回的风险等级、投资风格、图表数据和 AI 结论。
+              当前页面通过后端分析任务生成结构化报告，并展示真实返回的风险等级、预警列表、图表数据和 AI 结论。
             </Paragraph>
           </div>
           <Space wrap>
@@ -530,6 +581,73 @@ export default function AnalysisPage() {
                           </Col>
                         ))}
                       </Row>
+                    </Card>
+                  </Col>
+                </Row>
+
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={8}>
+                    <Card bordered={false} style={cardStyle} title={<span><AlertOutlined style={{ color: '#1677ff', marginRight: 8 }} />风险预警总览</span>}>
+                      <Row gutter={[12, 12]}>
+                        <Col span={12}>
+                          <div style={{ background: '#fff7e6', borderRadius: 12, padding: '12px 14px' }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>风险等级</Text>
+                            <div style={{ marginTop: 6 }}><Tag color={getRiskTagColor(report.risk_overview?.risk_level)}>{formatValue(report.risk_overview?.risk_level)}</Tag></div>
+                          </div>
+                        </Col>
+                        <Col span={12}>
+                          <div style={{ background: '#fff1f0', borderRadius: 12, padding: '12px 14px' }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>风险分数</Text>
+                            <div style={{ color: '#ff4d4f', fontSize: 24, fontWeight: 700, marginTop: 4 }}>{report.risk_overview?.risk_score ?? 0}</div>
+                          </div>
+                        </Col>
+                        <Col span={24}>
+                          <div style={{ background: '#f6ffed', borderRadius: 12, padding: '12px 14px' }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>主要风险因子</Text>
+                            <div style={{ marginTop: 8 }}>
+                              {report.risk_overview?.risk_factors?.length ? report.risk_overview.risk_factors.map((item) => (
+                                <Tag key={item} color="warning" style={{ marginBottom: 8 }}>{item}</Tag>
+                              )) : <Text type="secondary">当前未识别到结构化风险因子</Text>}
+                            </div>
+                          </div>
+                        </Col>
+                      </Row>
+                    </Card>
+                  </Col>
+                  <Col span={24} xl={9}>
+                    <Card bordered={false} style={cardStyle} title={<span><SafetyCertificateOutlined style={{ color: '#1677ff', marginRight: 8 }} />预警列表</span>}>
+                      {renderRiskAlerts(report.risk_alerts ?? [])}
+                    </Card>
+                  </Col>
+                  <Col span={24} xl={7}>
+                    <Card bordered={false} style={cardStyle} title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />高风险标的排行</span>}>
+                      {report.top_risk_symbols?.length ? (
+                        <List
+                          dataSource={report.top_risk_symbols}
+                          renderItem={(item) => (
+                            <List.Item style={{ paddingInline: 0 }}>
+                              <Card size="small" bordered style={{ width: '100%', borderRadius: 12 }}>
+                                <Space direction="vertical" style={{ width: '100%' }} size={6}>
+                                  <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+                                    <Space wrap>
+                                      <Text strong>{item.symbol}</Text>
+                                      <Tag color="blue">{item.asset_name}</Tag>
+                                    </Space>
+                                    <Tag color={getRiskTagColor(item.risk_level)}>风险分 {item.risk_score}</Tag>
+                                  </Space>
+                                  <Space wrap>
+                                    {item.trigger_reasons.map((reason) => (
+                                      <Tag key={`${item.symbol}-${reason}`} color="warning">{reason}</Tag>
+                                    ))}
+                                  </Space>
+                                </Space>
+                              </Card>
+                            </List.Item>
+                          )}
+                        />
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前暂无高风险标的" />
+                      )}
                     </Card>
                   </Col>
                 </Row>
@@ -681,7 +799,7 @@ export default function AnalysisPage() {
 
                   <Col span={24} lg={14}>
                     <Card bordered={false} style={cardStyle} title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股分析</span>}>
-                      {renderStockCards(report.items)}
+                      {renderStockCards(report.items, report.top_risk_symbols ?? [])}
                     </Card>
                   </Col>
                 </Row>

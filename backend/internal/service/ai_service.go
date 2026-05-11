@@ -80,15 +80,37 @@ type stockAggregate struct {
 	MarketSnapshots  []model.MarketSnapshot
 }
 
+type riskSymbolSummary struct {
+	Symbol         string
+	AssetName      string
+	RiskLevel      string
+	RiskScore      int
+	TriggerReasons []string
+}
+
+type aiPredictionScenario struct {
+	Condition string `json:"condition"`
+	Outcome   string `json:"outcome"`
+}
+
+type aiPredictionOutput struct {
+	Bias       string                 `json:"bias"`
+	Confidence string                 `json:"confidence"`
+	Horizon    string                 `json:"horizon"`
+	Drivers    []string               `json:"drivers"`
+	Scenarios  []aiPredictionScenario `json:"scenarios"`
+}
+
 type aiSummaryOutput struct {
-	ReportTitle     string   `json:"report_title"`
-	SummaryText     string   `json:"summary_text"`
-	RiskLevel       string   `json:"risk_level"`
-	InvestmentStyle string   `json:"investment_style"`
-	RiskAnalysis    string   `json:"risk_analysis"`
-	PatternInsights string   `json:"pattern_insights"`
-	PredictionText  string   `json:"prediction_text"`
-	Recommendations []string `json:"recommendations"`
+	ReportTitle     string             `json:"report_title"`
+	SummaryText     string             `json:"summary_text"`
+	RiskLevel       string             `json:"risk_level"`
+	InvestmentStyle string             `json:"investment_style"`
+	RiskAnalysis    string             `json:"risk_analysis"`
+	PatternInsights string             `json:"pattern_insights"`
+	PredictionText  string             `json:"prediction_text"`
+	Prediction      aiPredictionOutput `json:"prediction"`
+	Recommendations []string           `json:"recommendations"`
 }
 
 type aiStockOutput struct {
@@ -497,10 +519,11 @@ func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics 
 5. summary.risk_analysis：按“风险点 + 指标依据/触发条件 + 可能影响”组织，2-3 句或分句，必须能对应到持仓、盈亏、交易频率或数据状态。
 6. summary.pattern_insights：按“行为模式 + 证据”组织，2-3 句或分句，总结交易行为模式，不要重复 summary_text。
 7. summary.prediction_text：按“条件/场景 + 可能结果”组织，用条件式或场景式表达，描述后续可能走势。
-8. summary.recommendations：3-5 条，每条一个动作，优先使用“减仓、持有、买入、卖出、观察、复盘、分散、止损”这类动词开头。
-9. stocks[].analysis_text：按“现状 + 指标依据 + 结论”组织，每只股票 2-3 句，至少提到 2 个指标。
-10. stocks[].recommendation：只能是 buy、hold、reduce、sell、observe。
-11. stocks[].key_points：2-4 条短句，只写最关键的事实或结论。
+8. summary.prediction：输出结构化预测对象，必须包含 bias、confidence、horizon、drivers、scenarios；bias 只能是 bullish、neutral、bearish，confidence 只能是 low、medium、high；drivers 需要 2-3 条直接引用输入指标的驱动因素；scenarios 需要 2 条，每条包含 condition 和 outcome。
+9. summary.recommendations：3-5 条，每条一个动作，优先使用“减仓、持有、买入、卖出、观察、复盘、分散、止损”这类动词开头。
+10. stocks[].analysis_text：按“现状 + 指标依据 + 结论”组织，每只股票 2-3 句，至少提到 2 个指标。
+11. stocks[].recommendation：只能是 buy、hold、reduce、sell、observe。
+12. stocks[].key_points：2-4 条短句，只写最关键的事实或结论。
 
 个股指标：
 %s
@@ -515,6 +538,18 @@ func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics 
     "risk_analysis": "string",
     "pattern_insights": "string",
     "prediction_text": "string",
+    "prediction": {
+      "bias": "bullish|neutral|bearish",
+      "confidence": "low|medium|high",
+      "horizon": "next_7d|next_30d",
+      "drivers": ["string"],
+      "scenarios": [
+        {
+          "condition": "string",
+          "outcome": "string"
+        }
+      ]
+    },
     "recommendations": ["string"]
   },
   "stocks": [
@@ -638,6 +673,9 @@ func (s *aiService) convertToDetailResponse(report *model.AnalysisReport, items 
 		PredictionText:      derefString(report.PredictionText),
 		ChartData:           normalizeChartData(derefString(report.ChartData)),
 		Recommendations:     splitJSONOrLines(derefString(report.Recommendations)),
+		RiskOverview:        responsedto.RiskAnalysisResponse{RiskLevel: normalizeRiskLevel(report.RiskLevel), RiskScore: 0, RiskFactors: []string{}, Recommendations: []string{}},
+		RiskAlerts:          []responsedto.RiskAlertItemResponse{},
+		TopRiskSymbols:      []responsedto.RiskSymbolResponse{},
 		AIModel:             report.AIModel,
 		CreatedAt:           report.CreatedAt.Format("2006-01-02 15:04:05"),
 		Items:               make([]responsedto.AnalysisReportItemResponse, 0, len(items)),
@@ -645,7 +683,91 @@ func (s *aiService) convertToDetailResponse(report *model.AnalysisReport, items 
 	for _, item := range items {
 		result.Items = append(result.Items, toAnalysisReportItemResponse(item))
 	}
+	result.Prediction = buildPredictionResponse(report, result.Items)
+	riskOverview, riskAlerts, topRiskSymbols := buildRiskInsights(result.Items, result.RiskLevel, result.Recommendations)
+	result.RiskOverview = riskOverview
+	result.RiskAlerts = riskAlerts
+	result.TopRiskSymbols = topRiskSymbols
 	return result
+}
+
+func buildPredictionResponse(report *model.AnalysisReport, items []responsedto.AnalysisReportItemResponse) *responsedto.PredictionResponse {
+	predictionText := derefString(report.PredictionText)
+	rawOutput := strings.TrimSpace(derefString(report.RawAIOutput))
+	if rawOutput != "" {
+		if parsed, err := parseAIAnalysisOutput(rawOutput); err == nil && hasStructuredPrediction(parsed.Summary.Prediction) {
+			return toPredictionResponse(parsed.Summary.Prediction, fallbackString(parsed.Summary.PredictionText, predictionText))
+		}
+	}
+	if strings.TrimSpace(predictionText) == "" {
+		return nil
+	}
+	return buildPredictionFallback(predictionText, items)
+}
+
+func hasStructuredPrediction(prediction aiPredictionOutput) bool {
+	return normalizePredictionBias(prediction.Bias) != "" || normalizePredictionConfidence(prediction.Confidence) != "" || normalizePredictionHorizon(prediction.Horizon) != "" || len(normalizePredictionDrivers(prediction.Drivers)) > 0 || len(normalizePredictionScenarios(prediction.Scenarios)) > 0
+}
+
+func toPredictionResponse(prediction aiPredictionOutput, narrative string) *responsedto.PredictionResponse {
+	drivers := normalizePredictionDrivers(prediction.Drivers)
+	scenarios := normalizePredictionScenarios(prediction.Scenarios)
+	response := &responsedto.PredictionResponse{
+		Bias:       normalizePredictionBias(prediction.Bias),
+		Confidence: normalizePredictionConfidence(prediction.Confidence),
+		Horizon:    normalizePredictionHorizon(prediction.Horizon),
+		Drivers:    drivers,
+		Scenarios:  make([]responsedto.PredictionScenarioResponse, 0, len(scenarios)),
+		Narrative:  normalizeNarrativeText(narrative),
+	}
+	for _, item := range scenarios {
+		response.Scenarios = append(response.Scenarios, responsedto.PredictionScenarioResponse{Condition: item.Condition, Outcome: item.Outcome})
+	}
+	if response.Bias == "" && response.Confidence == "" && response.Horizon == "" && len(response.Drivers) == 0 && len(response.Scenarios) == 0 && response.Narrative == "" {
+		return nil
+	}
+	return response
+}
+
+func buildPredictionFallback(predictionText string, items []responsedto.AnalysisReportItemResponse) *responsedto.PredictionResponse {
+	bias := "neutral"
+	positiveMomentum := 0
+	negativeMomentum := 0
+	for _, item := range items {
+		changePct := parseDecimalOrZero(item.PeriodPriceChangePct)
+		if changePct.GreaterThan(decimal.Zero) {
+			positiveMomentum++
+		}
+		if changePct.LessThan(decimal.Zero) {
+			negativeMomentum++
+		}
+	}
+	if positiveMomentum > negativeMomentum {
+		bias = "bullish"
+		} else if negativeMomentum > positiveMomentum {
+		bias = "bearish"
+	}
+	drivers := []string{}
+	for _, item := range items {
+		if len(drivers) >= 3 {
+			break
+		}
+		changePct := parseDecimalOrZero(item.PeriodPriceChangePct)
+		if !changePct.IsZero() {
+			drivers = append(drivers, fmt.Sprintf("%s 周期涨跌幅 %s%%", item.Symbol, changePct.StringFixed(2)))
+		}
+	}
+	return &responsedto.PredictionResponse{
+		Bias:       bias,
+		Confidence: "medium",
+		Horizon:    "next_7d",
+		Drivers:    drivers,
+		Scenarios: []responsedto.PredictionScenarioResponse{{
+			Condition: "若维持当前交易结构与持仓分布",
+			Outcome:   normalizeNarrativeText(predictionText),
+		}},
+		Narrative: normalizeNarrativeText(predictionText),
+	}
 }
 
 func summarizeMarketDataStatus(statuses []string) string {
@@ -705,6 +827,180 @@ func toAnalysisReportItemResponse(item model.AnalysisReportItem) responsedto.Ana
 		Recommendation:       item.Recommendation,
 		KeyPoints:            splitJSONOrLines(derefString(item.KeyPoints)),
 		CreatedAt:            item.CreatedAt.Format("2006-01-02 15:04:05"),
+	}
+}
+
+func buildRiskInsights(items []responsedto.AnalysisReportItemResponse, reportRiskLevel string, recommendations []string) (responsedto.RiskAnalysisResponse, []responsedto.RiskAlertItemResponse, []responsedto.RiskSymbolResponse) {
+	alertsByType := map[string]*responsedto.RiskAlertItemResponse{}
+	topRiskSymbols := make([]riskSymbolSummary, 0, len(items))
+
+	appendAlert := func(level, alertType, title, description, symbol string) {
+		alert, ok := alertsByType[alertType]
+		if !ok {
+			alert = &responsedto.RiskAlertItemResponse{
+				Level:       level,
+				Type:        alertType,
+				Title:       title,
+				Description: description,
+				Symbols:     []string{},
+			}
+			alertsByType[alertType] = alert
+		}
+		if symbol != "" {
+			for _, existing := range alert.Symbols {
+				if existing == symbol {
+					return
+				}
+			}
+			alert.Symbols = append(alert.Symbols, symbol)
+		}
+	}
+
+	for _, item := range items {
+		totalProfit := parseDecimalOrZero(item.TotalProfit)
+		endingPositionQty := parseDecimalOrZero(item.EndingPositionQty)
+		priceChangePct := parseDecimalOrZero(item.PeriodPriceChangePct)
+
+		riskScore := 0
+		triggerReasons := make([]string, 0, 4)
+
+		if item.MarketDataStatus != marketDataStatusComplete {
+			riskScore += 20
+			triggerReasons = append(triggerReasons, "市场数据存在缺口或补全")
+			appendAlert("medium", "market_data", "市场数据完整性预警", "部分标的的市场数据不是完整态，分析结论需要结合数据可用性理解。", item.Symbol)
+		}
+		if totalProfit.LessThan(decimal.Zero) && endingPositionQty.GreaterThan(decimal.Zero) {
+			riskScore += 30
+			triggerReasons = append(triggerReasons, "当前仍持仓且总盈亏为负")
+			appendAlert("high", "drawdown", "持仓亏损预警", "部分标的在仍有持仓的情况下处于亏损状态，后续回撤会继续拖累组合。", item.Symbol)
+		}
+		if absDecimal(priceChangePct).GreaterThanOrEqual(decimal.NewFromInt(8)) && endingPositionQty.GreaterThan(decimal.Zero) {
+			riskScore += 20
+			triggerReasons = append(triggerReasons, "持仓标的阶段波动较大")
+			appendAlert("medium", "volatility", "价格波动预警", "部分持仓标的在分析期内波动较大，短期收益和回撤的不确定性更高。", item.Symbol)
+		}
+		if item.TradeCount >= 8 {
+			riskScore += 15
+			triggerReasons = append(triggerReasons, "交易频率偏高")
+			appendAlert("medium", "high_frequency", "高频交易预警", "部分标的交易频率偏高，容易放大追涨杀跌和交易摩擦成本。", item.Symbol)
+		}
+		if item.BuyCount >= item.SellCount*2 && item.BuyCount >= 3 && endingPositionQty.GreaterThan(decimal.Zero) {
+			riskScore += 20
+			triggerReasons = append(triggerReasons, "持续加仓且仓位偏重")
+			appendAlert("medium", "concentration", "仓位集中预警", "部分标的呈现持续加仓且仍保留较多仓位的特征，集中度风险偏高。", item.Symbol)
+		}
+
+		if riskScore > 100 {
+			riskScore = 100
+		}
+		if riskScore == 0 {
+			continue
+		}
+
+		topRiskSymbols = append(topRiskSymbols, riskSymbolSummary{
+			Symbol:         item.Symbol,
+			AssetName:      item.AssetName,
+			RiskLevel:      scoreToRiskLevel(riskScore),
+			RiskScore:      riskScore,
+			TriggerReasons: triggerReasons,
+		})
+	}
+
+	alertList := make([]responsedto.RiskAlertItemResponse, 0, len(alertsByType))
+	for _, alert := range alertsByType {
+		alertList = append(alertList, *alert)
+	}
+	sort.Slice(alertList, func(i, j int) bool {
+		return riskLevelRank(alertList[i].Level) > riskLevelRank(alertList[j].Level)
+	})
+
+	sort.Slice(topRiskSymbols, func(i, j int) bool {
+		if topRiskSymbols[i].RiskScore == topRiskSymbols[j].RiskScore {
+			return topRiskSymbols[i].Symbol < topRiskSymbols[j].Symbol
+		}
+		return topRiskSymbols[i].RiskScore > topRiskSymbols[j].RiskScore
+	})
+	if len(topRiskSymbols) > 5 {
+		topRiskSymbols = topRiskSymbols[:5]
+	}
+
+	riskFactors := make([]string, 0, len(alertList))
+	for _, alert := range alertList {
+		riskFactors = append(riskFactors, alert.Title)
+	}
+
+	overallScore := riskLevelBaseScore(reportRiskLevel)
+	if len(topRiskSymbols) > 0 && topRiskSymbols[0].RiskScore > overallScore {
+		overallScore = topRiskSymbols[0].RiskScore
+	}
+	if overallScore > 100 {
+		overallScore = 100
+	}
+
+	topRiskResponses := make([]responsedto.RiskSymbolResponse, 0, len(topRiskSymbols))
+	for _, item := range topRiskSymbols {
+		topRiskResponses = append(topRiskResponses, responsedto.RiskSymbolResponse{
+			Symbol:         item.Symbol,
+			AssetName:      item.AssetName,
+			RiskLevel:      item.RiskLevel,
+			RiskScore:      item.RiskScore,
+			TriggerReasons: item.TriggerReasons,
+		})
+	}
+
+	return responsedto.RiskAnalysisResponse{
+		RiskLevel:       scoreToRiskLevel(overallScore),
+		RiskScore:       overallScore,
+		RiskFactors:     riskFactors,
+		Recommendations: recommendations,
+	}, alertList, topRiskResponses
+}
+
+func parseDecimalOrZero(value string) decimal.Decimal {
+	parsed, err := decimal.NewFromString(strings.TrimSpace(value))
+	if err != nil {
+		return decimal.Zero
+	}
+	return parsed
+}
+
+func absDecimal(value decimal.Decimal) decimal.Decimal {
+	if value.IsNegative() {
+		return value.Neg()
+	}
+	return value
+}
+
+func scoreToRiskLevel(score int) string {
+	switch {
+	case score >= 60:
+		return "high"
+	case score >= 30:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func riskLevelBaseScore(level string) int {
+	switch normalizeRiskLevel(level) {
+	case "high":
+		return 80
+	case "medium":
+		return 50
+	default:
+		return 20
+	}
+}
+
+func riskLevelRank(level string) int {
+	switch normalizeRiskLevel(level) {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	default:
+		return 1
 	}
 }
 
@@ -872,6 +1168,7 @@ func parseAIAnalysisOutput(content string) (*aiAnalysisOutput, error) {
 	output.Summary.RiskAnalysis = normalizeNarrativeText(output.Summary.RiskAnalysis)
 	output.Summary.PatternInsights = normalizeNarrativeText(output.Summary.PatternInsights)
 	output.Summary.PredictionText = normalizeNarrativeText(output.Summary.PredictionText)
+	output.Summary.Prediction = normalizePredictionOutput(output.Summary.Prediction)
 	output.Summary.Recommendations = normalizeRecommendationList(output.Summary.Recommendations)
 	for i := range output.Stocks {
 		output.Stocks[i].Symbol = normalizeSymbol(output.Stocks[i].Symbol)
@@ -924,6 +1221,7 @@ func sanitizeAIAnalysisOutput(output *aiAnalysisOutput, metrics []model.StockAna
 	output.Summary.RiskAnalysis = normalizeNarrativeText(output.Summary.RiskAnalysis)
 	output.Summary.PatternInsights = normalizeNarrativeText(output.Summary.PatternInsights)
 	output.Summary.PredictionText = normalizeNarrativeText(output.Summary.PredictionText)
+	output.Summary.Prediction = normalizePredictionOutput(output.Summary.Prediction)
 	output.Summary.Recommendations = normalizeRecommendationList(output.Summary.Recommendations)
 	return output
 }
@@ -1027,6 +1325,85 @@ func hasPatternNarrativeShape(value string) bool {
 
 func hasPredictionNarrativeShape(value string) bool {
 	return containsAnyFold(value, []string{"若", "如果", "一旦", "继续", "当"}) && containsAnyFold(value, []string{"可能", "将", "则", "容易", "风险", "回撤", "改善", "放大"})
+}
+
+func normalizePredictionOutput(prediction aiPredictionOutput) aiPredictionOutput {
+	prediction.Bias = normalizePredictionBias(prediction.Bias)
+	prediction.Confidence = normalizePredictionConfidence(prediction.Confidence)
+	prediction.Horizon = normalizePredictionHorizon(prediction.Horizon)
+	prediction.Drivers = normalizePredictionDrivers(prediction.Drivers)
+	prediction.Scenarios = normalizePredictionScenarios(prediction.Scenarios)
+	return prediction
+}
+
+func normalizePredictionBias(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "bullish", "up", "positive", "看多", "偏多", "乐观":
+		return "bullish"
+	case "bearish", "down", "negative", "看空", "偏空", "悲观":
+		return "bearish"
+	case "neutral", "flat", "mixed", "中性", "震荡", "观望":
+		return "neutral"
+	default:
+		return ""
+	}
+}
+
+func normalizePredictionConfidence(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "high", "strong", "高", "高置信", "较高":
+		return "high"
+	case "medium", "mid", "moderate", "中", "中等", "一般":
+		return "medium"
+	case "low", "weak", "低", "较低":
+		return "low"
+	default:
+		return ""
+	}
+}
+
+func normalizePredictionHorizon(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "next_7d", "7d", "7_days", "short_term", "短期", "未来7天", "近7天":
+		return "next_7d"
+	case "next_30d", "30d", "30_days", "mid_term", "中期", "未来30天", "近30天":
+		return "next_30d"
+	default:
+		return ""
+	}
+}
+
+func normalizePredictionDrivers(values []string) []string {
+	items := normalizeAndDeduplicateList(values)
+	if len(items) > 3 {
+		items = items[:3]
+	}
+	return items
+}
+
+func normalizePredictionScenarios(values []aiPredictionScenario) []aiPredictionScenario {
+	result := make([]aiPredictionScenario, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		condition := normalizeNarrativeText(value.Condition)
+		outcome := normalizeNarrativeText(value.Outcome)
+		if condition == "" || outcome == "" {
+			continue
+		}
+		key := condition + "|" + outcome
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, aiPredictionScenario{Condition: condition, Outcome: outcome})
+		if len(result) >= 2 {
+			break
+		}
+	}
+	return result
 }
 
 func normalizeListItem(value string) string {
