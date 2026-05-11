@@ -86,6 +86,14 @@ func main() {
 		llmProvider,
 		log,
 	)
+	recommendationService := service.NewRecommendationService(
+		userRepo,
+		transactionRepo,
+		portfolioRepo,
+		marketSnapshotRepo,
+		marketDataService,
+		llmProvider,
+	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
@@ -93,7 +101,7 @@ func main() {
 	uploadHandler := handler.NewUploadHandler(uploadService, cfg.Upload)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
-	analysisHandler := handler.NewAnalysisHandler(aiService)
+	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService)
 	marketHandler := handler.NewMarketHandler(marketSnapshotService)
 
 	router := router.SetupRouter(

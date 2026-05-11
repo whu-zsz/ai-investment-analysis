@@ -13,12 +13,14 @@ import (
 )
 
 type AnalysisHandler struct {
-	aiService service.AIService
+	aiService             service.AIService
+	recommendationService service.RecommendationService
 }
 
-func NewAnalysisHandler(aiService service.AIService) *AnalysisHandler {
+func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService) *AnalysisHandler {
 	return &AnalysisHandler{
-		aiService: aiService,
+		aiService:             aiService,
+		recommendationService: recommendationService,
 	}
 }
 
@@ -210,4 +212,28 @@ func (h *AnalysisHandler) GetReports(c *gin.Context) {
 	}
 
 	response.Success(c, reports)
+}
+
+func (h *AnalysisHandler) GetCandidates(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+
+	result, err := h.recommendationService.GetCandidates(userID)
+	if err != nil {
+		response.InternalServerError(c, "failed to get analysis candidates")
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) GetRecommendations(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+
+	result, err := h.recommendationService.GetRecommendations(userID)
+	if err != nil {
+		response.InternalServerError(c, "failed to get analysis recommendations")
+		return
+	}
+
+	response.Success(c, result)
 }

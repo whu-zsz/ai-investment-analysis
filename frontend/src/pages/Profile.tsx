@@ -73,6 +73,9 @@ export default function ProfilePage() {
   };
 
   const quickLinks = [
+    { label: '持仓总览', desc: '查看当前持仓与盈亏', path: '/app/portfolio', icon: <BarChartOutlined /> },
+    { label: '市场趋势', desc: '跟踪用户相关标的走势', path: '/app/market-trend', icon: <RiseOutlined /> },
+    { label: 'AI 推荐', desc: '获取适合你的股票建议', path: '/app/recommendation', icon: <SafetyCertificateOutlined /> },
     { label: '风险扫描', desc: '查看分析报告', path: '/app/analysis', icon: <BarChartOutlined /> },
     { label: '收益预演', desc: '查看趋势结论', path: '/app/prediction', icon: <RiseOutlined /> },
     { label: '数据同步', desc: '导入交易记录', path: '/app/upload', icon: <RiseOutlined /> },
