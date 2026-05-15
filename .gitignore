@@ -123,6 +123,7 @@ dist/
 *.cer
 backend/config.yaml.bak
 frontend/localStorage.json
+test/*.md
 
 # ====================
 # macOS / Windows 特定
