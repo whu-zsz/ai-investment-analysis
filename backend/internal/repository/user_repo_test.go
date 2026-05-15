@@ -307,3 +307,163 @@ func TestUserRepository_Interface(t *testing.T) {
 	_ = repo.UpdateTotalProfit(user.ID, decimal.Zero)
 	_ = repo.Delete(user.ID)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestUserRepository_Boundary_Create_EmptyUsername(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user := &model.User{
+		Username:     "",
+		Email:        "test@example.com",
+		PasswordHash: "hash123",
+	}
+	err := repo.Create(user)
+	// InMemory 实现允许空字符串，验证不报错
+	if err != nil {
+		t.Errorf("Create() with empty username error = %v", err)
+	}
+}
+
+func TestUserRepository_Boundary_Create_EmptyEmail(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user := &model.User{
+		Username:     "testuser",
+		Email:        "",
+		PasswordHash: "hash123",
+	}
+	err := repo.Create(user)
+	if err != nil {
+		t.Errorf("Create() with empty email error = %v", err)
+	}
+}
+
+func TestUserRepository_Boundary_Create_EmptyPasswordHash(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user := &model.User{
+		Username:     "testuser",
+		Email:        "test@example.com",
+		PasswordHash: "",
+	}
+	err := repo.Create(user)
+	if err != nil {
+		t.Errorf("Create() with empty password hash error = %v", err)
+	}
+}
+
+func TestUserRepository_Boundary_Create_LongStrings(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	// 构造超长字符串
+	longUsername := ""
+	for i := 0; i < 100; i++ {
+		longUsername += "abcdefghij"
+	} // 1000 字符
+	longEmail := ""
+	for i := 0; i < 100; i++ {
+		longEmail += "abcdefghij"
+	}
+	longEmail += "@example.com"
+
+	user := &model.User{
+		Username:     longUsername,
+		Email:        longEmail,
+		PasswordHash: "hash123",
+	}
+	err := repo.Create(user)
+	// InMemory 实现不检查长度限制
+	if err != nil {
+		t.Errorf("Create() with long strings error = %v", err)
+	}
+}
+
+func TestUserRepository_Boundary_FindByID_Zero(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user, err := repo.FindByID(0)
+	if err == nil {
+		t.Error("FindByID(0) should return error")
+	}
+	if user != nil {
+		t.Error("FindByID(0) should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_FindByID_NotFound(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	// 先创建一条记录
+	repo.Create(&model.User{
+		Username: "testuser", Email: "test@example.com", PasswordHash: "hash",
+	})
+	// 查找不存在的 ID
+	user, err := repo.FindByID(999999)
+	if err == nil {
+		t.Error("FindByID(999999) should return error")
+	}
+	if user != nil {
+		t.Error("FindByID(999999) should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_FindByUsername_Empty(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user, err := repo.FindByUsername("")
+	if err == nil {
+		t.Error("FindByUsername('') should return error")
+	}
+	if user != nil {
+		t.Error("FindByUsername('') should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_FindByUsername_NotFound(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	repo.Create(&model.User{
+		Username: "testuser", Email: "test@example.com", PasswordHash: "hash",
+	})
+	user, err := repo.FindByUsername("nonexistent_user")
+	if err == nil {
+		t.Error("FindByUsername('nonexistent_user') should return error")
+	}
+	if user != nil {
+		t.Error("FindByUsername('nonexistent_user') should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_FindByEmail_Empty(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	user, err := repo.FindByEmail("")
+	if err == nil {
+		t.Error("FindByEmail('') should return error")
+	}
+	if user != nil {
+		t.Error("FindByEmail('') should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_FindByEmail_NotFound(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	repo.Create(&model.User{
+		Username: "testuser", Email: "test@example.com", PasswordHash: "hash",
+	})
+	user, err := repo.FindByEmail("nonexistent@example.com")
+	if err == nil {
+		t.Error("FindByEmail('nonexistent@example.com') should return error")
+	}
+	if user != nil {
+		t.Error("FindByEmail('nonexistent@example.com') should return nil user")
+	}
+}
+
+func TestUserRepository_Boundary_Delete_Zero(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	err := repo.Delete(0)
+	if err == nil {
+		t.Error("Delete(0) should return error")
+	}
+}
+
+func TestUserRepository_Boundary_Delete_NotFound(t *testing.T) {
+	repo := NewInMemoryUserRepository()
+	err := repo.Delete(999999)
+	if err == nil {
+		t.Error("Delete(999999) should return error")
+	}
+}
