@@ -318,3 +318,171 @@ func TestPortfolioRepository_Interface(t *testing.T) {
 	_ = repo.UpdateCurrentPrice("600519", decimal.NewFromInt(1900))
 	_ = repo.Delete(portfolio.ID)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestPortfolioRepository_Boundary_Create_ZeroUserID(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	p := &model.Portfolio{
+		UserID:            0,
+		AssetCode:         "600519",
+		AssetName:         "贵州茅台",
+		AssetType:         "stock",
+		TotalQuantity:     decimal.NewFromInt(100),
+		AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost:       decimal.NewFromInt(1800),
+		LastUpdated:       time.Now(),
+	}
+	err := repo.Create(p)
+	if err != nil {
+		t.Fatalf("Create() with zero UserID error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_Create_EmptyAssetCode(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	p := &model.Portfolio{
+		UserID:            1,
+		AssetCode:         "",
+		AssetName:         "贵州茅台",
+		AssetType:         "stock",
+		TotalQuantity:     decimal.NewFromInt(100),
+		AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost:       decimal.NewFromInt(1800),
+		LastUpdated:       time.Now(),
+	}
+	err := repo.Create(p)
+	if err != nil {
+		t.Fatalf("Create() with empty asset code error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_Create_NegativeQuantity(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	p := &model.Portfolio{
+		UserID:            1,
+		AssetCode:         "600519",
+		AssetName:         "贵州茅台",
+		AssetType:         "stock",
+		TotalQuantity:     decimal.NewFromInt(-100),
+		AvailableQuantity: decimal.NewFromInt(-100),
+		AverageCost:       decimal.NewFromInt(1800),
+		LastUpdated:       time.Now(),
+	}
+	err := repo.Create(p)
+	if err != nil {
+		t.Fatalf("Create() with negative quantity error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_FindByID_Zero(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	p, err := repo.FindByID(0)
+	if err == nil {
+		t.Fatalf("FindByID(0) should return error")
+	}
+	if p != nil {
+		t.Fatalf("FindByID(0) should return nil")
+	}
+}
+
+func TestPortfolioRepository_Boundary_FindByID_NotFound(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	repo.Create(&model.Portfolio{
+		UserID: 1, AssetCode: "600519", AssetName: "贵州茅台", AssetType: "stock",
+		TotalQuantity: decimal.NewFromInt(100), AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost: decimal.NewFromInt(1800), LastUpdated: time.Now(),
+	})
+	p, err := repo.FindByID(999999)
+	if err == nil {
+		t.Fatalf("FindByID(999999) should return error")
+	}
+	if p != nil {
+		t.Fatalf("FindByID(999999) should return nil")
+	}
+}
+
+func TestPortfolioRepository_Boundary_FindByUserID_NoPortfolios(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	portfolios, err := repo.FindByUserID(999)
+	if err != nil {
+		t.Fatalf("FindByUserID(999) error = %v", err)
+	}
+	if len(portfolios) != 0 {
+		t.Fatalf("FindByUserID(999) returned %d items, want 0", len(portfolios))
+	}
+}
+
+func TestPortfolioRepository_Boundary_FindByUserAndAsset_EmptyCode(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	repo.Create(&model.Portfolio{
+		UserID: 1, AssetCode: "600519", AssetName: "贵州茅台", AssetType: "stock",
+		TotalQuantity: decimal.NewFromInt(100), AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost: decimal.NewFromInt(1800), LastUpdated: time.Now(),
+	})
+	p, err := repo.FindByUserAndAsset(1, "")
+	if err == nil {
+		t.Fatalf("FindByUserAndAsset(1, '') should return error")
+	}
+	if p != nil {
+		t.Fatalf("FindByUserAndAsset(1, '') should return nil")
+	}
+}
+
+func TestPortfolioRepository_Boundary_FindByUserAndAsset_NotFound(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	repo.Create(&model.Portfolio{
+		UserID: 1, AssetCode: "600519", AssetName: "贵州茅台", AssetType: "stock",
+		TotalQuantity: decimal.NewFromInt(100), AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost: decimal.NewFromInt(1800), LastUpdated: time.Now(),
+	})
+	p, err := repo.FindByUserAndAsset(1, "000001")
+	if err == nil {
+		t.Fatalf("FindByUserAndAsset(1, '000001') should return error")
+	}
+	if p != nil {
+		t.Fatalf("FindByUserAndAsset(1, '000001') should return nil")
+	}
+}
+
+func TestPortfolioRepository_Boundary_UpdateCurrentPrice_EmptyCode(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	err := repo.UpdateCurrentPrice("", decimal.NewFromInt(100))
+	if err != nil {
+		t.Fatalf("UpdateCurrentPrice('', 100) error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_UpdateCurrentPrice_NegativePrice(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	repo.Create(&model.Portfolio{
+		UserID: 1, AssetCode: "600519", AssetName: "贵州茅台", AssetType: "stock",
+		TotalQuantity: decimal.NewFromInt(100), AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost: decimal.NewFromInt(1800), LastUpdated: time.Now(),
+	})
+	err := repo.UpdateCurrentPrice("600519", decimal.NewFromFloat(-10.50))
+	if err != nil {
+		t.Fatalf("UpdateCurrentPrice('600519', -10.50) error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_UpdateCurrentPrice_ZeroPrice(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	repo.Create(&model.Portfolio{
+		UserID: 1, AssetCode: "600519", AssetName: "贵州茅台", AssetType: "stock",
+		TotalQuantity: decimal.NewFromInt(100), AvailableQuantity: decimal.NewFromInt(100),
+		AverageCost: decimal.NewFromInt(1800), LastUpdated: time.Now(),
+	})
+	err := repo.UpdateCurrentPrice("600519", decimal.Zero)
+	if err != nil {
+		t.Fatalf("UpdateCurrentPrice('600519', 0) error = %v", err)
+	}
+}
+
+func TestPortfolioRepository_Boundary_Delete_Zero(t *testing.T) {
+	repo := NewInMemoryPortfolioRepository()
+	err := repo.Delete(0)
+	if err != nil {
+		t.Fatalf("Delete(0) error = %v", err)
+	}
+}

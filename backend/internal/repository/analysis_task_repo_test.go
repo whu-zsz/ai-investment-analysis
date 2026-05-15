@@ -377,3 +377,133 @@ func TestAnalysisTaskRepository_Interface(t *testing.T) {
 	db := setupAnalysisTaskTestDB(t)
 	var _ repository.AnalysisTaskRepository = repository.NewAnalysisTaskRepository(db)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestAnalysisTaskRepository_Boundary_Create_ZeroUserID(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	task := &model.AnalysisTask{
+		UserID:              0,
+		TaskType:            "stock_analysis",
+		Status:              "pending",
+		ProgressStage:       "pending",
+		AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd:   time.Now().AddDate(0, 1, 0),
+	}
+	err := repo.Create(task)
+	if err != nil {
+		t.Fatalf("Create() with zero UserID error = %v", err)
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_Create_EmptyTaskType(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	task := &model.AnalysisTask{
+		UserID:              1,
+		TaskType:            "",
+		Status:              "pending",
+		ProgressStage:       "pending",
+		AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd:   time.Now().AddDate(0, 1, 0),
+	}
+	err := repo.Create(task)
+	if err != nil {
+		t.Fatalf("Create() with empty task type error = %v", err)
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_FindByIDAndUserID_ZeroID(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	task, err := repo.FindByIDAndUserID(0, 0)
+	if err == nil {
+		t.Fatalf("FindByIDAndUserID(0, 0) should return error")
+	}
+	if task != nil {
+		t.Fatalf("FindByIDAndUserID(0, 0) should return nil")
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_FindByIDAndUserID_NotFound(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	repo.Create(&model.AnalysisTask{
+		UserID: 1, TaskType: "stock_analysis", Status: "pending",
+		ProgressStage: "pending", AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+	})
+	task, err := repo.FindByIDAndUserID(999, 999)
+	if err == nil {
+		t.Fatalf("FindByIDAndUserID(999, 999) should return error")
+	}
+	if task != nil {
+		t.Fatalf("FindByIDAndUserID(999, 999) should return nil")
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_FindByUserID_NoTasks(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	tasks, total, err := repo.FindByUserID(999, "", 10, 0)
+	if err != nil {
+		t.Fatalf("FindByUserID(999) error = %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("FindByUserID(999) total = %d, want 0", total)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("FindByUserID(999) returned %d items, want 0", len(tasks))
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_FindByUserID_EmptyStatus(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	repo.Create(&model.AnalysisTask{
+		UserID: 1, TaskType: "stock_analysis", Status: "pending",
+		ProgressStage: "pending", AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+	})
+	repo.Create(&model.AnalysisTask{
+		UserID: 1, TaskType: "stock_analysis", Status: "completed",
+		ProgressStage: "done", AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+	})
+	tasks, total, err := repo.FindByUserID(1, "", 10, 0)
+	if err != nil {
+		t.Fatalf("FindByUserID(1, '') error = %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("FindByUserID(1, '') total = %d, want 2", total)
+	}
+	_ = tasks
+}
+
+func TestAnalysisTaskRepository_Boundary_HasRunningTask_NoTasks(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	has, err := repo.HasRunningTask(999, "")
+	if err != nil {
+		t.Fatalf("HasRunningTask(999) error = %v", err)
+	}
+	if has {
+		t.Fatalf("HasRunningTask(999) should be false")
+	}
+}
+
+func TestAnalysisTaskRepository_Boundary_UpdateProgress_AllNil(t *testing.T) {
+	db := setupAnalysisTaskTestDB(t)
+	repo := repository.NewAnalysisTaskRepository(db)
+	task := &model.AnalysisTask{
+		UserID: 1, TaskType: "stock_analysis", Status: "pending",
+		ProgressStage: "pending", AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+	}
+	repo.Create(task)
+	err := repo.UpdateProgress(task.ID, "", "", nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("UpdateProgress(all nil) error = %v", err)
+	}
+}

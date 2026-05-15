@@ -375,3 +375,236 @@ func TestTransactionRepository_Interface(t *testing.T) {
 	_, _ = repo.GetTransactionStats(1)
 	_ = repo.Delete(tx.ID)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestTransactionRepository_Boundary_Create_ZeroUserID(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	tx := &model.Transaction{
+		UserID:          0,
+		TransactionDate: time.Now(),
+		TransactionType: "buy",
+		AssetType:       "stock",
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		Quantity:        decimal.NewFromInt(100),
+		PricePerUnit:    decimal.NewFromInt(1800),
+		TotalAmount:     decimal.NewFromInt(180000),
+	}
+	err := repo.Create(tx)
+	if err != nil {
+		t.Fatalf("Create() with zero UserID error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_Create_NegativeQuantity(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	tx := &model.Transaction{
+		UserID:          1,
+		TransactionDate: time.Now(),
+		TransactionType: "buy",
+		AssetType:       "stock",
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		Quantity:        decimal.NewFromInt(-100),
+		PricePerUnit:    decimal.NewFromInt(1800),
+		TotalAmount:     decimal.NewFromInt(-180000),
+	}
+	err := repo.Create(tx)
+	if err != nil {
+		t.Fatalf("Create() with negative quantity error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_Create_ZeroPrice(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	tx := &model.Transaction{
+		UserID:          1,
+		TransactionDate: time.Now(),
+		TransactionType: "buy",
+		AssetType:       "stock",
+		AssetCode:       "600519",
+		AssetName:       "贵州茅台",
+		Quantity:        decimal.NewFromInt(100),
+		PricePerUnit:    decimal.Zero,
+		TotalAmount:     decimal.Zero,
+	}
+	err := repo.Create(tx)
+	if err != nil {
+		t.Fatalf("Create() with zero price error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_Create_EmptyAssetCode(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	tx := &model.Transaction{
+		UserID:          1,
+		TransactionDate: time.Now(),
+		TransactionType: "buy",
+		AssetType:       "stock",
+		AssetCode:       "",
+		AssetName:       "贵州茅台",
+		Quantity:        decimal.NewFromInt(100),
+		PricePerUnit:    decimal.NewFromInt(1800),
+		TotalAmount:     decimal.NewFromInt(180000),
+	}
+	err := repo.Create(tx)
+	if err != nil {
+		t.Fatalf("Create() with empty asset code error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_BatchCreate_EmptySlice(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	err := repo.BatchCreate([]model.Transaction{})
+	if err != nil {
+		t.Fatalf("BatchCreate([]) error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_BatchCreate_SingleItem(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	txs := []model.Transaction{
+		{
+			UserID:          1,
+			TransactionDate: time.Now(),
+			TransactionType: "buy",
+			AssetType:       "stock",
+			AssetCode:       "600519",
+			AssetName:       "贵州茅台",
+			Quantity:        decimal.NewFromInt(100),
+			PricePerUnit:    decimal.NewFromInt(1800),
+			TotalAmount:     decimal.NewFromInt(180000),
+		},
+	}
+	err := repo.BatchCreate(txs)
+	if err != nil {
+		t.Fatalf("BatchCreate(single item) error = %v", err)
+	}
+}
+
+func TestTransactionRepository_Boundary_FindByID_Zero(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	tx, err := repo.FindByID(0)
+	if err == nil {
+		t.Fatalf("FindByID(0) should return error")
+	}
+	if tx != nil {
+		t.Fatalf("FindByID(0) should return nil")
+	}
+}
+
+func TestTransactionRepository_Boundary_FindByID_NotFound(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: time.Now(), TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	tx, err := repo.FindByID(999999)
+	if err == nil {
+		t.Fatalf("FindByID(999999) should return error")
+	}
+	if tx != nil {
+		t.Fatalf("FindByID(999999) should return nil")
+	}
+}
+
+func TestTransactionRepository_Boundary_FindByUserID_ZeroLimit(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: time.Now(), TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	txs, total, err := repo.FindByUserID(1, 0, 0)
+	if err != nil {
+		t.Fatalf("FindByUserID(limit=0) error = %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("FindByUserID(limit=0) total = %d, want 1", total)
+	}
+	_ = txs
+}
+
+func TestTransactionRepository_Boundary_FindByUserID_LargeOffset(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: time.Now(), TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	txs, total, err := repo.FindByUserID(1, 10, 1000)
+	if err != nil {
+		t.Fatalf("FindByUserID(large offset) error = %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("FindByUserID(large offset) total = %d, want 1", total)
+	}
+	if len(txs) != 0 {
+		t.Fatalf("FindByUserID(large offset) returned %d items, want 0", len(txs))
+	}
+}
+
+func TestTransactionRepository_Boundary_FindByAssetCode_EmptyCode(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: time.Now(), TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	txs, err := repo.FindByAssetCode(1, "")
+	if err != nil {
+		t.Fatalf("FindByAssetCode('') error = %v", err)
+	}
+	if len(txs) != 0 {
+		t.Fatalf("FindByAssetCode('') returned %d items, want 0", len(txs))
+	}
+}
+
+func TestTransactionRepository_Boundary_FindByDateRange_SameDay(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	now := time.Now()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: now, TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	dateStr := now.Format("2006-01-02")
+	txs, err := repo.FindByDateRange(1, dateStr, dateStr)
+	if err != nil {
+		t.Fatalf("FindByDateRange(same day) error = %v", err)
+	}
+	_ = txs
+}
+
+func TestTransactionRepository_Boundary_FindByDateRange_EmptyDates(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	repo.Create(&model.Transaction{
+		UserID: 1, TransactionDate: time.Now(), TransactionType: "buy",
+		AssetType: "stock", AssetCode: "600519", AssetName: "贵州茅台",
+		Quantity: decimal.NewFromInt(100), PricePerUnit: decimal.NewFromInt(1800),
+		TotalAmount: decimal.NewFromInt(180000),
+	})
+	txs, err := repo.FindByDateRange(1, "", "")
+	if err != nil {
+		t.Fatalf("FindByDateRange('', '') error = %v", err)
+	}
+	_ = txs
+}
+
+func TestTransactionRepository_Boundary_GetTransactionStats_NoTransactions(t *testing.T) {
+	repo := NewInMemoryTransactionRepository()
+	stats, err := repo.GetTransactionStats(999)
+	if err != nil {
+		t.Fatalf("GetTransactionStats() error = %v", err)
+	}
+	if stats == nil {
+		t.Fatalf("GetTransactionStats() should not return nil")
+	}
+}

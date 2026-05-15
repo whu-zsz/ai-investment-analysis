@@ -467,3 +467,174 @@ func TestAnalysisReportRepository_Interface(t *testing.T) {
 	db := setupAnalysisReportTestDB(t)
 	var _ repository.AnalysisReportRepository = repository.NewAnalysisReportRepository(db)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestAnalysisReportRepository_Boundary_Create_ZeroUserID(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report := &model.AnalysisReport{
+		UserID:              0,
+		ReportType:          "summary",
+		ReportTitle:         "测试报告",
+		AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd:   time.Now().AddDate(0, 1, 0),
+		RiskLevel:           "medium",
+		SummaryText:         "测试摘要",
+		TotalInvestment:     decimal.NewFromInt(0),
+		TotalProfit:         decimal.NewFromInt(0),
+		ProfitRate:          decimal.NewFromInt(0),
+	}
+	err := repo.Create(report)
+	if err != nil {
+		t.Fatalf("Create() with zero UserID error = %v", err)
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_CreateWithItems_EmptyItems(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report := &model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "测试报告",
+		AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd:   time.Now().AddDate(0, 1, 0),
+		RiskLevel:           "medium",
+		SummaryText:         "测试摘要",
+		TotalInvestment:     decimal.NewFromInt(100000),
+		TotalProfit:         decimal.NewFromInt(10000),
+		ProfitRate:          decimal.NewFromFloat(0.1),
+	}
+	err := repo.CreateWithItems(report, []model.AnalysisReportItem{})
+	if err != nil {
+		t.Fatalf("CreateWithItems(empty items) error = %v", err)
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_CreateWithItems_NilItems(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report := &model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "测试报告",
+		AnalysisPeriodStart: time.Now(),
+		AnalysisPeriodEnd:   time.Now().AddDate(0, 1, 0),
+		RiskLevel:           "medium",
+		SummaryText:         "测试摘要",
+		TotalInvestment:     decimal.NewFromInt(100000),
+		TotalProfit:         decimal.NewFromInt(10000),
+		ProfitRate:          decimal.NewFromFloat(0.1),
+	}
+	err := repo.CreateWithItems(report, nil)
+	if err != nil {
+		t.Fatalf("CreateWithItems(nil items) error = %v", err)
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindByID_Zero(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report, err := repo.FindByID(0)
+	if err == nil {
+		t.Fatalf("FindByID(0) should return error")
+	}
+	if report != nil {
+		t.Fatalf("FindByID(0) should return nil")
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindByID_NotFound(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	repo.Create(&model.AnalysisReport{
+		UserID: 1, ReportType: "summary", ReportTitle: "测试",
+		AnalysisPeriodStart: time.Now(), AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+		RiskLevel: "medium", SummaryText: "测试",
+		TotalInvestment: decimal.NewFromInt(0), TotalProfit: decimal.NewFromInt(0), ProfitRate: decimal.NewFromInt(0),
+	})
+	report, err := repo.FindByID(999999)
+	if err == nil {
+		t.Fatalf("FindByID(999999) should return error")
+	}
+	if report != nil {
+		t.Fatalf("FindByID(999999) should return nil")
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindByIDAndUserID_NotFound(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	repo.Create(&model.AnalysisReport{
+		UserID: 1, ReportType: "summary", ReportTitle: "测试",
+		AnalysisPeriodStart: time.Now(), AnalysisPeriodEnd: time.Now().AddDate(0, 1, 0),
+		RiskLevel: "medium", SummaryText: "测试",
+		TotalInvestment: decimal.NewFromInt(0), TotalProfit: decimal.NewFromInt(0), ProfitRate: decimal.NewFromInt(0),
+	})
+	report, err := repo.FindByIDAndUserID(1, 999)
+	if err == nil {
+		t.Fatalf("FindByIDAndUserID(1, 999) should return error")
+	}
+	if report != nil {
+		t.Fatalf("FindByIDAndUserID(1, 999) should return nil")
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindByTaskID_NotFound(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report, err := repo.FindByTaskID(999)
+	if err == nil {
+		t.Fatalf("FindByTaskID(999) should return error")
+	}
+	if report != nil {
+		t.Fatalf("FindByTaskID(999) should return nil")
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindByUserID_EmptyType(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	now := time.Now()
+	repo.Create(&model.AnalysisReport{
+		UserID: 1, ReportType: "summary", ReportTitle: "测试1",
+		AnalysisPeriodStart: now, AnalysisPeriodEnd: now.AddDate(0, 1, 0),
+		RiskLevel: "medium", SummaryText: "测试",
+		TotalInvestment: decimal.NewFromInt(0), TotalProfit: decimal.NewFromInt(0), ProfitRate: decimal.NewFromInt(0),
+	})
+	repo.Create(&model.AnalysisReport{
+		UserID: 1, ReportType: "risk", ReportTitle: "测试2",
+		AnalysisPeriodStart: now, AnalysisPeriodEnd: now.AddDate(0, 1, 0),
+		RiskLevel: "medium", SummaryText: "测试",
+		TotalInvestment: decimal.NewFromInt(0), TotalProfit: decimal.NewFromInt(0), ProfitRate: decimal.NewFromInt(0),
+	})
+	reports, err := repo.FindByUserID(1, "", 10)
+	if err != nil {
+		t.Fatalf("FindByUserID(1, '') error = %v", err)
+	}
+	if len(reports) != 2 {
+		t.Fatalf("FindByUserID(1, '') returned %d items, want 2", len(reports))
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_FindLatestByUser_NoReports(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	report, err := repo.FindLatestByUser(999, "summary")
+	if err == nil {
+		t.Fatalf("FindLatestByUser(999) should return error")
+	}
+	if report != nil {
+		t.Fatalf("FindLatestByUser(999) should return nil")
+	}
+}
+
+func TestAnalysisReportRepository_Boundary_Delete_Zero(t *testing.T) {
+	db := setupAnalysisReportTestDB(t)
+	repo := repository.NewAnalysisReportRepository(db)
+	err := repo.Delete(0)
+	if err != nil {
+		t.Fatalf("Delete(0) error = %v", err)
+	}
+}
