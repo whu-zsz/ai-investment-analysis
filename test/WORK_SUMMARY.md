@@ -1,8 +1,8 @@
 # 单元测试阶段工作小结
 
 > **项目**: AI 投资分析系统
-> **阶段**: 单元测试编写与完善
-> **执行日期**: 2026-04-24 ~ 2026-05-05
+> **阶段**: 单元测试编写与完善 + 边界条件测试
+> **执行日期**: 2026-04-24 ~ 2026-05-15
 > **执行人**: 林润民（测试 & 文档）
 
 ---
@@ -11,7 +11,7 @@
 
 ### 1.1 单元测试编写
 
-完成了后端所有核心模块的单元测试编写，共 **31 个测试文件**，**332 个测试用例**，**100% 通过率**。
+完成了后端所有核心模块的单元测试编写，共 **31 个测试文件**，**332 个测试用例**，**100% 通过率**。后续补充了 Repository 层边界条件测试，新增 **82 个测试用例**，总计 **414 个测试用例**。
 
 #### Model 层测试（2 个模块）
 
@@ -24,15 +24,15 @@
 
 | 测试文件 | 用例数 | 测试内容 |
 |----------|--------|----------|
-| `user_repo_test.go` | 9 | 用户CRUD、用户名/邮箱索引查找 |
-| `transaction_repo_test.go` | 11 | 交易CRUD、批量创建、分页、统计 |
-| `portfolio_repo_test.go` | 9 | 持仓CRUD、按用户资产查找、价格更新 |
-| `uploaded_file_repo_test.go` | 7 | 上传文件记录CRUD、状态更新 |
-| `analysis_task_repo_test.go` | 13 | 任务CRUD、运行状态检查、进度更新 |
-| `analysis_report_repo_test.go` | 12 | 报告CRUD、报告明细、删除 |
-| `analysis_report_item_repo_test.go` | 5 | 报告项批量创建、按报告ID查找 |
-| `market_snapshot_repo_test.go` | 10 | 快照批量创建、批次号查询、历史查询 |
-| `stock_analysis_metric_repo_test.go` | 10 | 指标Upsert、按用户周期查找 |
+| `user_repo_test.go` | 21 | 用户CRUD、用户名/邮箱索引查找、边界条件测试 |
+| `transaction_repo_test.go` | 25 | 交易CRUD、批量创建、分页、统计、边界条件测试 |
+| `portfolio_repo_test.go` | 21 | 持仓CRUD、按用户资产查找、价格更新、边界条件测试 |
+| `uploaded_file_repo_test.go` | 13 | 上传文件记录CRUD、状态更新、边界条件测试 |
+| `analysis_task_repo_test.go` | 21 | 任务CRUD、运行状态检查、进度更新、边界条件测试 |
+| `analysis_report_repo_test.go` | 22 | 报告CRUD、报告明细、删除、边界条件测试 |
+| `analysis_report_item_repo_test.go` | 8 | 报告项批量创建、按报告ID查找、边界条件测试 |
+| `market_snapshot_repo_test.go` | 20 | 快照批量创建、批次号查询、历史查询、边界条件测试 |
+| `stock_analysis_metric_repo_test.go` | 17 | 指标Upsert、按用户周期查找、边界条件测试 |
 
 #### Service 层测试（11 个模块）
 
@@ -91,10 +91,10 @@
 | Model | - | ✅ 完成 |
 | Handler | 86.9% | ✅ 优秀 |
 | Service | 76.4% | ✅ 良好 |
-| Repository | 31.9% | ⚠️ 待提升 |
+| Repository | 34.2% | ✅ 已提升 ⭐ |
 | Middleware | 69.0% | ✅ 良好 |
 | Utils | 92.9% | ✅ 优秀 |
-| **总体** | **~70%** | ✅ 合格 |
+| **总体** | **~72%** | ✅ 合格 |
 
 ---
 
@@ -515,47 +515,54 @@ func TestSomeFunction(t *testing.T) {
 
 ## 三、下一阶段计划
 
-### 3.1 集成测试（优先级：高）
+### 3.1 集成测试（优先级：高） ✅ 已完成
 
 使用真实数据库连接进行端到端测试：
 
 ```
-单元测试 → 集成测试 → E2E 测试
-  ✅         ❌          ❌
+单元测试 → 集成测试 → 边界条件测试 → E2E 测试
+  ✅         ✅           ✅            ❌
 ```
 
-**建议方案**：
-1. 使用 Docker 启动临时 MySQL 容器
-2. 执行完整业务流程测试
-3. 验证数据一致性
+已完成 3 个 Repository 的集成测试（33 个用例）。
 
-### 3.2 边界条件测试（优先级：中）
+### 3.2 边界条件测试（优先级：中） ✅ 已完成
 
-补充边界条件和异常场景测试：
+补充边界条件和异常场景测试，已为 9 个 Repository 添加 82 个边界测试用例：
 
-| 测试场景 | 示例 |
-|----------|------|
-| 零值边界 | `TestService_CreateTransaction_ZeroQuantity` |
-| 负值边界 | `TestService_CreateTransaction_NegativePrice` |
-| 最大值边界 | `TestService_CreateTransaction_MaxAmount` |
-| 并发场景 | `TestService_ConcurrentUpdate` |
-| 网络异常 | `TestService_DatabaseConnectionLost` |
+| 测试场景 | 示例 | 状态 |
+|----------|------|------|
+| 零值边界 | ID=0、UserID=0、limit=0 | ✅ 已覆盖 |
+| 空字符串 | 空 username、空 assetCode | ✅ 已覆盖 |
+| 空集合 | 空 slice 批量创建 | ✅ 已覆盖 |
+| 不存在记录 | FindByID(999) | ✅ 已覆盖 |
+| 数值边界 | 负数价格、零价格 | ✅ 已覆盖 |
+| 分页边界 | 大偏移量、零 limit | ✅ 已覆盖 |
 
-### 3.3 Repository 层覆盖率提升（优先级：低）
+### 3.3 安全测试（优先级：中）
 
-当前 Repository 层覆盖率 31.9%，原因是使用内存 Mock 未测试真实 SQL 逻辑。
+验证系统的安全性，发现潜在的安全漏洞：
 
-**改进方案**：
-使用 SQLite 内存数据库替代 Mock：
-```go
-func setupTestDB(t *testing.T) *gorm.DB {
-    db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-    db.AutoMigrate(&model.User{}, &model.Transaction{}, ...)
-    return db
-}
-```
+| 测试维度 | 测试内容 |
+|----------|----------|
+| SQL 注入 | 验证所有数据库查询参数化处理 |
+| XSS 攻击 | 验证用户输入的转义和过滤 |
+| JWT 安全 | Token 过期、篡改、重放攻击 |
+| 文件上传漏洞 | 恶意文件类型、路径穿越 |
+| 认证绕过 | 未授权访问、权限提升 |
 
-### 3.4 前端测试（优先级：低）
+### 3.4 性能测试（优先级：低）
+
+评估系统在高并发场景下的性能表现：
+
+| 测试维度 | 测试内容 |
+|----------|----------|
+| API 响应时间 | 单接口 P95/P99 延迟 |
+| 并发处理能力 | 模拟 100/500/1000 并发用户 |
+| 数据库性能 | 慢查询分析、索引优化建议 |
+| 资源消耗 | CPU、内存、连接池使用情况 |
+
+### 3.5 前端测试（优先级：低）
 
 为前端 React 组件添加单元测试：
 - 使用 Vitest + React Testing Library
@@ -567,8 +574,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 本阶段完成了后端所有核心模块（包括 Model 层）的单元测试编写，测试用例共 **332 个**，覆盖率约 **70%**，为项目质量提供了保障。测试过程中发现并修复了若干问题，提升了代码健壮性。
 
-下一阶段将重点推进集成测试和边界条件测试，进一步提升测试覆盖率和代码质量。
+后续补充了 Repository 层边界条件测试，新增 **82 个测试用例**，总计 **414 个测试用例**，Repository 层覆盖率从 31.9% 提升至 34.2%，整体覆盖率提升至约 **72%**。
+
+下一阶段将重点推进安全测试和性能测试，进一步提升系统安全性和稳定性。
 
 ---
 
-**报告生成时间**: 2026-05-05
+**报告生成时间**: 2026-05-15

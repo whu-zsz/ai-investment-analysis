@@ -3,11 +3,52 @@
 > **项目**: Stock Analysis Backend
 > **技术栈**: Go 1.21+ / Gin / GORM / MySQL 8.0 / JWT / DeepSeek & 豆包 AI
 > **开发团队**: 张盛哲、顾晨旻、林润民
-> **更新日期**: 2026-05-06
+> **更新日期**: 2026-05-15
 
 ---
 
 ## 0. 测试代码更新日志
+
+### 2026-05-15 更新记录
+
+#### 第十一批测试代码 (Repository 边界条件测试) - 15:00
+
+| 时间 | 文件 | 描述 | 用例数 | 状态 |
+|------|------|------|--------|------|
+| 14:00 | `internal/repository/user_repo_test.go` | 用户仓储边界测试 | 12 | ✅ 通过 |
+| 14:15 | `internal/repository/transaction_repo_test.go` | 交易仓储边界测试 | 14 | ✅ 通过 |
+| 14:30 | `internal/repository/portfolio_repo_test.go` | 持仓仓储边界测试 | 12 | ✅ 通过 |
+| 14:40 | `internal/repository/uploaded_file_repo_test.go` | 上传文件仓储边界测试 | 6 | ✅ 通过 |
+| 14:50 | `internal/repository/analysis_task_repo_test.go` | 分析任务仓储边界测试 | 8 | ✅ 通过 |
+| 15:00 | `internal/repository/analysis_report_repo_test.go` | 分析报告仓储边界测试 | 10 | ✅ 通过 |
+| 15:10 | `internal/repository/analysis_report_item_repo_test.go` | 报告项仓储边界测试 | 3 | ✅ 通过 |
+| 15:20 | `internal/repository/market_snapshot_repo_test.go` | 市场快照仓储边界测试 | 10 | ✅ 通过 |
+| 15:30 | `internal/repository/stock_analysis_metric_repo_test.go` | 股票指标仓储边界测试 | 7 | ✅ 通过 |
+
+**测试内容：**
+- 零值边界：ID=0、UserID=0、limit=0、offset=0
+- 空字符串：空 username、空 assetCode、空 batchNo 等
+- 空集合：空 slice（BatchCreate、BatchUpsert）
+- 不存在的记录：FindByID(999)、FindByUsername("nonexistent") 等
+- 数值边界：负数价格、零价格、极大数值
+- 分页边界：limit=0、offset 超出总数
+
+**测试覆盖进度**
+```
+第十一批: Repository 边界条件测试 (82 用例)
+├── user_repo_test.go              +12 用例
+├── transaction_repo_test.go       +14 用例
+├── portfolio_repo_test.go         +12 用例
+├── uploaded_file_repo_test.go     +6 用例
+├── analysis_task_repo_test.go     +8 用例
+├── analysis_report_repo_test.go   +10 用例
+├── analysis_report_item_repo_test.go +3 用例
+├── market_snapshot_repo_test.go   +10 用例
+└── stock_analysis_metric_repo_test.go +7 用例
+
+Repository 覆盖率: 31.9% → 34.2% (提升 2.3%)
+总计: 34 个测试文件, 447 个用例, 100% 通过率
+```
 
 ### 2026-05-06 更新记录
 
