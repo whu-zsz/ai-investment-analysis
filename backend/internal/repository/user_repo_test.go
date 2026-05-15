@@ -320,7 +320,7 @@ func TestUserRepository_Boundary_Create_EmptyUsername(t *testing.T) {
 	err := repo.Create(user)
 	// InMemory 实现允许空字符串，验证不报错
 	if err != nil {
-		t.Errorf("Create() with empty username error = %v", err)
+		t.Fatalf("Create() with empty username error = %v", err)
 	}
 }
 
@@ -333,7 +333,7 @@ func TestUserRepository_Boundary_Create_EmptyEmail(t *testing.T) {
 	}
 	err := repo.Create(user)
 	if err != nil {
-		t.Errorf("Create() with empty email error = %v", err)
+		t.Fatalf("Create() with empty email error = %v", err)
 	}
 }
 
@@ -346,7 +346,7 @@ func TestUserRepository_Boundary_Create_EmptyPasswordHash(t *testing.T) {
 	}
 	err := repo.Create(user)
 	if err != nil {
-		t.Errorf("Create() with empty password hash error = %v", err)
+		t.Fatalf("Create() with empty password hash error = %v", err)
 	}
 }
 
@@ -371,7 +371,7 @@ func TestUserRepository_Boundary_Create_LongStrings(t *testing.T) {
 	err := repo.Create(user)
 	// InMemory 实现不检查长度限制
 	if err != nil {
-		t.Errorf("Create() with long strings error = %v", err)
+		t.Fatalf("Create() with long strings error = %v", err)
 	}
 }
 
@@ -379,10 +379,10 @@ func TestUserRepository_Boundary_FindByID_Zero(t *testing.T) {
 	repo := NewInMemoryUserRepository()
 	user, err := repo.FindByID(0)
 	if err == nil {
-		t.Error("FindByID(0) should return error")
+		t.Fatalf("FindByID(0) should return error")
 	}
 	if user != nil {
-		t.Error("FindByID(0) should return nil user")
+		t.Fatalf("FindByID(0) should return nil user")
 	}
 }
 
@@ -395,10 +395,10 @@ func TestUserRepository_Boundary_FindByID_NotFound(t *testing.T) {
 	// 查找不存在的 ID
 	user, err := repo.FindByID(999999)
 	if err == nil {
-		t.Error("FindByID(999999) should return error")
+		t.Fatalf("FindByID(999999) should return error")
 	}
 	if user != nil {
-		t.Error("FindByID(999999) should return nil user")
+		t.Fatalf("FindByID(999999) should return nil user")
 	}
 }
 
@@ -406,10 +406,10 @@ func TestUserRepository_Boundary_FindByUsername_Empty(t *testing.T) {
 	repo := NewInMemoryUserRepository()
 	user, err := repo.FindByUsername("")
 	if err == nil {
-		t.Error("FindByUsername('') should return error")
+		t.Fatalf("FindByUsername('') should return error")
 	}
 	if user != nil {
-		t.Error("FindByUsername('') should return nil user")
+		t.Fatalf("FindByUsername('') should return nil user")
 	}
 }
 
@@ -420,10 +420,10 @@ func TestUserRepository_Boundary_FindByUsername_NotFound(t *testing.T) {
 	})
 	user, err := repo.FindByUsername("nonexistent_user")
 	if err == nil {
-		t.Error("FindByUsername('nonexistent_user') should return error")
+		t.Fatalf("FindByUsername('nonexistent_user') should return error")
 	}
 	if user != nil {
-		t.Error("FindByUsername('nonexistent_user') should return nil user")
+		t.Fatalf("FindByUsername('nonexistent_user') should return nil user")
 	}
 }
 
@@ -431,10 +431,10 @@ func TestUserRepository_Boundary_FindByEmail_Empty(t *testing.T) {
 	repo := NewInMemoryUserRepository()
 	user, err := repo.FindByEmail("")
 	if err == nil {
-		t.Error("FindByEmail('') should return error")
+		t.Fatalf("FindByEmail('') should return error")
 	}
 	if user != nil {
-		t.Error("FindByEmail('') should return nil user")
+		t.Fatalf("FindByEmail('') should return nil user")
 	}
 }
 
@@ -445,10 +445,10 @@ func TestUserRepository_Boundary_FindByEmail_NotFound(t *testing.T) {
 	})
 	user, err := repo.FindByEmail("nonexistent@example.com")
 	if err == nil {
-		t.Error("FindByEmail('nonexistent@example.com') should return error")
+		t.Fatalf("FindByEmail('nonexistent@example.com') should return error")
 	}
 	if user != nil {
-		t.Error("FindByEmail('nonexistent@example.com') should return nil user")
+		t.Fatalf("FindByEmail('nonexistent@example.com') should return nil user")
 	}
 }
 
@@ -456,7 +456,7 @@ func TestUserRepository_Boundary_Delete_Zero(t *testing.T) {
 	repo := NewInMemoryUserRepository()
 	err := repo.Delete(0)
 	if err == nil {
-		t.Error("Delete(0) should return error")
+		t.Fatalf("Delete(0) should return error")
 	}
 }
 
@@ -464,6 +464,6 @@ func TestUserRepository_Boundary_Delete_NotFound(t *testing.T) {
 	repo := NewInMemoryUserRepository()
 	err := repo.Delete(999999)
 	if err == nil {
-		t.Error("Delete(999999) should return error")
+		t.Fatalf("Delete(999999) should return error")
 	}
 }
