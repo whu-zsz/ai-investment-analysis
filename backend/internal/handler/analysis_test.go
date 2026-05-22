@@ -3,8 +3,10 @@ package handler_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"stock-analysis-backend/internal/dto/request"
 	"stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/handler"
@@ -773,5 +775,236 @@ func TestAnalysisHandler_GetCandidates(t *testing.T) {
 	}
 }
 
-// 禁用未使用变量警告
-var _ = time.Now()
+// ========== 安全测试 ==========
+
+func TestAnalysis_Security_SQLInjection_Query(t *testing.T) {
+	// SQL 注入 payload 作为路径参数，应被 handler 拒绝（无效 ID → 400）
+	mockService := &MockAIService{}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	sqlInjectionPayloads := []string{
+		"'; DROP TABLE analysis_tasks; --",
+		"' UNION SELECT * FROM users --",
+		"1' OR '1'='1",
+	}
+
+	for _, payload := range sqlInjectionPayloads {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", uint64(1))
+			c.Next()
+		})
+		router.GET("/analysis/tasks/:id", h.GetTask)
+
+		req := httptest.NewRequest("GET", "/analysis/tasks/"+url.PathEscape(payload), nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// handler 将非数字 ID 解析为无效参数，返回 400
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Query with SQL injection '%s' returned %d, want %d", payload, w.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestAnalysis_Security_XSS_Summary(t *testing.T) {
+	// XSS payload 作为日期参数传入 summary 接口
+	// handler 不校验日期格式，mock 服务返回错误时 handler 返回 500
+	mockService := &MockAIService{
+		GenerateSummaryErr: service.ErrTransactionNotFound,
+	}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	xssPayloads := []string{
+		"<script>alert('xss')</script>",
+		"<img src=x onerror=alert('xss')>",
+		"javascript:alert('xss')",
+	}
+
+	for _, payload := range xssPayloads {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", uint64(1))
+			c.Next()
+		})
+		router.POST("/analysis/summary", h.GenerateSummary)
+
+		req := httptest.NewRequest("POST", "/analysis/summary?start_date="+url.QueryEscape(payload)+"&end_date=2024-12-31", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// 服务层返回错误，handler 转为 500
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("Summary with XSS '%s' returned %d, want %d", payload, w.Code, http.StatusInternalServerError)
+		}
+	}
+}
+
+func TestAnalysis_Security_InvalidDateRange(t *testing.T) {
+	// 无效日期格式传入 summary 接口
+	// handler 不校验日期格式，mock 服务返回错误时 handler 返回 500
+	mockService := &MockAIService{
+		GenerateSummaryErr: service.ErrTransactionNotFound,
+	}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	invalidRanges := []struct {
+		start string
+		end   string
+	}{
+		{"invalid", "2024-12-31"},
+		{"2024-01-01", "invalid"},
+		{"2024-13-01", "2024-12-31"},
+		{"2024-01-01", "2024-13-31"},
+	}
+
+	for _, r := range invalidRanges {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", uint64(1))
+			c.Next()
+		})
+		router.POST("/analysis/summary", h.GenerateSummary)
+
+		req := httptest.NewRequest("POST", "/analysis/summary?start_date="+url.QueryEscape(r.start)+"&end_date="+url.QueryEscape(r.end), nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// 服务层返回错误，handler 转为 500
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("Summary with invalid date range (%s, %s) returned %d, want %d", r.start, r.end, w.Code, http.StatusInternalServerError)
+		}
+	}
+}
+
+func TestAnalysis_Security_EmptyDateRange(t *testing.T) {
+	// 空日期参数，handler 直接校验并返回 400
+	mockService := &MockAIService{}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/analysis/summary", h.GenerateSummary)
+
+	req := httptest.NewRequest("POST", "/analysis/summary", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Summary with empty date range returned %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAnalysis_Security_FutureDateRange(t *testing.T) {
+	// 未来日期范围，handler 不校验日期合理性，mock 服务返回错误时 handler 返回 500
+	mockService := &MockAIService{
+		GenerateSummaryErr: service.ErrTransactionNotFound,
+	}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	futureStart := time.Now().AddDate(1, 0, 0).Format("2006-01-02")
+	futureEnd := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/analysis/summary", h.GenerateSummary)
+
+	req := httptest.NewRequest("POST", "/analysis/summary?start_date="+futureStart+"&end_date="+futureEnd, nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 服务层返回错误，handler 转为 500
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Summary with future date range returned %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAnalysis_Security_VeryLongSymbols(t *testing.T) {
+	// 超长 symbols 数组（1000 个），mock 服务返回错误时 handler 返回 400
+	mockService := &MockAIService{
+		CreateTaskErr: service.ErrTransactionNotFound,
+	}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	longSymbols := make([]string, 1000)
+	for i := range longSymbols {
+		longSymbols[i] = fmt.Sprintf("symbol_%d", i)
+	}
+	symbolsJSON, _ := json.Marshal(longSymbols)
+
+	reqBody := fmt.Sprintf(`{
+		"symbols": %s,
+		"start_date": "2024-01-01",
+		"end_date": "2024-12-31"
+	}`, symbolsJSON)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/analysis/tasks", h.CreateTask)
+
+	req := httptest.NewRequest("POST", "/analysis/tasks", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 服务层返回错误，handler 转为 400
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Create task with very long symbols returned %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAnalysis_Security_InvalidSymbols(t *testing.T) {
+	// 无效 symbols（XSS/SQL注入/模板注入），mock 服务返回错误时 handler 返回 400
+	mockService := &MockAIService{
+		CreateTaskErr: service.ErrTransactionNotFound,
+	}
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+
+	invalidSymbols := []string{
+		"<script>alert('xss')</script>",
+		"'; DROP TABLE stocks; --",
+		"${7*7}",
+		"{{7*7}}",
+	}
+
+	for _, symbol := range invalidSymbols {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", uint64(1))
+			c.Next()
+		})
+		router.POST("/analysis/tasks", h.CreateTask)
+
+		reqBody := fmt.Sprintf(`{
+			"symbols": ["%s"],
+			"start_date": "2024-01-01",
+			"end_date": "2024-12-31"
+		}`, symbol)
+
+		req := httptest.NewRequest("POST", "/analysis/tasks", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// 服务层返回错误，handler 转为 400
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Create task with invalid symbol '%s' returned %d, want %d", symbol, w.Code, http.StatusBadRequest)
+		}
+	}
+}
