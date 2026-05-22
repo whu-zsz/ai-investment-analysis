@@ -1,7 +1,7 @@
 import axios from 'axios';
+import { clearAuthSession } from '../utils/authSession';
 
-// 后端地址，开发时改这里即可
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:8080');
 
 const request = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
@@ -30,8 +30,7 @@ request.interceptors.response.use(
     const url = err.config?.url ?? '';
 
     if (status === 401 && !url.includes('/auth/login')) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('userInfo');
+      clearAuthSession();
       window.location.href = '/login';
     }
 

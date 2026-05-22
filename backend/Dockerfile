@@ -1,14 +1,18 @@
 # 构建阶段
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
 # 安装依赖
 RUN apk add --no-cache git make
 
+ENV GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+ENV GODEBUG=http2client=0
+
 # 复制go.mod和go.sum
 COPY go.mod go.sum ./
-RUN go mod download
+RUN for i in 1 2 3; do go mod download && break || if [ "$i" -eq 3 ]; then exit 1; fi; done
 
 # 复制源代码
 COPY . .

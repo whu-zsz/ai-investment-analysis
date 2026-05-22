@@ -1,8 +1,9 @@
 package handler
 
 import (
-	dtoRequest "stock-analysis-backend/internal/dto/request"
+	"stock-analysis-backend/internal/dto/request"
 	dtoResponse "stock-analysis-backend/internal/dto/response"
+	"stock-analysis-backend/internal/middleware"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
@@ -31,7 +32,7 @@ func NewUserHandler(userService service.UserService) *UserHandler {
 // @Failure 400 {object} response.Response
 // @Router /api/v1/auth/register [post]
 func (h *UserHandler) Register(c *gin.Context) {
-	var req dtoRequest.RegisterRequest
+	var req request.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, err)
 		return
@@ -57,7 +58,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/auth/login [post]
 func (h *UserHandler) Login(c *gin.Context) {
-	var req dtoRequest.LoginRequest
+	var req request.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, err)
 		return
@@ -74,7 +75,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 // Logout godoc
 // @Summary 用户退出登录
-// @Description 鉴权通过后返回退出确认，不执行服务端 token 撤销
+// @Description 撤销当前 access token，并要求后续请求重新登录
 // @Tags 认证
 // @Produce json
 // @Security BearerAuth
@@ -82,6 +83,14 @@ func (h *UserHandler) Login(c *gin.Context) {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/auth/logout [post]
 func (h *UserHandler) Logout(c *gin.Context) {
+	if authCtx, ok := middleware.GetAuthContext(c); !ok {
+		response.Unauthorized(c, "invalid token")
+		return
+	} else if err := h.userService.Logout(authCtx.UserID, authCtx.TokenJTI, authCtx.TokenExpiresAt); err != nil {
+		response.InternalServerError(c, "logout failed")
+		return
+	}
+
 	response.Success(c, nil)
 }
 
@@ -95,7 +104,7 @@ func (h *UserHandler) Logout(c *gin.Context) {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/user/profile [get]
 func (h *UserHandler) GetProfile(c *gin.Context) {
-	userID := c.GetUint64("user_id")
+	userID := c.GetUint64(middleware.ContextUserIDKey)
 
 	user, err := h.userService.GetProfile(userID)
 	if err != nil {
@@ -118,9 +127,9 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 // @Failure 400 {object} response.Response
 // @Router /api/v1/user/profile [put]
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	userID := c.GetUint64("user_id")
+	userID := c.GetUint64(middleware.ContextUserIDKey)
 
-	var req dtoRequest.UpdateProfileRequest
+	var req request.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, err)
 		return

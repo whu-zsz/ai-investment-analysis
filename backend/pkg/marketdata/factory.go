@@ -15,8 +15,13 @@ func NewProvider(cfg config.MarketConfig) (Provider, error) {
 		timeout = 5 * time.Second
 	}
 
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "", "mock":
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if provider == "" {
+		return nil, fmt.Errorf("market provider is required")
+	}
+
+	switch provider {
+	case "mock":
 		return NewMockProvider(), nil
 	case "eastmoney":
 		return NewEastmoneyProvider(cfg.EastmoneyBaseURL, cfg.EastmoneyUserAgent, cfg.EastmoneyReferer, &http.Client{Timeout: timeout}), nil

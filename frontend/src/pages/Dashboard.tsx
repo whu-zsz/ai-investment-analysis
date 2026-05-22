@@ -190,7 +190,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicHome = location.pathname === '/';
-  const { isLoggedIn, userInfo, logout } = useAuth();
+  const { isLoggedIn, userInfo, logoutWithRevoke } = useAuth();
 
   const [marketData, setMarketData] = useState<DashboardMarketSnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -228,7 +228,7 @@ export default function Dashboard() {
 
   const handleUserMenu: MenuProps['onClick'] = ({ key }) => {
     if (key === 'profile') navigate('/profile');
-    if (key === 'logout') { logout(); navigate('/'); }
+    if (key === 'logout') void logoutWithRevoke('/');
   };
 
   const getOption = (): EChartsOption => ({

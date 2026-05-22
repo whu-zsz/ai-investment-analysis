@@ -73,6 +73,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.AnalysisReportItem{},
 		&model.UploadedFile{},
 		&model.MarketSnapshot{},
+		&model.RevokedToken{},
 	); err != nil {
 		return err
 	}

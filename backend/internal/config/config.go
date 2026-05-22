@@ -37,6 +37,14 @@ type JWTConfig struct {
 	ExpireHours int    `mapstructure:"JWT_EXPIRE_HOURS"`
 }
 
+var weakJWTSecrets = map[string]struct{}{
+	"your_jwt_secret_key_change_this":               {},
+	"your_jwt_secret_key_change_this_in_production": {},
+	"change_this":                                  {},
+	"default":                                      {},
+	"secret":                                       {},
+}
+
 type LLMConfig struct {
 	Provider string `mapstructure:"LLM_PROVIDER"`
 }
@@ -146,8 +154,9 @@ func LoadConfig() (*Config, error) {
 	if cfg.Doubao.APIURL == "" {
 		cfg.Doubao.APIURL = "https://ark.cn-beijing.volces.com"
 	}
-	if cfg.Market.Provider == "" {
-		cfg.Market.Provider = "mock"
+	cfg.Market.Provider = strings.ToLower(strings.TrimSpace(cfg.Market.Provider))
+	if !cfg.Market.Enabled {
+		cfg.Market.Provider = ""
 	}
 	if cfg.Market.Symbols == "" {
 		cfg.Market.Symbols = "000001.SH,399001.SZ,399006.SZ,000300.SH"
@@ -223,8 +232,33 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("missing required database configuration: %s", strings.Join(missing, ", "))
 	}
 
-	if strings.TrimSpace(cfg.JWT.Secret) == "" {
+	jwtSecret := strings.TrimSpace(cfg.JWT.Secret)
+	if jwtSecret == "" {
 		return fmt.Errorf("missing required configuration: JWT_SECRET")
+	}
+	if len(jwtSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	if _, weak := weakJWTSecrets[strings.ToLower(jwtSecret)]; weak {
+		return fmt.Errorf("JWT_SECRET uses an insecure default value")
+	}
+
+	if !cfg.Market.Enabled {
+		return nil
+	}
+	if cfg.Market.Provider == "" {
+		return fmt.Errorf("missing required configuration: MARKET_PROVIDER")
+	}
+	if cfg.Market.Provider != "mock" && cfg.Market.Provider != "eastmoney" {
+		return fmt.Errorf("unsupported market provider: %s", cfg.Market.Provider)
+	}
+	if cfg.Market.Provider == "eastmoney" {
+		if strings.TrimSpace(cfg.Market.EastmoneyBaseURL) == "" {
+			return fmt.Errorf("missing required configuration: MARKET_EASTMONEY_BASE_URL")
+		}
+		if strings.TrimSpace(cfg.Market.EastmoneyReferer) == "" {
+			return fmt.Errorf("missing required configuration: MARKET_EASTMONEY_REFERER")
+		}
 	}
 
 	return nil

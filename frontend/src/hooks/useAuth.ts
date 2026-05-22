@@ -1,5 +1,8 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { authApi } from '../api/index';
 import type { UserResponse } from '../api/types';
+import { clearAuthSession } from '../utils/authSession';
 
 export type UserInfo = UserResponse;
 
@@ -62,6 +65,7 @@ const getInitialState = () => {
 };
 
 export function useAuth() {
+  const navigate = useNavigate();
   const [{ isLoggedIn, userInfo }, setState] = useState(getInitialState);
 
   const login = useCallback((user: UserResponse, token: string) => {
@@ -70,11 +74,20 @@ export function useAuth() {
     setState({ isLoggedIn: true, userInfo: user, isLoading: false });
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userInfo');
+  const logout = useCallback((redirectTo = '/login') => {
+    clearAuthSession();
     setState({ isLoggedIn: false, userInfo: null, isLoading: false });
-  }, []);
+    navigate(redirectTo);
+  }, [navigate]);
+
+  const logoutWithRevoke = useCallback(async (redirectTo = '/') => {
+    try {
+      await authApi.logout();
+    } catch {
+    } finally {
+      logout(redirectTo);
+    }
+  }, [logout]);
 
   const updateUserInfo = useCallback((info: Partial<UserInfo>) => {
     if (!userInfo) {
@@ -86,5 +99,5 @@ export function useAuth() {
     setState(prev => ({ isLoggedIn: prev.isLoggedIn, userInfo: updated, isLoading: false }));
   }, [userInfo]);
 
-  return { isLoggedIn, userInfo, login, logout, updateUserInfo, isLoading: false };
+  return { isLoggedIn, userInfo, login, logout, logoutWithRevoke, updateUserInfo, isLoading: false };
 }

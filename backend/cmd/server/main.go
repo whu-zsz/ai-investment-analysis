@@ -60,17 +60,31 @@ func main() {
 	uploadedFileRepo := repository.NewUploadedFileRepository(db)
 	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
+	revokedTokenRepo := repository.NewRevokedTokenRepository(db)
 
 	llmProvider, err := llm.NewProvider(cfg)
 	if err != nil {
 		log.Fatal("Failed to initialize llm provider", zap.Error(err), zap.String("provider", cfg.LLM.Provider))
 	}
-	marketProvider, err := marketdata.NewProvider(cfg.Market)
-	if err != nil {
-		log.Fatal("Failed to initialize market provider", zap.Error(err))
+	var marketProvider marketdata.Provider
+	if cfg.Market.Enabled {
+		marketProvider, err = marketdata.NewProvider(cfg.Market)
+		if err != nil {
+			log.Fatal("Failed to initialize market provider", zap.Error(err), zap.String("provider", cfg.Market.Provider))
+		}
+		log.Info("Market data provider initialized",
+			zap.String("provider", cfg.Market.Provider),
+			zap.String("symbols", cfg.Market.Symbols),
+			zap.Int("snapshot_interval_seconds", cfg.Market.SnapshotInterval),
+		)
+		if cfg.Market.Provider == "mock" {
+			log.Warn("Market data provider is mock; analysis and recommendation features will not use real-time market data")
+		}
+	} else {
+		log.Info("Market data integration disabled")
 	}
 
-	userService := service.NewUserService(userRepo, cfg.JWT)
+	userService := service.NewUserService(userRepo, revokedTokenRepo, cfg.JWT)
 	fileParserService := service.NewFileParserService()
 	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, fileParserService, cfg.Upload)
 	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
@@ -111,6 +125,7 @@ func main() {
 		portfolioHandler,
 		analysisHandler,
 		marketHandler,
+		revokedTokenRepo,
 		cfg.JWT.Secret,
 	)
 

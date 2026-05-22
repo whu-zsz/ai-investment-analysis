@@ -23,7 +23,7 @@ const preferenceMap: Record<string, string> = {
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { logout, updateUserInfo } = useAuth();
+  const { logoutWithRevoke, updateUserInfo } = useAuth();
   const [user, setUser] = useState<UserResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -110,7 +110,7 @@ export default function ProfilePage() {
             </div>
           </div>
           <Button danger icon={<LogoutOutlined />}
-            onClick={() => { logout(); navigate('/'); }}
+            onClick={() => void logoutWithRevoke('/')}
             style={{ background: 'rgba(255,77,79,0.15)', border: '1px solid rgba(255,77,79,0.4)', color: '#fff', borderRadius: 10 }}>
             退出登录
           </Button>

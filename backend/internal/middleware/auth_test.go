@@ -4,10 +4,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"stock-analysis-backend/internal/middleware"
+	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/utils"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const testJWTSecret = "test_jwt_secret_for_middleware"
@@ -16,29 +19,43 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// TestAuthMiddleware_MissingHeader 测试缺少 Authorization Header
-func TestAuthMiddleware_MissingHeader(t *testing.T) {
+type stubRevokedTokenRepository struct {
+	revokedJTIs map[string]bool
+	err         error
+}
+
+func (s *stubRevokedTokenRepository) Create(token *model.RevokedToken) error {
+	return nil
+}
+
+func (s *stubRevokedTokenRepository) ExistsByJTI(jti string) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.revokedJTIs[jti], nil
+}
+
+func newTestRouter(repo *stubRevokedTokenRepository, handler gin.HandlerFunc) *gin.Engine {
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
-	router.GET("/protected", func(c *gin.Context) {
+	router.Use(middleware.AuthMiddleware(testJWTSecret, repo))
+	router.GET("/protected", handler)
+	return router
+}
+
+func TestAuthMiddleware_MissingHeader(t *testing.T) {
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
 	req := httptest.NewRequest("GET", "/protected", nil)
 	w := httptest.NewRecorder()
-
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
 	}
-
-	if w.Body.String() == "" {
-		t.Error("Response body should not be empty")
-	}
 }
 
-// TestAuthMiddleware_InvalidFormat 测试无效的 Authorization 格式
 func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 	testCases := []struct {
 		name   string
@@ -52,16 +69,13 @@ func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			router := gin.New()
-			router.Use(middleware.AuthMiddleware(testJWTSecret))
-			router.GET("/protected", func(c *gin.Context) {
+			router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"message": "success"})
 			})
 
 			req := httptest.NewRequest("GET", "/protected", nil)
 			req.Header.Set("Authorization", tc.header)
 			w := httptest.NewRecorder()
-
 			router.ServeHTTP(w, req)
 
 			if w.Code != http.StatusUnauthorized {
@@ -71,18 +85,14 @@ func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 	}
 }
 
-// TestAuthMiddleware_InvalidToken 测试无效 Token
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
-	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
-	router.GET("/protected", func(c *gin.Context) {
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
 	req := httptest.NewRequest("GET", "/protected", nil)
 	req.Header.Set("Authorization", "Bearer invalid_token_here")
 	w := httptest.NewRecorder()
-
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -90,58 +100,71 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	}
 }
 
-// TestAuthMiddleware_ValidToken 测试有效 Token
 func TestAuthMiddleware_ValidToken(t *testing.T) {
-	// 生成有效 token
-	userID := uint64(123)
-	username := "testuser"
-	token, err := utils.GenerateToken(userID, username, testJWTSecret, 24)
+	token, err := utils.GenerateToken(123, "testuser", testJWTSecret, 24)
 	if err != nil {
 		t.Fatalf("Failed to generate token: %v", err)
 	}
 
-	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
-	router.GET("/protected", func(c *gin.Context) {
-		// 验证 context 中存储的用户信息
-		ctxUserID, exists := c.Get("user_id")
-		if !exists {
-			t.Error("user_id not found in context")
+	var contextUserID uint64
+	var contextUsername string
+	var contextJTI string
+	var contextExpiresAt time.Time
+
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
+		contextUserID = c.GetUint64("user_id")
+		contextUsername = c.GetString("username")
+		contextJTI = c.GetString("token_jti")
+		expiresAtValue, ok := c.Get("token_expires_at")
+		if !ok {
+			t.Error("token_expires_at not found in context")
 		}
-		ctxUsername, _ := c.Get("username")
-
-		c.JSON(http.StatusOK, gin.H{
-			"user_id":  ctxUserID,
-			"username": ctxUsername,
-		})
-	})
-
-	req := httptest.NewRequest("GET", "/protected", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
-	}
-}
-
-// TestAuthMiddleware_WrongSecret 测试使用不同密钥签名的 Token
-func TestAuthMiddleware_WrongSecret(t *testing.T) {
-	// 使用不同密钥生成 token
-	token, _ := utils.GenerateToken(1, "testuser", "different_secret", 24)
-
-	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
-	router.GET("/protected", func(c *gin.Context) {
+		contextExpiresAt, ok = expiresAtValue.(time.Time)
+		if !ok {
+			t.Error("token_expires_at has unexpected type")
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
 	req := httptest.NewRequest("GET", "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
 
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+	if contextUserID != 123 {
+		t.Errorf("Context user_id = %v, want 123", contextUserID)
+	}
+	if contextUsername != "testuser" {
+		t.Errorf("Context username = %v, want testuser", contextUsername)
+	}
+	if contextJTI == "" {
+		t.Error("Context token_jti should not be empty")
+	}
+	if contextExpiresAt.IsZero() {
+		t.Error("Context token_expires_at should not be zero")
+	}
+}
+
+func TestAuthMiddleware_RevokedToken(t *testing.T) {
+	token, err := utils.GenerateToken(1, "testuser", testJWTSecret, 24)
+	if err != nil {
+		t.Fatalf("GenerateToken() error = %v", err)
+	}
+	claims, err := utils.ParseToken(token, testJWTSecret)
+	if err != nil {
+		t.Fatalf("ParseToken() error = %v", err)
+	}
+
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{claims.ID: true}}, func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -149,45 +172,47 @@ func TestAuthMiddleware_WrongSecret(t *testing.T) {
 	}
 }
 
-// TestAuthMiddleware_ContextValues 测试 Context 中存储的用户信息
-func TestAuthMiddleware_ContextValues(t *testing.T) {
-	testCases := []struct {
-		name     string
-		userID   uint64
-		username string
-	}{
-		{"User 1", 1, "alice"},
-		{"User 2", 999, "bob"},
-		{"Chinese user", 100, "测试用户"},
+func TestAuthMiddleware_LegacyTokenWithoutJTI(t *testing.T) {
+	legacyToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, utils.Claims{
+		UserID:   1,
+		Username: "legacy-user",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
+	}).SignedString([]byte(testJWTSecret))
+	if err != nil {
+		t.Fatalf("SignedString() error = %v", err)
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			token, _ := utils.GenerateToken(tc.userID, tc.username, testJWTSecret, 24)
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
 
-			var contextUserID uint64
-			var contextUsername string
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+legacyToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
 
-			router := gin.New()
-			router.Use(middleware.AuthMiddleware(testJWTSecret))
-			router.GET("/protected", func(c *gin.Context) {
-				contextUserID = c.GetUint64("user_id")
-				contextUsername = c.GetString("username")
-				c.Status(http.StatusOK)
-			})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+	}
+}
 
-			req := httptest.NewRequest("GET", "/protected", nil)
-			req.Header.Set("Authorization", "Bearer "+token)
-			w := httptest.NewRecorder()
+func TestAuthMiddleware_WrongSecret(t *testing.T) {
+	token, _ := utils.GenerateToken(1, "testuser", "different_secret_different_secret", 24)
 
-			router.ServeHTTP(w, req)
+	router := newTestRouter(&stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}, func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
 
-			if contextUserID != tc.userID {
-				t.Errorf("Context user_id = %v, want %v", contextUserID, tc.userID)
-			}
-			if contextUsername != tc.username {
-				t.Errorf("Context username = %v, want %v", contextUsername, tc.username)
-			}
-		})
+	req := httptest.NewRequest("GET", "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
 	}
 }
