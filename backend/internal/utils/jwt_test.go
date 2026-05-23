@@ -329,3 +329,46 @@ func TestJWT_Security_InvalidAlgorithm(t *testing.T) {
 		t.Fatalf("ParseToken() should fail for none algorithm")
 	}
 }
+
+// ========== 性能测试 ==========
+
+func BenchmarkJWT_GenerateToken(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, err := utils.GenerateToken(1, "testuser", testSecret, 24)
+		if err != nil {
+			b.Fatalf("GenerateToken() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkJWT_ParseToken(b *testing.B) {
+	// 先生成一个有效 token
+	token, err := utils.GenerateToken(1, "testuser", testSecret, 24)
+	if err != nil {
+		b.Fatalf("GenerateToken() error = %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := utils.ParseToken(token, testSecret)
+		if err != nil {
+			b.Fatalf("ParseToken() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkJWT_ValidateToken(b *testing.B) {
+	// 先生成一个有效 token
+	token, err := utils.GenerateToken(1, "testuser", testSecret, 24)
+	if err != nil {
+		b.Fatalf("GenerateToken() error = %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := utils.ParseToken(token, testSecret)
+		if err != nil {
+			b.Fatalf("ParseToken() error = %v", err)
+		}
+	}
+}

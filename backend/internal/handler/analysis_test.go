@@ -1008,3 +1008,187 @@ func TestAnalysis_Security_InvalidSymbols(t *testing.T) {
 		}
 	}
 }
+
+// ========== 性能测试 ==========
+
+func BenchmarkAnalysis_CreateTask(b *testing.B) {
+	mockService := &MockAIService{
+		CreateTaskResult: &response.AnalysisTaskResponse{
+			ID:            1,
+			Status:        "pending",
+			ProgressStage: "pending",
+			CreatedAt:     "2024-01-01 10:00:00",
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/analysis/tasks", h.CreateTask)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{"start_date":"2024-01-01","end_date":"2024-12-31"}`
+		req := httptest.NewRequest("POST", "/analysis/tasks", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("CreateTask returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkAnalysis_GetTasks(b *testing.B) {
+	mockService := &MockAIService{
+		GetTasksResult: &response.AnalysisTaskListResponse{
+			Items:    []response.AnalysisTaskDetailResponse{},
+			Total:    0,
+			Page:     1,
+			PageSize: 10,
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/tasks", h.GetTasks)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/analysis/tasks?page=1&page_size=10", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetTasks returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkAnalysis_GetTask(b *testing.B) {
+	mockService := &MockAIService{
+		GetTaskResult: &response.AnalysisTaskDetailResponse{
+			ID:            1,
+			TaskType:      "stock_analysis",
+			Status:        "success",
+			ProgressStage: "completed",
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/tasks/:id", h.GetTask)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/analysis/tasks/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetTask returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkAnalysis_GetReports(b *testing.B) {
+	mockService := &MockAIService{
+		GetReportsResult: []response.AnalysisReportResponse{},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports", h.GetReports)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/analysis/reports?limit=10", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetReports returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkAnalysis_GetReportDetail(b *testing.B) {
+	mockService := &MockAIService{
+		GetReportDetailResult: &response.AnalysisReportDetailResponse{
+			ID:          1,
+			ReportType:  "summary",
+			ReportTitle: "测试报告",
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.GET("/analysis/reports/:id", h.GetReportDetail)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/analysis/reports/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetReportDetail returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkAnalysis_GenerateSummary(b *testing.B) {
+	mockService := &MockAIService{
+		GenerateSummaryResult: &response.AnalysisReportResponse{
+			ID:          1,
+			ReportType:  "summary",
+			ReportTitle: "投资总结",
+			SummaryText: "投资总结内容",
+		},
+	}
+
+	h := handler.NewAnalysisHandler(mockService, &MockRecommendationService{})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/analysis/summary", h.GenerateSummary)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("POST", "/analysis/summary?start_date=2024-01-01&end_date=2024-12-31", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GenerateSummary returned %d", w.Code)
+		}
+	}
+}

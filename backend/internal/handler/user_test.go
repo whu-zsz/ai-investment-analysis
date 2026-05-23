@@ -527,3 +527,113 @@ func TestUser_Security_OverflowID(t *testing.T) {
 		})
 	}
 }
+
+// ========== 性能测试 ==========
+
+func BenchmarkUser_Register(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		RegisterFunc: func(req *request.RegisterRequest) (*model.User, error) {
+			return &model.User{
+				ID:       1,
+				Username: req.Username,
+				Email:    req.Email,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.POST("/api/v1/auth/register", h.Register)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := fmt.Sprintf(`{
+			"username": "user_%d",
+			"email": "user_%d@example.com",
+			"password": "Test123456"
+		}`, i, i)
+
+		req := httptest.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Register returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkUser_Login(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		LoginFunc: func(req *request.LoginRequest) (*response.LoginResponse, error) {
+			return &response.LoginResponse{
+				Token: "test_token",
+				User: response.UserResponse{
+					ID:       1,
+					Username: req.Username,
+				},
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.POST("/api/v1/auth/login", h.Login)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"username": "testuser",
+			"password": "Test123456"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Login returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkUser_GetProfile(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		GetProfileFunc: func(userID uint64) (*model.User, error) {
+			return &model.User{
+				ID:       userID,
+				Username: "testuser",
+				Email:    "test@example.com",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetProfile(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetProfile returned %d", w.Code)
+		}
+	}
+}

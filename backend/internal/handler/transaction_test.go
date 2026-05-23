@@ -798,3 +798,296 @@ func TestTransaction_Security_EmptyFields(t *testing.T) {
 		t.Errorf("Create transaction with empty fields caused internal server error")
 	}
 }
+
+// ========== 性能测试 ==========
+
+func BenchmarkTransaction_Create(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		CreateTransactionFunc: func(userID uint64, req *request.CreateTransactionRequest) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.POST("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.CreateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Create returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetList(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionsFunc: func(userID uint64, page, pageSize int) (*response.TransactionListResponse, error) {
+			return &response.TransactionListResponse{
+				Transactions: []response.TransactionResponse{},
+				Total:        0,
+				Page:         page,
+				PageSize:     pageSize,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactions(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions?page=1&page_size=10", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetList returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetByID(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionByIDFunc: func(userID uint64, id uint64) (*model.Transaction, error) {
+			return &model.Transaction{
+				ID:              id,
+				UserID:          userID,
+				TransactionType: "buy",
+				AssetCode:       "600519",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetByID returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_Update(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		UpdateTransactionFunc: func(userID uint64, id uint64, req *request.UpdateTransactionRequest) (*model.Transaction, error) {
+			return &model.Transaction{
+				ID:              id,
+				UserID:          userID,
+				TransactionType: "buy",
+				AssetCode:       "600519",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.PUT("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.UpdateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "200",
+			"price_per_unit": "1900.00"
+		}`
+
+		req := httptest.NewRequest("PUT", "/api/v1/transactions/1", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Update returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_Delete(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		DeleteTransactionFunc: func(userID uint64, id uint64) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.DELETE("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.DeleteTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("DELETE", "/api/v1/transactions/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Delete returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetStats(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionStatsFunc: func(userID uint64) (*response.TransactionStats, error) {
+			return &response.TransactionStats{
+				TotalTransactions: 100,
+				BuyCount:          60,
+				SellCount:         40,
+				TotalInvestment:   "1000000",
+				TotalProfit:       "50000",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions/stats", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactionStats(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions/stats", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetStats returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_BatchCreate(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		CreateTransactionFunc: func(userID uint64, req *request.CreateTransactionRequest) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.POST("/api/v1/transactions/batch", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.CreateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions/batch", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("BatchCreate returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_FilterByDate(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionsFunc: func(userID uint64, page, pageSize int) (*response.TransactionListResponse, error) {
+			return &response.TransactionListResponse{
+				Transactions: []response.TransactionResponse{},
+				Total:        0,
+				Page:         page,
+				PageSize:     pageSize,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactions(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions?start_date=2024-01-01&end_date=2024-12-31", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("FilterByDate returned %d", w.Code)
+		}
+	}
+}

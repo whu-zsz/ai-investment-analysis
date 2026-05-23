@@ -78,6 +78,19 @@ print_module_result() {
     echo -e "    通过: ${passed} | 失败: ${failed} | 耗时: ${duration}"
 }
 
+# 打印帮助信息
+print_help() {
+    echo ""
+    echo -e "${CYAN}用法:${NC}"
+    echo -e "  ./test/run_tests.sh [选项]"
+    echo ""
+    echo -e "${CYAN}选项:${NC}"
+    echo -e "  --with-integration    运行集成测试（需要本地 MySQL）"
+    echo -e "  --with-benchmarks     运行性能基准测试"
+    echo -e "  --help                显示帮助信息"
+    echo ""
+}
+
 # 运行单个模块的测试
 run_module_test() {
     local module=$1
@@ -174,6 +187,79 @@ run_integration_tests() {
     return $exit_code
 }
 
+# 运行基准测试
+run_benchmark_tests() {
+    echo ""
+    echo -e "${YELLOW}▶ 正在运行性能基准测试...${NC}"
+    print_separator
+
+    local start=$(date +%s.%N)
+
+    # 运行基准测试
+    local output
+    output=$(cd "$BACKEND_DIR" && go test ./internal/... -bench="Benchmark" -benchmem -count=1 2>&1)
+    local exit_code=$?
+
+    local end=$(date +%s.%N)
+    local duration=$(echo "$end - $start" | bc | xargs printf "%.2f")
+
+    # 解析并显示基准测试结果
+    echo ""
+    echo -e "${CYAN}  性能测试结果:${NC}"
+    echo ""
+
+    # 表头
+    printf "  %-50s %-15s %-15s %-15s\n" "测试用例" "迭代次数" "每次耗时" "内存分配"
+    echo -e "  ${BLUE}────────────────────────────────────────────────────────────────────────────────────────────────${NC}"
+
+    # 解析输出
+    while IFS= read -r line; do
+        if [[ "$line" == Benchmark* ]]; then
+            local name=$(echo "$line" | awk '{print $1}')
+            local iterations=$(echo "$line" | awk '{print $2}')
+            local ns_per_op=$(echo "$line" | awk '{print $3}')
+            # Go benchmark format: name iterations ns/op B/op allocs/op
+            # $4="ns/op"(unit) $5=B/op_value $6="B/op"(unit) $7=allocs_value $8="allocs/op"(unit)
+            local b_per_op=$(echo "$line" | awk '{print $5}')
+            local allocs_per_op=$(echo "$line" | awk '{print $7}')
+
+            # 格式化耗时
+            local time_str
+            if (( $(echo "$ns_per_op > 1000000" | bc -l) )); then
+                time_str=$(echo "scale=2; $ns_per_op / 1000000" | bc | xargs printf "%.2f ms")
+            elif (( $(echo "$ns_per_op > 1000" | bc -l) )); then
+                time_str=$(echo "scale=2; $ns_per_op / 1000" | bc | xargs printf "%.2f µs")
+            else
+                time_str=$(printf "%.2f ns" "$ns_per_op")
+            fi
+
+            # 格式化内存
+            local mem_str
+            if [ "$b_per_op" != "" ] && [ "$b_per_op" != "0" ]; then
+                if (( $(echo "$b_per_op > 1048576" | bc -l) )); then
+                    mem_str=$(echo "scale=2; $b_per_op / 1048576" | bc | xargs printf "%.2f MB")
+                elif (( $(echo "$b_per_op > 1024" | bc -l) )); then
+                    mem_str=$(echo "scale=2; $b_per_op / 1024" | bc | xargs printf "%.2f KB")
+                else
+                    mem_str=$(printf "%s B" "$b_per_op")
+                fi
+            else
+                mem_str="0 B"
+            fi
+
+            printf "  %-50s %-15s %-15s %-15s\n" "$name" "$iterations" "$time_str" "$mem_str"
+        fi
+    done <<< "$output"
+
+    echo ""
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}  ✓ 基准测试完成${NC}"
+    else
+        echo -e "${RED}  ✗ 基准测试失败${NC}"
+    fi
+    echo -e "    耗时: ${duration}s"
+}
+
 # 运行覆盖率测试
 run_coverage_test() {
     echo ""
@@ -260,6 +346,13 @@ print_final_result() {
 
 # 主函数
 main() {
+    # 显示帮助信息
+    if [ "$1" == "--help" ] || [ "$2" == "--help" ]; then
+        print_header
+        print_help
+        exit 0
+    fi
+
     START_TIME=$(date +%s.%N)
 
     print_header
@@ -299,12 +392,21 @@ main() {
     done
 
     # 运行集成测试（可选，默认跳过）
-    if [ "$1" == "--with-integration" ]; then
+    if [ "$1" == "--with-integration" ] || [ "$2" == "--with-integration" ]; then
         run_integration_tests
         print_separator
     else
         echo ""
         echo -e "${YELLOW}▶ 跳过集成测试 (使用 --with-integration 参数运行)${NC}"
+    fi
+
+    # 运行基准测试（可选，默认跳过）
+    if [ "$1" == "--with-benchmarks" ] || [ "$2" == "--with-benchmarks" ]; then
+        run_benchmark_tests
+        print_separator
+    else
+        echo ""
+        echo -e "${YELLOW}▶ 跳过基准测试 (使用 --with-benchmarks 参数运行)${NC}"
     fi
 
     # 运行覆盖率测试
