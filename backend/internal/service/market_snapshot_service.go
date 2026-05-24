@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	marketResponse "stock-analysis-backend/internal/dto/response"
@@ -15,6 +16,7 @@ import (
 type MarketSnapshotService interface {
 	GetLatestSnapshots() ([]marketResponse.MarketSnapshotResponse, error)
 	GetHistory(symbol string, limit int, startTime, endTime *time.Time) ([]marketResponse.MarketSnapshotResponse, error)
+	SearchStocks(query string, limit int) ([]marketResponse.MarketSnapshotResponse, error)
 	GetDashboardSnapshot() (*marketResponse.DashboardMarketSnapshotResponse, error)
 }
 
@@ -60,6 +62,21 @@ func (s *marketSnapshotService) GetHistory(symbol string, limit int, startTime, 
 	return convertSnapshots(snapshots), nil
 }
 
+func (s *marketSnapshotService) SearchStocks(query string, limit int) ([]marketResponse.MarketSnapshotResponse, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []marketResponse.MarketSnapshotResponse{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	snapshots, err := s.snapshotRepo.SearchStocks(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	return convertSnapshots(snapshots), nil
+}
+
 func (s *marketSnapshotService) GetDashboardSnapshot() (*marketResponse.DashboardMarketSnapshotResponse, error) {
 	batchNo, err := s.snapshotRepo.FindLatestBatchNo()
 	if err != nil {
@@ -84,7 +101,10 @@ func (s *marketSnapshotService) GetDashboardSnapshot() (*marketResponse.Dashboar
 	}
 
 	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].SnapshotTime.Before(snapshots[j].SnapshotTime)
+		if snapshots[i].CreatedAt.Equal(snapshots[j].CreatedAt) {
+			return snapshots[i].SnapshotTime.Before(snapshots[j].SnapshotTime)
+		}
+		return snapshots[i].CreatedAt.Before(snapshots[j].CreatedAt)
 	})
 
 	latest := snapshots[len(snapshots)-1]
@@ -124,7 +144,8 @@ func (s *marketSnapshotService) GetDashboardSnapshot() (*marketResponse.Dashboar
 
 	return &marketResponse.DashboardMarketSnapshotResponse{
 		SnapshotTime: latest.SnapshotTime.Format("2006-01-02 15:04:05"),
-		IsStale:      time.Since(latest.SnapshotTime) > 2*time.Minute,
+		RefreshedAt:  latest.CreatedAt.Format("2006-01-02 15:04:05"),
+		IsStale:      time.Since(latest.CreatedAt) > 2*time.Minute,
 		Source:       latest.Source,
 		Indices:      indices,
 		MainChart: marketResponse.MarketChartResponse{

@@ -15,12 +15,12 @@ import (
 
 // MockMarketDataProvider 模拟市场数据提供者
 type MockMarketDataProvider struct {
-	Quotes          []marketdata.Quote
-	Klines          []marketdata.KlineBar
-	Detail          *marketdata.StockDetail
-	Err             error
-	DetailCalls     int
-	KlineCalls      int
+	Quotes      []marketdata.Quote
+	Klines      []marketdata.KlineBar
+	Detail      *marketdata.StockDetail
+	Err         error
+	DetailCalls int
+	KlineCalls  int
 }
 
 func (p *MockMarketDataProvider) GetQuotes(ctx context.Context, symbols []string) ([]marketdata.Quote, error) {
@@ -59,10 +59,10 @@ type MockMarketDataSnapshotRepo struct {
 }
 
 type MockStockQuoteDetailRepo struct {
-	Detail       *model.StockQuoteDetail
-	FindErr      error
-	Upserted     *model.StockQuoteDetail
-	UpsertErr    error
+	Detail    *model.StockQuoteDetail
+	FindErr   error
+	Upserted  *model.StockQuoteDetail
+	UpsertErr error
 }
 
 func (r *MockStockQuoteDetailRepo) Upsert(detail *model.StockQuoteDetail) error {
@@ -81,11 +81,11 @@ func (r *MockStockQuoteDetailRepo) FindBySymbol(symbol string) (*model.StockQuot
 }
 
 type MockStockKlineRepo struct {
-	Bars           []model.StockKlineBar
-	LatestBars     map[string]*model.StockKlineBar
-	UpsertedBars   []model.StockKlineBar
-	FindLatestErr  error
-	UpsertErr      error
+	Bars          []model.StockKlineBar
+	LatestBars    map[string]*model.StockKlineBar
+	UpsertedBars  []model.StockKlineBar
+	FindLatestErr error
+	UpsertErr     error
 }
 
 func (r *MockStockKlineRepo) UpsertBars(bars []model.StockKlineBar) error {
@@ -131,6 +131,10 @@ func (r *MockMarketDataSnapshotRepo) FindHistory(limit int, startTime, endTime *
 }
 
 func (r *MockMarketDataSnapshotRepo) FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error) {
+	return nil, r.Err
+}
+
+func (r *MockMarketDataSnapshotRepo) SearchStocks(query string, limit int) ([]model.MarketSnapshot, error) {
 	return nil, r.Err
 }
 
@@ -181,14 +185,14 @@ func TestMarketDataService_FetchAndStoreQuotesBySymbols(t *testing.T) {
 	mockProvider := &MockMarketDataProvider{
 		Quotes: []marketdata.Quote{
 			{
-				Symbol:       "600519.SH",
-				Name:         "贵州茅台",
-				Market:       "cn_stock",
-				LastPrice:    1900.00,
-				ChangeAmount: 10.5,
+				Symbol:        "600519.SH",
+				Name:          "贵州茅台",
+				Market:        "cn_stock",
+				LastPrice:     1900.00,
+				ChangeAmount:  10.5,
 				ChangePercent: 0.55,
-				SnapshotTime: now,
-				Source:       "mock",
+				SnapshotTime:  now,
+				Source:        "mock",
 			},
 		},
 	}

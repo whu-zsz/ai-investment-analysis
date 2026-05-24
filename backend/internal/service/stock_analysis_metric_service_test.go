@@ -147,6 +147,13 @@ func (r *MockMetricMarketSnapshotRepository) FindHistoryBySymbol(symbol string, 
 	return r.Snapshots, nil
 }
 
+func (r *MockMetricMarketSnapshotRepository) SearchStocks(query string, limit int) ([]model.MarketSnapshot, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	return r.Snapshots, nil
+}
+
 // MockMetricMarketDataService 模拟市场数据服务
 type MockMetricMarketDataService struct {
 	Snapshots []model.MarketSnapshot
@@ -303,25 +310,25 @@ func TestAggregateMetricTransactions_Empty(t *testing.T) {
 func TestApplyMetricMarketHistory(t *testing.T) {
 	now := time.Now()
 	agg := &metricAggregate{
-		Symbol:           "600519.SH",
+		Symbol:            "600519.SH",
 		EndingPositionQty: decimal.NewFromInt(100),
 	}
 
 	history := []model.MarketSnapshot{
 		{
-			Symbol:     "600519.SH",
-			LastPrice:  decimal.NewFromInt(1800),
-			HighPrice:  decimal.NewFromInt(1850),
-			LowPrice:   decimal.NewFromInt(1780),
-			Market:     "cn_stock",
+			Symbol:       "600519.SH",
+			LastPrice:    decimal.NewFromInt(1800),
+			HighPrice:    decimal.NewFromInt(1850),
+			LowPrice:     decimal.NewFromInt(1780),
+			Market:       "cn_stock",
 			SnapshotTime: now.Add(-time.Hour),
 		},
 		{
-			Symbol:     "600519.SH",
-			LastPrice:  decimal.NewFromInt(1900),
-			HighPrice:  decimal.NewFromInt(1920),
-			LowPrice:   decimal.NewFromInt(1790),
-			Market:     "cn_stock",
+			Symbol:       "600519.SH",
+			LastPrice:    decimal.NewFromInt(1900),
+			HighPrice:    decimal.NewFromInt(1920),
+			LowPrice:     decimal.NewFromInt(1790),
+			Market:       "cn_stock",
 			SnapshotTime: now,
 		},
 	}
@@ -358,16 +365,16 @@ func TestApplyMetricMarketHistory_HighLowPrice(t *testing.T) {
 
 	history := []model.MarketSnapshot{
 		{
-			LastPrice:     decimal.Zero,
-			HighPrice:     decimal.NewFromInt(1850),
-			LowPrice:      decimal.NewFromInt(1780),
-			SnapshotTime:  now.Add(-time.Hour),
+			LastPrice:    decimal.Zero,
+			HighPrice:    decimal.NewFromInt(1850),
+			LowPrice:     decimal.NewFromInt(1780),
+			SnapshotTime: now.Add(-time.Hour),
 		},
 		{
-			LastPrice:     decimal.Zero,
-			HighPrice:     decimal.NewFromInt(1920),
-			LowPrice:      decimal.NewFromInt(1750),
-			SnapshotTime:  now,
+			LastPrice:    decimal.Zero,
+			HighPrice:    decimal.NewFromInt(1920),
+			LowPrice:     decimal.NewFromInt(1750),
+			SnapshotTime: now,
 		},
 	}
 
@@ -493,12 +500,12 @@ func TestStockAnalysisMetricService_PrepareMetrics_Cached(t *testing.T) {
 	mockMetricRepo := &MockMetricRepository{
 		Metrics: []model.StockAnalysisMetric{
 			{
-				UserID:         1,
-				Symbol:         "600519.SH",
-				PeriodStart:    start,
-				PeriodEnd:      end,
-				TradeCount:     5,
-				ComputedAt:     now,
+				UserID:      1,
+				Symbol:      "600519.SH",
+				PeriodStart: start,
+				PeriodEnd:   end,
+				TradeCount:  5,
+				ComputedAt:  now,
 			},
 		},
 	}

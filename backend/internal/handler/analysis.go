@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"stock-analysis-backend/internal/dto/request"
+	responsedto "stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
 	"strconv"
@@ -15,12 +18,18 @@ import (
 type AnalysisHandler struct {
 	aiService             service.AIService
 	recommendationService service.RecommendationService
+	stockChatService      service.StockChatService
 }
 
-func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService) *AnalysisHandler {
+func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService, stockChatService ...service.StockChatService) *AnalysisHandler {
+	var chatService service.StockChatService
+	if len(stockChatService) > 0 {
+		chatService = stockChatService[0]
+	}
 	return &AnalysisHandler{
 		aiService:             aiService,
 		recommendationService: recommendationService,
+		stockChatService:      chatService,
 	}
 }
 
@@ -236,4 +245,67 @@ func (h *AnalysisHandler) GetRecommendations(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) StockChat(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.stockChatService == nil {
+		response.InternalServerError(c, "stock chat service is unavailable")
+		return
+	}
+
+	var req request.StockChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	result, err := h.stockChatService.Chat(c.Request.Context(), userID, &req)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) StockChatStream(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.stockChatService == nil {
+		response.InternalServerError(c, "stock chat service is unavailable")
+		return
+	}
+
+	var req request.StockChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		response.InternalServerError(c, "streaming is unsupported")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	emit := func(event responsedto.StockChatStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	if err := h.stockChatService.ChatStream(c.Request.Context(), userID, &req, emit); err != nil {
+		return
+	}
 }

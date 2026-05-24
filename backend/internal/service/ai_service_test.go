@@ -33,6 +33,18 @@ func (m *MockLLMProvider) GetContent(ctx context.Context, systemPrompt, userProm
 	return m.Content, nil
 }
 
+func (m *MockLLMProvider) GetContentStream(ctx context.Context, systemPrompt, userPrompt string, onToken func(string) error) (string, error) {
+	if m.Err != nil {
+		return "", m.Err
+	}
+	if onToken != nil && m.Content != "" {
+		if err := onToken(m.Content); err != nil {
+			return "", err
+		}
+	}
+	return m.Content, nil
+}
+
 func (m *MockLLMProvider) ModelName() string {
 	if m.modelName == "" {
 		return "test-model"
@@ -1227,7 +1239,6 @@ func TestAIService_GenerateInvestmentSummary_IgnoresNonStockAssets(t *testing.T)
 	}
 }
 
-
 // TestAIService_GenerateInvestmentSummary_NoMetrics 测试无指标数据
 func TestAIService_GenerateInvestmentSummary_NoMetrics(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{
@@ -1467,8 +1478,6 @@ func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T)
 		t.Fatalf("unexpected key points: %s", *reportRepo.LastItems[0].KeyPoints)
 	}
 }
-
-
 
 func TestAIService_CreateStockAnalysisTask_TransparentFallbackForWeakStockAnalysis(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{

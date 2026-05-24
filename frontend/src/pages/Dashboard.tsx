@@ -14,9 +14,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { marketApi } from '../api';
 import { useAuth } from '../hooks/useAuth';
-import { marketApi } from '../api/index';
-import type { DashboardMarketSnapshotResponse, MarketStockKlineResponse } from '../api/types';
+import { computeNumericAxisRange } from '../utils/chartAxis';
+import type { DashboardMarketSnapshotResponse, MarketKlineBarResponse, MarketStockKlineResponse } from '../api/types';
 import type { MenuProps } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
@@ -26,8 +27,15 @@ type MarketIndexSnapshot = DashboardMarketSnapshotResponse['indices'][number];
 
 interface ChartParam {
   axisValueLabel?: string;
+  dataIndex?: number;
   name: string;
   value: number;
+}
+
+interface DashboardRangeQuery {
+  period: 'day' | '60m';
+  adjust: 'none';
+  limit: number;
 }
 
 interface KpiChartConfig {
@@ -36,6 +44,9 @@ interface KpiChartConfig {
   labels: string[];
   values: number[];
   color: string;
+  period: 'day' | '60m';
+  bars?: MarketKlineBarResponse[];
+  isFallback?: boolean;
 }
 
 interface DashboardInsightCard {
@@ -59,10 +70,10 @@ const dashboardRangeOptions: Array<{ label: string; value: DashboardRange }> = [
   { label: '7日', value: '7d' },
   { label: '月', value: '30d' },
 ];
-const dashboardRangeLimitMap: Record<DashboardRange, number> = {
-  '3d': 3,
-  '7d': 7,
-  '30d': 30,
+export const dashboardRangeQueryMap: Record<DashboardRange, DashboardRangeQuery> = {
+  '3d': { period: '60m', adjust: 'none', limit: 12 },
+  '7d': { period: '60m', adjust: 'none', limit: 28 },
+  '30d': { period: 'day', adjust: 'none', limit: 30 },
 };
 
 const statColorMap: Record<string, string> = {
@@ -143,11 +154,51 @@ function getDashboardHistoryCacheKey(symbol: string, range: DashboardRange): str
   return `${symbol}:${range}`;
 }
 
-function formatDashboardBarTime(value: string): string {
+export function formatDashboardBarTime(value: string, period: 'day' | '60m'): string {
+  if (period === '60m') {
+    return value.length >= 16 ? value.slice(5, 16) : value;
+  }
   if (value.length >= 10) {
     return value.slice(5, 10);
   }
   return value;
+}
+
+function buildDashboardRichTooltip(chart: KpiChartConfig, color: string, params: unknown) {
+  const list = params as ChartParam[];
+  const data = list[0];
+  if (!data) {
+    return '';
+  }
+
+  const dataIndex = data.dataIndex ?? 0;
+  const bar = chart.bars?.[dataIndex];
+  if (!bar || chart.isFallback) {
+    return `<div style="padding: 6px 8px; min-width: 140px;">
+              <div style="color: #888; margin-bottom: 6px;">${data.axisValueLabel ?? data.name}</div>
+              <div style="font-weight: 700; color: ${color}; font-size: 16px;">${data.value.toLocaleString()} ${chart.unit}</div>
+            </div>`;
+  }
+
+  const changeColor = toNumber(bar.change_amount) >= 0 ? '#ff4d4f' : '#52c41a';
+  const turnoverRate = formatValue(bar.turnover_rate);
+  return `<div style="padding: 8px 10px; min-width: 220px;">
+            <div style="color: #888; margin-bottom: 8px;">${bar.bar_time}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px; gap: 12px;">
+              <span style="font-weight: 700; color: ${color}; font-size: 16px;">收 ${formatValue(bar.close_price)}</span>
+              <span style="font-weight: 600; color: ${changeColor};">${formatSignedNumber(bar.change_amount)} / ${formatSignedPercent(bar.change_percent)}</span>
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; color:#444;">
+              <span>开 ${formatValue(bar.open_price)}</span>
+              <span>高 ${formatValue(bar.high_price)}</span>
+              <span>低 ${formatValue(bar.low_price)}</span>
+              <span>收 ${formatValue(bar.close_price)}</span>
+              <span>量 ${formatCompactNumber(bar.volume)}</span>
+              <span>额 ${formatCompactNumber(bar.turnover)}</span>
+              <span>振幅 ${formatSignedPercent(bar.amplitude)}</span>
+              <span>换手 ${turnoverRate === '—' ? '—' : `${turnoverRate}%`}</span>
+            </div>
+          </div>`;
 }
 
 function normalizeKlineResponse(history: MarketStockKlineResponse): MarketStockKlineResponse {
@@ -161,9 +212,11 @@ function buildHistoryChart(name: string, history: MarketStockKlineResponse, colo
   return {
     seriesName: name,
     unit: '点',
-    labels: history.items.map((point) => formatDashboardBarTime(point.bar_time)),
+    labels: history.items.map((point) => formatDashboardBarTime(point.bar_time, history.period === '60m' ? '60m' : 'day')),
     values: history.items.map((point) => toNumber(point.close_price)),
     color,
+    period: history.period === '60m' ? '60m' : 'day',
+    bars: history.items,
   };
 }
 
@@ -174,6 +227,8 @@ function buildFallbackChart(marketData: DashboardMarketSnapshotResponse, color: 
     labels: marketData.main_chart.series.map((point) => point.label),
     values: marketData.main_chart.series.map((point) => toNumber(point.value)),
     color,
+    period: 'day',
+    isFallback: true,
   };
 }
 
@@ -204,11 +259,11 @@ function buildInsightCards(
       tagColor: trend.color,
       tagText: trend.text,
       desc: hasHistory
-        ? `${item.symbol} · ${rangeLabel}走势可用 · 高低 ${formatValue(item.high_price)}/${formatValue(item.low_price)}`
-        : `${item.symbol} · ${rangeLabel}走势暂不可用 · 成交额 ${formatCompactNumber(item.turnover)}`,
+        ? `${item.symbol} · ${rangeLabel}走势 · 高低 ${formatValue(item.high_price)}/${formatValue(item.low_price)}`
+        : `${item.symbol} · ${rangeLabel}概览 · 成交额 ${formatCompactNumber(item.turnover)}`,
       chart: hasHistory
         ? buildHistoryChart(item.name, history as MarketStockKlineResponse, color)
-        : { seriesName: item.name, unit: '点', labels: [], values: [], color },
+        : { seriesName: item.name, unit: '点', labels: [], values: [], color, period: 'day' },
       hasHistory,
       snapshot: item,
     };
@@ -217,6 +272,13 @@ function buildInsightCards(
 
 function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EChartsOption {
   const isMini = mode === 'mini';
+  const axisRange = computeNumericAxisRange(chart.values, {
+    minPaddingRatio: 0.08,
+    maxPaddingRatio: 0.08,
+    minPaddingAbs: chart.period === '60m' ? 5 : 10,
+    roundMode: 'magnitude',
+    splitNumber: 4,
+  });
 
   return {
     animation: true,
@@ -227,14 +289,7 @@ function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EC
           backgroundColor: 'rgba(255, 255, 255, 0.96)',
           borderColor: '#d9e6ff',
           borderWidth: 1,
-          formatter: (params: unknown) => {
-            const list = params as ChartParam[];
-            const data = list[0];
-            return `<div style="padding: 4px 6px;">
-                      <div style="color: #888; margin-bottom: 4px;">${data.axisValueLabel ?? data.name}</div>
-                      <div style="font-weight: bold; color: ${chart.color}; font-size: 16px;">${data.value.toLocaleString()} ${chart.unit}</div>
-                    </div>`;
-          }
+          formatter: (params: unknown) => buildDashboardRichTooltip(chart, chart.color, params)
         },
     grid: isMini
       ? { top: 6, left: 0, right: 0, bottom: 0, containLabel: false }
@@ -250,6 +305,8 @@ function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EC
     },
     yAxis: {
       type: 'value',
+      min: axisRange?.min,
+      max: axisRange?.max,
       show: !isMini,
       axisLabel: { color: '#8c8c8c', fontSize: 11 },
       splitLine: isMini ? { show: false } : { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }
@@ -258,7 +315,7 @@ function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EC
       {
         name: chart.seriesName,
         type: 'line',
-        smooth: true,
+        smooth: false,
         showSymbol: false,
         data: chart.values,
         lineStyle: { width: isMini ? 2 : 3, color: chart.color },
@@ -282,6 +339,13 @@ function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EC
 
 function getMainChartOption(chart: KpiChartConfig | null): EChartsOption {
   const chartColor = chart?.color ?? '#1677ff';
+  const axisRange = computeNumericAxisRange(chart?.values ?? [], {
+    minPaddingRatio: 0.08,
+    maxPaddingRatio: 0.08,
+    minPaddingAbs: chart?.period === '60m' ? 5 : 10,
+    roundMode: 'magnitude',
+    splitNumber: 4,
+  });
 
   return {
     tooltip: {
@@ -289,14 +353,7 @@ function getMainChartOption(chart: KpiChartConfig | null): EChartsOption {
       backgroundColor: 'rgba(255, 255, 255, 0.96)',
       borderColor: '#d9e6ff',
       borderWidth: 1,
-      formatter: (params: unknown) => {
-        const list = params as ChartParam[];
-        const data = list[0];
-        return `<div style="padding: 4px 6px;">
-                  <div style="color: #888; margin-bottom: 4px;">${data.name}</div>
-                  <div style="font-weight: bold; color: ${chartColor}; font-size: 16px;">${data.value.toLocaleString()} ${chart?.unit ?? '点'}</div>
-                </div>`;
-      }
+      formatter: (params: unknown) => buildDashboardRichTooltip(chart ?? { seriesName: '', unit: '点', labels: [], values: [], color: chartColor, period: 'day' }, chartColor, params)
     },
     grid: {
       top: '10%',
@@ -313,13 +370,15 @@ function getMainChartOption(chart: KpiChartConfig | null): EChartsOption {
     },
     yAxis: {
       type: 'value',
+      min: axisRange?.min,
+      max: axisRange?.max,
       splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }
     },
     series: [
       {
         name: chart?.seriesName ?? '',
         type: 'line',
-        smooth: true,
+        smooth: false,
         showSymbol: false,
         data: chart?.values ?? [],
         lineStyle: { width: 3, color: chartColor },
@@ -386,7 +445,7 @@ export default function Dashboard() {
         }
         return firstAvailable?.symbol ?? topIndices[0]?.symbol ?? '';
       });
-      setHistoryError(firstAvailable ? '' : '指数走势暂时不可用，主图已回退为聚合走势。');
+      setHistoryError(firstAvailable ? '' : '指数走势暂时不可用，主图已切换为市场概览。');
       setHistoryLoading(false);
       return;
     }
@@ -395,11 +454,7 @@ export default function Dashboard() {
     setHistoryError('');
 
     const results = await Promise.allSettled(
-      missingIndices.map((item) => marketApi.getStockKlines(item.symbol, {
-        period: 'day',
-        adjust: 'none',
-        limit: dashboardRangeLimitMap[range],
-      })),
+      missingIndices.map((item) => marketApi.getStockKlines(item.symbol, dashboardRangeQueryMap[range])),
     );
 
     if (requestId !== requestRef.current) {
@@ -739,7 +794,7 @@ export default function Dashboard() {
                         <Text strong style={{ fontSize: 18 }}>{activeSnapshot?.name ?? '—'}</Text>
                         <Tag color="blue">{activeSnapshot?.symbol ?? '—'}</Tag>
                         <Tag color={marketData.is_stale ? 'warning' : 'success'}>
-                          {marketData.is_stale ? '快照可能过期' : '快照有效'}
+                          {marketData.is_stale ? '更新较早' : '实时跟踪'}
                         </Tag>
                       </Space>
                       <div style={{ marginTop: 14, fontSize: 38, lineHeight: 1, fontWeight: 700, color: activeInsightCard?.accent ?? '#1677ff' }}>
@@ -770,10 +825,11 @@ export default function Dashboard() {
                       <Space size={[8, 8]} wrap>
                         <Tag color="processing" icon={<RiseOutlined />}>{formatValue(marketData.source)}</Tag>
                         <Tag color="default">{activeSnapshot?.market || '指数'}</Tag>
-                        {isFallbackChart ? <Tag color="default">聚合走势兜底</Tag> : null}
+                        {isFallbackChart ? <Tag color="default">市场概览</Tag> : null}
                       </Space>
-                      <div style={{ marginTop: 10 }}>
-                        <Text type="secondary">更新时间 {formatValue(marketData.snapshot_time)}</Text>
+                      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <Text type="secondary">源数据时间 {formatValue(marketData.snapshot_time)}</Text>
+                        <Text type="secondary">刷新入库时间 {formatValue(marketData.refreshed_at)}</Text>
                       </div>
                     </div>
                   </Space>
@@ -867,10 +923,10 @@ export default function Dashboard() {
               description={
                 <Space direction="vertical" size={6}>
                   <Text>
-                    主图当前展示 {activeInsightCard?.title ?? marketData.main_chart.index_name}
-                    {isFallbackChart ? '，该指数区间走势暂不可用，已回退为聚合走势。' : `，当前区间为${getDashboardRangeLabel(chartRange)}，点击顶部或下方卡片即可切换其他指数。`}
+                    当前主图展示 {activeInsightCard?.title ?? marketData.main_chart.index_name}
+                    {isFallbackChart ? '，该指数暂缺区间走势，已切换为市场概览。' : `，当前区间为${getDashboardRangeLabel(chartRange)}，可点击顶部或下方卡片切换其他指数。`}
                   </Text>
-                  <Text>{marketData.is_stale ? '当前快照超过阈值，系统会每 30 秒自动重试刷新。' : '当前快照处于有效窗口，可继续联调其他依赖 dashboard 的页面。'}</Text>
+                  <Text>{marketData.is_stale ? '行情更新相对较早，可手动刷新查看最新走势。' : '当前行情更新正常，可直接查看指数走势与成交情况。'}</Text>
                 </Space>
               }
             />
@@ -882,12 +938,13 @@ export default function Dashboard() {
           >
             <Space size={10} wrap>
               <ThunderboltOutlined style={{ color: '#722ed1' }} />
-              <Text strong>数据状态</Text>
+              <Text strong>行情时间</Text>
               <Tag color={marketData.is_stale ? 'warning' : 'success'}>
-                {marketData.is_stale ? '数据可能已过期' : '数据新鲜'}
+                {marketData.is_stale ? '更新较早' : '已更新'}
               </Tag>
               <Text type="secondary">来源 {formatValue(marketData.source)}</Text>
-              <Text type="secondary">快照时间 {formatValue(marketData.snapshot_time)}</Text>
+              <Text type="secondary">行情时间 {formatValue(marketData.snapshot_time)}</Text>
+              <Text type="secondary">更新时间 {formatValue(marketData.refreshed_at)}</Text>
             </Space>
           </Card>
         </>

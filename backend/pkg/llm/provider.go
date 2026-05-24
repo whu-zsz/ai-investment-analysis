@@ -2,8 +2,8 @@ package llm
 
 import "context"
 
-// Provider 定义统一的大模型文本生成能力。
 type Provider interface {
 	GetContent(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	GetContentStream(ctx context.Context, systemPrompt, userPrompt string, onToken func(string) error) (string, error)
 	ModelName() string
 }

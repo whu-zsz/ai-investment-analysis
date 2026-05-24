@@ -1,4 +1,4 @@
-import request from './request';
+import request, { API_BASE_URL } from './request';
 import type {
   LoginRequest, RegisterRequest, LoginResponse,
   UserResponse, UpdateProfileRequest,
@@ -9,6 +9,7 @@ import type {
   AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
   AnalysisCandidatesResponse, AnalysisRecommendationsResponse,
+  StockChatResponse, StockChatMessageRequest, StockChatStreamEvent,
 } from './types';
 
 // ══════════════════════════════════════════
@@ -131,6 +132,10 @@ export const marketApi = {
   }): Promise<MarketSnapshotResponse[]> =>
     request.get('/market/snapshots/history', { params }),
 
+  /** GET /market/stocks/search */
+  searchStocks: (params: { q: string; limit?: number }): Promise<MarketSnapshotResponse[]> =>
+    request.get('/market/stocks/search', { params }),
+
   /** GET /market/stocks/:symbol/detail */
   getStockDetail: (symbol: string, params?: { refresh?: boolean }): Promise<MarketStockDetailResponse> =>
     request.get(`/market/stocks/${encodeURIComponent(symbol)}/detail`, { params }),
@@ -191,6 +196,72 @@ export const analysisApi = {
   /** GET /analysis/reports/:id/pdf */
   downloadReportPDF: (id: number): Promise<Blob> =>
     request.get(`/analysis/reports/${id}/pdf`, { responseType: 'blob' }),
+
+  /** POST /analysis/stock-chat */
+  stockChat: (data: {
+    symbol: string;
+    question: string;
+    messages?: StockChatMessageRequest[];
+    refresh_market?: boolean;
+  }): Promise<StockChatResponse> =>
+    request.post('/analysis/stock-chat', data),
+
+  /** POST /analysis/stock-chat/stream */
+  stockChatStream: async (
+    data: {
+      symbol: string;
+      question: string;
+      messages?: StockChatMessageRequest[];
+      refresh_market?: boolean;
+    },
+    onEvent: (event: StockChatStreamEvent) => void,
+  ): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`${API_BASE_URL}/api/v1/analysis/stock-chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (resp.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('userInfo');
+      window.location.href = '/login';
+      return;
+    }
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text();
+      throw new Error(text || `请求失败：${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    const parseChunk = (chunk: string) => {
+        const dataLine = chunk.split('\n').find((line) => line.startsWith('data:'));
+        if (!dataLine) return;
+        const payload = dataLine.slice(5).trim();
+        if (!payload) return;
+        onEvent(JSON.parse(payload) as StockChatStreamEvent);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.replace(/\r\n/g, '\n').split('\n\n');
+      buffer = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        parseChunk(chunk);
+      }
+    }
+    buffer += decoder.decode();
+    const tail = buffer.replace(/\r\n/g, '\n').trim();
+    if (tail) parseChunk(tail);
+  },
 
   /** GET /analysis/candidates */
   getCandidates: (): Promise<AnalysisCandidatesResponse> =>

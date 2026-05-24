@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { clearAuthSession } from '../utils/authSession';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:8080');
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:8080');
 
 const request = axios.create({
-  baseURL: `${BASE_URL}/api/v1`,
+  baseURL: `${API_BASE_URL}/api/v1`,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });

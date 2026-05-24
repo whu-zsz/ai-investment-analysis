@@ -1,6 +1,7 @@
 package doubao
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -43,6 +44,15 @@ type ChatCompletionResponse struct {
 	} `json:"choices"`
 }
 
+type chatCompletionStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
 func NewClient(apiKey, baseURL, model string) *Client {
 	return &Client{
 		apiKey:  apiKey,
@@ -54,6 +64,14 @@ func NewClient(apiKey, baseURL, model string) *Client {
 
 func (c *Client) ModelName() string {
 	return c.model
+}
+
+func (c *Client) endpoint() string {
+	endpoint := c.baseURL + "/api/v3/chat/completions"
+	if strings.HasSuffix(c.baseURL, "/api/v3") {
+		endpoint = c.baseURL + "/chat/completions"
+	}
+	return endpoint
 }
 
 func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
@@ -70,16 +88,10 @@ func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	endpoint := c.baseURL + "/api/v3/chat/completions"
-	if strings.HasSuffix(c.baseURL, "/api/v3") {
-		endpoint = c.baseURL + "/chat/completions"
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
@@ -93,7 +105,6 @@ func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
@@ -102,7 +113,6 @@ func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 	if err := json.Unmarshal(body, &chatResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
 	return &chatResp, nil
 }
 
@@ -113,15 +123,81 @@ func (c *Client) GetContent(ctx context.Context, systemPrompt, userPrompt string
 			{Role: "user", Content: userPrompt},
 		},
 	}
-
 	resp, err := c.ChatCompletion(ctx, req)
 	if err != nil {
 		return "", err
 	}
-
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no response generated")
 	}
-
 	return resp.Choices[0].Message.Content, nil
+}
+
+func (c *Client) GetContentStream(ctx context.Context, systemPrompt, userPrompt string, onToken func(string) error) (string, error) {
+	if strings.TrimSpace(c.ModelName()) == "" {
+		return "", fmt.Errorf("doubao model is empty")
+	}
+	req := &ChatCompletionRequest{
+		Model:  c.ModelName(),
+		Stream: true,
+		Messages: []Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var builder strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk chatCompletionStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			return builder.String(), fmt.Errorf("failed to unmarshal stream chunk: %w", err)
+		}
+		for _, choice := range chunk.Choices {
+			token := choice.Delta.Content
+			if token == "" {
+				continue
+			}
+			builder.WriteString(token)
+			if onToken != nil {
+				if err := onToken(token); err != nil {
+					return builder.String(), err
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return builder.String(), fmt.Errorf("failed to read stream: %w", err)
+	}
+	return builder.String(), nil
 }

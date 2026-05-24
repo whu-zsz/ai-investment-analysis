@@ -26,6 +26,7 @@ import {
   formatProfitValue,
   summarizeProfitBySymbolData,
 } from '../utils/analysisChart';
+import { computeNumericAxisRange, computeZeroAwareAxisRange } from '../utils/chartAxis';
 import { getMarketStatusMeta } from '../utils/analysisMeta';
 
 const { Title, Paragraph, Text } = Typography;
@@ -346,6 +347,17 @@ export default function AnalysisPage() {
   const chartSummary = useMemo(() => summarizeProfitBySymbolData(chartData), [chartData]);
   const outcomeDistribution = useMemo(() => buildOutcomeDistributionData(report), [report]);
   const profitComposition = useMemo(() => buildProfitCompositionData(report?.items), [report?.items]);
+  const profitAxisRange = useMemo(
+    () => computeZeroAwareAxisRange(chartData.map((item) => item.numericValue), { minPaddingRatio: 0.1, maxPaddingRatio: 0.1, minPaddingAbs: 1 }),
+    [chartData],
+  );
+  const compositionAxisRange = useMemo(
+    () => computeNumericAxisRange(
+      profitComposition.points.flatMap((item) => [item.realizedProfit, item.realizedProfit + item.unrealizedProfit]),
+      { minPaddingRatio: 0.1, maxPaddingRatio: 0.1, minPaddingAbs: 1, includeZero: true },
+    ),
+    [profitComposition],
+  );
   const quickMetrics = buildQuickMetrics(report);
 
   const getProfitChartOption = (): EChartsOption => ({
@@ -376,6 +388,8 @@ export default function AnalysisPage() {
     },
     yAxis: {
       type: 'value',
+      min: profitAxisRange?.min,
+      max: profitAxisRange?.max,
       axisLabel: { color: '#8c8c8c' },
       axisLine: { show: false },
       splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
@@ -445,6 +459,8 @@ export default function AnalysisPage() {
     grid: { left: 48, right: 20, top: 24, bottom: 24, containLabel: true },
     xAxis: {
       type: 'value',
+      min: compositionAxisRange?.min,
+      max: compositionAxisRange?.max,
       axisLabel: { color: '#8c8c8c' },
       splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
     },

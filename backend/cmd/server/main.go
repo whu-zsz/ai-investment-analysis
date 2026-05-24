@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"stock-analysis-backend/internal/config"
 	"stock-analysis-backend/internal/handler"
 	"stock-analysis-backend/internal/repository"
@@ -10,6 +11,7 @@ import (
 	"stock-analysis-backend/pkg/llm"
 	"stock-analysis-backend/pkg/logger"
 	"stock-analysis-backend/pkg/marketdata"
+	"stock-analysis-backend/pkg/news"
 	"time"
 
 	"go.uber.org/zap"
@@ -112,13 +114,20 @@ func main() {
 	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
 	marketStockService := service.NewMarketStockService(marketProvider, stockQuoteDetailRepo, stockKlineRepo)
+	newsHTTPClient := &http.Client{Timeout: 12 * time.Second}
+	newsService := service.NewNewsService(
+		news.NewEastmoneyProvider(newsHTTPClient),
+		news.NewGoogleNewsProvider(newsHTTPClient),
+		news.NewSinaProvider(newsHTTPClient),
+	)
+	stockChatService := service.NewStockChatService(marketStockService, newsService, llmProvider, log)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	userHandler := handler.NewUserHandler(userService)
 	uploadHandler := handler.NewUploadHandler(uploadService, cfg.Upload)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
-	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService)
+	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService, stockChatService)
 	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService)
 
 	router := router.SetupRouter(

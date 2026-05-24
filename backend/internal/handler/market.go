@@ -2,9 +2,9 @@ package handler
 
 import (
 	"errors"
-	"strconv"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -94,6 +94,20 @@ func (h *MarketHandler) GetStockKlines(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h *MarketHandler) SearchStocks(c *gin.Context) {
+	query := c.Query("q")
+	limit, err := strconvAtoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		limit = 20
+	}
+	items, err := h.marketSnapshotService.SearchStocks(query, limit)
+	if err != nil {
+		response.InternalServerError(c, "failed to search stocks")
+		return
+	}
+	response.Success(c, items)
 }
 
 func parseOptionalTime(raw string) (*time.Time, error) {

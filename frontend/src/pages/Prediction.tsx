@@ -20,6 +20,7 @@ import {
   summarizeProfitBySymbolData,
   toNumericProfitValue,
 } from '../utils/analysisChart';
+import { computeZeroAwareAxisRange } from '../utils/chartAxis';
 import { getMarketStatusMeta } from '../utils/analysisMeta';
 
 const { Title, Text, Paragraph } = Typography;
@@ -118,6 +119,14 @@ export default function PredictionPage() {
   const predictionNarrative = formatValue(prediction?.narrative || report?.prediction_text);
   const biasMeta = useMemo(() => getPredictionBiasMeta(prediction?.bias), [prediction?.bias]);
   const confidenceMeta = useMemo(() => getPredictionConfidenceMeta(prediction?.confidence), [prediction?.confidence]);
+  const profitAxisRange = useMemo(
+    () => computeZeroAwareAxisRange(profitChartData.map((item) => item.numericValue), { minPaddingRatio: 0.1, maxPaddingRatio: 0.1, minPaddingAbs: 1 }),
+    [profitChartData],
+  );
+  const momentumAxisRange = useMemo(
+    () => computeZeroAwareAxisRange(momentumData.map((item) => item.numericValue), { minPaddingRatio: 0.1, maxPaddingRatio: 0.1, minPaddingAbs: 1 }),
+    [momentumData],
+  );
 
   const getProfitOption = (): EChartsOption => ({
     tooltip: {
@@ -147,6 +156,8 @@ export default function PredictionPage() {
     },
     yAxis: {
       type: 'value',
+      min: profitAxisRange?.min,
+      max: profitAxisRange?.max,
       splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
       axisLabel: { color: '#8c8c8c' },
     },
@@ -186,6 +197,8 @@ export default function PredictionPage() {
     grid: { left: 56, right: 20, top: 24, bottom: 24, containLabel: true },
     xAxis: {
       type: 'value',
+      min: momentumAxisRange?.min,
+      max: momentumAxisRange?.max,
       axisLabel: { color: '#8c8c8c' },
       splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
     },

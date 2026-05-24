@@ -70,6 +70,13 @@ func (r *MockMarketSnapshotRepositoryForService) FindHistoryBySymbol(symbol stri
 	return result, nil
 }
 
+func (r *MockMarketSnapshotRepositoryForService) SearchStocks(query string, limit int) ([]model.MarketSnapshot, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	return r.Snapshots, nil
+}
+
 // TestMarketSnapshotService_GetLatestSnapshots 测试获取最新快照
 func TestMarketSnapshotService_GetLatestSnapshots(t *testing.T) {
 	now := time.Now()
@@ -202,9 +209,10 @@ func TestMarketSnapshotService_GetDashboardSnapshot(t *testing.T) {
 				ChangeAmount:  decimal.NewFromFloat(10.5),
 				ChangePercent: decimal.NewFromFloat(0.35),
 				Turnover:      decimal.NewFromInt(250000000000),
-				SnapshotTime:  now,
+				SnapshotTime:  now.Add(-48 * time.Hour),
 				BatchNo:       "batch001",
 				Source:        "mock",
+				CreatedAt:     now,
 			},
 			{
 				Symbol:        "399001.SZ",
@@ -214,9 +222,10 @@ func TestMarketSnapshotService_GetDashboardSnapshot(t *testing.T) {
 				ChangeAmount:  decimal.NewFromFloat(-50.0),
 				ChangePercent: decimal.NewFromFloat(-0.5),
 				Turnover:      decimal.NewFromInt(300000000000),
-				SnapshotTime:  now,
+				SnapshotTime:  now.Add(-48 * time.Hour),
 				BatchNo:       "batch001",
 				Source:        "mock",
+				CreatedAt:     now,
 			},
 		},
 	}
@@ -233,6 +242,12 @@ func TestMarketSnapshotService_GetDashboardSnapshot(t *testing.T) {
 
 	if len(dashboard.Stats) != 5 {
 		t.Errorf("GetDashboardSnapshot() returned %d stats, want 5", len(dashboard.Stats))
+	}
+	if dashboard.IsStale {
+		t.Error("GetDashboardSnapshot() IsStale = true, want false when created_at is recent")
+	}
+	if dashboard.RefreshedAt == "" {
+		t.Error("GetDashboardSnapshot() RefreshedAt should not be empty")
 	}
 }
 
@@ -263,7 +278,7 @@ func TestMarketSnapshotService_GetDashboardSnapshot_Stats(t *testing.T) {
 				Symbol:        "000001.SH",
 				Name:          "上证指数",
 				LastPrice:     decimal.Zero,
-				ChangeAmount:  decimal.NewFromInt(10),  // 上涨
+				ChangeAmount:  decimal.NewFromInt(10), // 上涨
 				ChangePercent: decimal.NewFromFloat(0.5),
 				Turnover:      decimal.NewFromInt(100000000000),
 				SnapshotTime:  now,

@@ -42,6 +42,13 @@ func (m *MockMarketSnapshotService) GetDashboardSnapshot() (*response.DashboardM
 	return m.DashboardSnapshot, nil
 }
 
+func (m *MockMarketSnapshotService) SearchStocks(query string, limit int) ([]response.MarketSnapshotResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return m.Snapshots, nil
+}
+
 type MockMarketStockService struct {
 	Detail *response.MarketStockDetailResponse
 	Kline  *response.MarketStockKlineResponse
@@ -61,7 +68,6 @@ func (m *MockMarketStockService) GetStockKlines(symbol, period, adjust string, l
 	}
 	return m.Kline, nil
 }
-
 
 // TestMarketHandler_GetLatestSnapshots 测试获取最新快照
 func TestMarketHandler_GetLatestSnapshots(t *testing.T) {

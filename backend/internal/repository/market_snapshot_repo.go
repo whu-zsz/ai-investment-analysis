@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"time"
 
 	"stock-analysis-backend/internal/model"
@@ -15,6 +16,7 @@ type MarketSnapshotRepository interface {
 	FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error)
 	FindHistory(limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
 	FindHistoryBySymbol(symbol string, limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
+	SearchStocks(query string, limit int) ([]model.MarketSnapshot, error)
 }
 
 type marketSnapshotRepository struct {
@@ -34,7 +36,7 @@ func (r *marketSnapshotRepository) BatchCreate(snapshots []model.MarketSnapshot)
 
 func (r *marketSnapshotRepository) FindLatestBatchNo() (string, error) {
 	var snapshot model.MarketSnapshot
-	err := r.db.Order("snapshot_time DESC, id DESC").First(&snapshot).Error
+	err := r.db.Order("created_at DESC, id DESC").First(&snapshot).Error
 	if err != nil {
 		return "", err
 	}
@@ -89,5 +91,27 @@ func (r *marketSnapshotRepository) FindHistoryBySymbol(symbol string, limit int,
 	}
 
 	err := db.Order("snapshot_time DESC, id DESC").Limit(limit).Find(&snapshots).Error
+	return snapshots, err
+}
+
+func (r *marketSnapshotRepository) SearchStocks(query string, limit int) ([]model.MarketSnapshot, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	query = strings.TrimSpace(query)
+	like := "%" + query + "%"
+	var snapshots []model.MarketSnapshot
+	err := r.db.Raw(`
+		SELECT ms.*
+		FROM market_snapshots ms
+		JOIN (
+			SELECT symbol, MAX(snapshot_time) AS max_time
+			FROM market_snapshots
+			WHERE symbol LIKE ? OR name LIKE ?
+			GROUP BY symbol
+			LIMIT ?
+		) latest ON latest.symbol = ms.symbol AND latest.max_time = ms.snapshot_time
+		ORDER BY CASE WHEN ms.symbol = ? THEN 0 WHEN ms.symbol LIKE ? THEN 1 ELSE 2 END, ms.symbol ASC, ms.id DESC
+	`, like, like, limit, query, like).Scan(&snapshots).Error
 	return snapshots, err
 }

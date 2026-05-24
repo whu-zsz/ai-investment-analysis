@@ -20,6 +20,7 @@ type MarketSnapshotResponse struct {
 
 type DashboardMarketSnapshotResponse struct {
 	SnapshotTime string                    `json:"snapshot_time"`
+	RefreshedAt  string                    `json:"refreshed_at"`
 	IsStale      bool                      `json:"is_stale"`
 	Source       string                    `json:"source"`
 	Indices      []MarketIndexItemResponse `json:"indices"`

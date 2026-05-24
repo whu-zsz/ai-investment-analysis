@@ -1,6 +1,8 @@
 package repository_test
 
 import (
+	"strings"
+
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/repository"
 	"testing"
@@ -115,6 +117,28 @@ func (r *InMemoryMarketSnapshotRepository) FindHistoryBySymbol(symbol string, li
 
 	if len(result) > limit {
 		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (r *InMemoryMarketSnapshotRepository) SearchStocks(query string, limit int) ([]model.MarketSnapshot, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	query = strings.TrimSpace(query)
+	var result []model.MarketSnapshot
+	seen := map[string]struct{}{}
+	for _, s := range r.snapshots {
+		if _, ok := seen[s.Symbol]; ok {
+			continue
+		}
+		if strings.Contains(s.Symbol, query) || strings.Contains(s.Name, query) {
+			result = append(result, *s)
+			seen[s.Symbol] = struct{}{}
+		}
+		if len(result) >= limit {
+			break
+		}
 	}
 	return result, nil
 }
@@ -268,20 +292,20 @@ func TestMarketSnapshotRepository_FindLatestBySymbol(t *testing.T) {
 	now := time.Now()
 	repo.BatchCreate([]model.MarketSnapshot{
 		{
-			Symbol:        "000001.SH",
-			Name:          "上证指数",
-			LastPrice:     decimal.NewFromInt(3000),
-			SnapshotTime:  now.Add(-time.Hour),
-			BatchNo:       "batch001",
-			Source:        "mock",
+			Symbol:       "000001.SH",
+			Name:         "上证指数",
+			LastPrice:    decimal.NewFromInt(3000),
+			SnapshotTime: now.Add(-time.Hour),
+			BatchNo:      "batch001",
+			Source:       "mock",
 		},
 		{
-			Symbol:        "000001.SH",
-			Name:          "上证指数",
-			LastPrice:     decimal.NewFromInt(3100),
-			SnapshotTime:  now,
-			BatchNo:       "batch002",
-			Source:        "mock",
+			Symbol:       "000001.SH",
+			Name:         "上证指数",
+			LastPrice:    decimal.NewFromInt(3100),
+			SnapshotTime: now,
+			BatchNo:      "batch002",
+			Source:       "mock",
 		},
 	})
 
@@ -312,12 +336,12 @@ func TestMarketSnapshotRepository_FindHistory(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 10; i++ {
 		repo.BatchCreate([]model.MarketSnapshot{{
-			Symbol:        "000001.SH",
-			Name:          "上证指数",
-			LastPrice:     decimal.NewFromInt(int64(3000 + i)),
-			SnapshotTime:  now.Add(time.Duration(i) * time.Minute),
-			BatchNo:       "batch001",
-			Source:        "mock",
+			Symbol:       "000001.SH",
+			Name:         "上证指数",
+			LastPrice:    decimal.NewFromInt(int64(3000 + i)),
+			SnapshotTime: now.Add(time.Duration(i) * time.Minute),
+			BatchNo:      "batch001",
+			Source:       "mock",
 		}})
 	}
 

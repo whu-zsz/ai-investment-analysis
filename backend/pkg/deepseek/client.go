@@ -1,12 +1,14 @@
 package deepseek
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type Client struct {
@@ -47,62 +49,60 @@ type ChatCompletionResponse struct {
 	} `json:"usage"`
 }
 
+type chatCompletionStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
 func NewClient(apiKey, baseURL, model string) *Client {
 	return &Client{
 		apiKey:  apiKey,
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
 		client:  &http.Client{},
 	}
 }
 
 func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
-	// 设置默认值
 	if req.Model == "" {
 		req.Model = c.ModelName()
 	}
 	req.Stream = false
 
-	// 序列化请求
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// 创建HTTP请求
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/chat/completions", bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	// 设置请求头
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	// 发送请求
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
-	// 检查状态码
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// 解析响应
 	var chatResp ChatCompletionResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
 	return &chatResp, nil
 }
 
@@ -113,7 +113,6 @@ func (c *Client) ModelName() string {
 	return "deepseek-chat"
 }
 
-// GetContent 便捷方法，获取AI生成的内容
 func (c *Client) GetContent(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	req := &ChatCompletionRequest{
 		Messages: []Message{
@@ -121,15 +120,78 @@ func (c *Client) GetContent(ctx context.Context, systemPrompt, userPrompt string
 			{Role: "user", Content: userPrompt},
 		},
 	}
-
 	resp, err := c.ChatCompletion(ctx, req)
 	if err != nil {
 		return "", err
 	}
-
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no response generated")
 	}
-
 	return resp.Choices[0].Message.Content, nil
+}
+
+func (c *Client) GetContentStream(ctx context.Context, systemPrompt, userPrompt string, onToken func(string) error) (string, error) {
+	req := &ChatCompletionRequest{
+		Model:  c.ModelName(),
+		Stream: true,
+		Messages: []Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var builder strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk chatCompletionStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			return builder.String(), fmt.Errorf("failed to unmarshal stream chunk: %w", err)
+		}
+		for _, choice := range chunk.Choices {
+			token := choice.Delta.Content
+			if token == "" {
+				continue
+			}
+			builder.WriteString(token)
+			if onToken != nil {
+				if err := onToken(token); err != nil {
+					return builder.String(), err
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return builder.String(), fmt.Errorf("failed to read stream: %w", err)
+	}
+	return builder.String(), nil
 }

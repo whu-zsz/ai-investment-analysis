@@ -82,6 +82,7 @@ func SetupRouter(
 			{
 				market.GET("/snapshots/latest", marketHandler.GetLatestSnapshots)
 				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
+				market.GET("/stocks/search", marketHandler.SearchStocks)
 				market.GET("/stocks/:symbol/detail", marketHandler.GetStockDetail)
 				market.GET("/stocks/:symbol/kline", marketHandler.GetStockKlines)
 			}
@@ -95,6 +96,8 @@ func SetupRouter(
 				analysis.GET("/reports", analysisHandler.GetReports)
 				analysis.GET("/reports/:id", analysisHandler.GetReportDetail)
 				analysis.GET("/reports/:id/pdf", analysisHandler.ExportReportPDF)
+				analysis.POST("/stock-chat", analysisHandler.StockChat)
+				analysis.POST("/stock-chat/stream", analysisHandler.StockChatStream)
 				analysis.GET("/candidates", analysisHandler.GetCandidates)
 				analysis.GET("/recommendations", analysisHandler.GetRecommendations)
 			}

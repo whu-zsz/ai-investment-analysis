@@ -280,6 +280,7 @@ export interface DashboardStatResponse {
 
 export interface DashboardMarketSnapshotResponse {
   snapshot_time: string;
+  refreshed_at: string;
   is_stale: boolean;
   source: string;
   indices: MarketIndexItemResponse[];
@@ -412,6 +413,63 @@ export interface AnalysisRecommendationsResponse {
   profile_summary: RecommendationProfileSummary;
   summary_text: string;
   candidates: RecommendationItemResponse[];
+}
+
+export interface StockChatMessageRequest {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface StockChatMessageResponse {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface StockChatNewsItemResponse {
+  title: string;
+  summary: string;
+  source: string;
+  url: string;
+  published_at: string;
+  provider: string;
+}
+
+export interface StockChatSnapshotResponse {
+  last_price: string;
+  change_percent: string;
+  high_price: string;
+  low_price: string;
+  volume: string;
+  turnover: string;
+  source: string;
+  fetched_at: string;
+  period: string;
+  trend_summary: string;
+}
+
+export interface StockChatResponse {
+  symbol: string;
+  asset_name: string;
+  market: string;
+  reply: string;
+  ai_model: string;
+  generated_at: string;
+  news_status: string;
+  news_summary: string;
+  news_coverage: string;
+  news_items: StockChatNewsItemResponse[];
+  snapshot: StockChatSnapshotResponse;
+  messages: StockChatMessageResponse[];
+}
+
+export type StockChatStreamEventType = 'step' | 'context' | 'token' | 'done' | 'error';
+
+export interface StockChatStreamEvent {
+  type: StockChatStreamEventType;
+  stage?: string;
+  message?: string;
+  token?: string;
+  data?: StockChatResponse | StockChatNewsItemResponse[];
 }
 
 // ─────────────────────────────────────────

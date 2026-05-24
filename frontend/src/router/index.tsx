@@ -9,6 +9,7 @@ import Profile from '../pages/Profile';
 import PortfolioPage from '../pages/Portfolio';
 import MarketTrendPage from '../pages/MarketTrend';
 import RecommendationPage from '../pages/Recommendation';
+import StockChatPage from '../pages/StockChat';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 
 export const router = createBrowserRouter([
@@ -51,6 +52,10 @@ export const router = createBrowserRouter([
   {
     path: '/app/recommendation',
     element: <ProtectedRoute><RecommendationPage /></ProtectedRoute>,
+  },
+  {
+    path: '/app/stock-chat',
+    element: <ProtectedRoute><StockChatPage /></ProtectedRoute>,
   },
   {
     path: '*',
