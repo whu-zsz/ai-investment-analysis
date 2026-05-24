@@ -6,6 +6,7 @@ import (
 	"stock-analysis-backend/internal/middleware"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/utils"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,5 +215,148 @@ func TestAuthMiddleware_WrongSecret(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+	}
+}
+
+// ========== 安全测试 ==========
+
+func TestAuth_Security_MissingBearer(t *testing.T) {
+	// 创建一个没有 Bearer 前缀的请求
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "invalid_token_format")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_EmptyToken(t *testing.T) {
+	// 创建一个空 token 的请求
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer ")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_OnlyBearer(t *testing.T) {
+	// 创建一个只有 Bearer 的请求
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_SQLInjection(t *testing.T) {
+	// 创建一个包含 SQL 注入的 token
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer ' OR '1'='1")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_XSSPayload(t *testing.T) {
+	// 创建一个包含 XSS 的 token
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer <script>alert('xss')</script>")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_UnicodeToken(t *testing.T) {
+	// 创建一个包含 Unicode 的 token
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer 测试token🎉")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuth_Security_VeryLongHeader(t *testing.T) {
+	// 创建一个超长的 Authorization header
+	longToken := strings.Repeat("a", 10000)
+	router := gin.New()
+	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+	req.Header.Set("Authorization", "Bearer "+longToken)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 应该返回 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("AuthMiddleware() status = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
 }

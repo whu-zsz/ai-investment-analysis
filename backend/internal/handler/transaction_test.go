@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"stock-analysis-backend/internal/dto/request"
@@ -11,6 +12,7 @@ import (
 	"stock-analysis-backend/internal/handler"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/service"
+	"strings"
 	"testing"
 	"time"
 
@@ -548,5 +550,544 @@ func TestGetTransactionStats_Error(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status %d, got %d", http.StatusInternalServerError, w.Code)
+	}
+}
+
+// ========== 安全测试 ==========
+
+func setupSecurityTestRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	mockService := &MockTransactionService{
+		CreateTransactionFunc: func(userID uint64, req *request.CreateTransactionRequest) error {
+			return nil
+		},
+	}
+	h := handler.NewTransactionHandler(mockService)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		c.Next()
+	})
+	router.POST("/api/v1/transactions", h.CreateTransaction)
+	return router
+}
+
+func TestTransaction_Security_SQLInjection_Create(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	sqlInjectionPayloads := []string{
+		"'; DROP TABLE transactions; --",
+		"' UNION SELECT * FROM users --",
+		"600519' OR '1'='1",
+	}
+
+	for _, payload := range sqlInjectionPayloads {
+		reqBody := fmt.Sprintf(`{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "%s",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`, payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// SQL 注入输入应被正常处理（不会导致 500 服务器错误）
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("Create transaction with SQL injection '%s' caused internal server error", payload)
+		}
+	}
+}
+
+func TestTransaction_Security_XSS_Create(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	xssPayloads := []string{
+		"<script>alert('xss')</script>",
+		"<img src=x onerror=alert('xss')>",
+		"javascript:alert('xss')",
+	}
+
+	for _, payload := range xssPayloads {
+		reqBody := fmt.Sprintf(`{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "%s",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`, payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// XSS 输入应被正常处理（不会导致 500 服务器错误）
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("Create transaction with XSS '%s' caused internal server error", payload)
+		}
+	}
+}
+
+func TestTransaction_Security_NegativeAmount(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	reqBody := `{
+		"transaction_date": "2024-01-15",
+		"transaction_type": "buy",
+		"asset_type": "stock",
+		"asset_code": "600519",
+		"asset_name": "贵州茅台",
+		"quantity": "-100",
+		"price_per_unit": "1850.00"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 负数金额应被正常处理（不会导致 500 服务器错误）
+	if w.Code == http.StatusInternalServerError {
+		t.Errorf("Create transaction with negative amount caused internal server error")
+	}
+}
+
+func TestTransaction_Security_ZeroAmount(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	reqBody := `{
+		"transaction_date": "2024-01-15",
+		"transaction_type": "buy",
+		"asset_type": "stock",
+		"asset_code": "600519",
+		"asset_name": "贵州茅台",
+		"quantity": "0",
+		"price_per_unit": "1850.00"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 零金额应被正常处理（不会导致 500 服务器错误）
+	if w.Code == http.StatusInternalServerError {
+		t.Errorf("Create transaction with zero amount caused internal server error")
+	}
+}
+
+func TestTransaction_Security_OverflowAmount(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	reqBody := `{
+		"transaction_date": "2024-01-15",
+		"transaction_type": "buy",
+		"asset_type": "stock",
+		"asset_code": "600519",
+		"asset_name": "贵州茅台",
+		"quantity": "99999999999999999999",
+		"price_per_unit": "99999999999999999999"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 超大金额应被正常处理（不会导致 500 服务器错误）
+	if w.Code == http.StatusInternalServerError {
+		t.Errorf("Create transaction with overflow amount caused internal server error")
+	}
+}
+
+func TestTransaction_Security_InvalidDate(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	invalidDates := []string{
+		"invalid-date",
+		"2024-13-01",
+		"2024-00-01",
+		"2024-01-32",
+		"not-a-date",
+	}
+
+	for _, date := range invalidDates {
+		reqBody := fmt.Sprintf(`{
+			"transaction_date": "%s",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`, date)
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// 无效日期应被正常处理（不会导致 500 服务器错误）
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("Create transaction with invalid date '%s' caused internal server error", date)
+		}
+	}
+}
+
+func TestTransaction_Security_FutureDate(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	futureDate := time.Now().AddDate(1, 0, 0).Format("2006-01-02")
+	reqBody := fmt.Sprintf(`{
+		"transaction_date": "%s",
+		"transaction_type": "buy",
+		"asset_type": "stock",
+		"asset_code": "600519",
+		"asset_name": "贵州茅台",
+		"quantity": "100",
+		"price_per_unit": "1850.00"
+	}`, futureDate)
+
+	req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 未来日期应被正常处理（不会导致 500 服务器错误）
+	if w.Code == http.StatusInternalServerError {
+		t.Errorf("Create transaction with future date caused internal server error")
+	}
+}
+
+func TestTransaction_Security_EmptyFields(t *testing.T) {
+	router := setupSecurityTestRouter(t)
+
+	reqBody := `{
+		"transaction_date": "",
+		"transaction_type": "",
+		"asset_type": "",
+		"asset_code": "",
+		"asset_name": "",
+		"quantity": "",
+		"price_per_unit": ""
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// 空字段应被正常处理（不会导致 500 服务器错误）
+	if w.Code == http.StatusInternalServerError {
+		t.Errorf("Create transaction with empty fields caused internal server error")
+	}
+}
+
+// ========== 性能测试 ==========
+
+func BenchmarkTransaction_Create(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		CreateTransactionFunc: func(userID uint64, req *request.CreateTransactionRequest) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.POST("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.CreateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Create returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetList(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionsFunc: func(userID uint64, page, pageSize int) (*response.TransactionListResponse, error) {
+			return &response.TransactionListResponse{
+				Transactions: []response.TransactionResponse{},
+				Total:        0,
+				Page:         page,
+				PageSize:     pageSize,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactions(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions?page=1&page_size=10", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetList returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetByID(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionByIDFunc: func(userID uint64, id uint64) (*model.Transaction, error) {
+			return &model.Transaction{
+				ID:              id,
+				UserID:          userID,
+				TransactionType: "buy",
+				AssetCode:       "600519",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetByID returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_Update(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		UpdateTransactionFunc: func(userID uint64, id uint64, req *request.UpdateTransactionRequest) (*model.Transaction, error) {
+			return &model.Transaction{
+				ID:              id,
+				UserID:          userID,
+				TransactionType: "buy",
+				AssetCode:       "600519",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.PUT("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.UpdateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "200",
+			"price_per_unit": "1900.00"
+		}`
+
+		req := httptest.NewRequest("PUT", "/api/v1/transactions/1", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Update returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_Delete(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		DeleteTransactionFunc: func(userID uint64, id uint64) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.DELETE("/api/v1/transactions/:id", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.DeleteTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("DELETE", "/api/v1/transactions/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Delete returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_GetStats(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionStatsFunc: func(userID uint64) (*response.TransactionStats, error) {
+			return &response.TransactionStats{
+				TotalTransactions: 100,
+				BuyCount:          60,
+				SellCount:         40,
+				TotalInvestment:   "1000000",
+				TotalProfit:       "50000",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions/stats", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactionStats(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions/stats", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetStats returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_BatchCreate(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		CreateTransactionFunc: func(userID uint64, req *request.CreateTransactionRequest) error {
+			return nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.POST("/api/v1/transactions/batch", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.CreateTransaction(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"transaction_date": "2024-01-15",
+			"transaction_type": "buy",
+			"asset_type": "stock",
+			"asset_code": "600519",
+			"asset_name": "贵州茅台",
+			"quantity": "100",
+			"price_per_unit": "1850.00"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/transactions/batch", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("BatchCreate returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkTransaction_FilterByDate(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockTransactionService{
+		GetTransactionsFunc: func(userID uint64, page, pageSize int) (*response.TransactionListResponse, error) {
+			return &response.TransactionListResponse{
+				Transactions: []response.TransactionResponse{},
+				Total:        0,
+				Page:         page,
+				PageSize:     pageSize,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewTransactionHandler(mockService)
+	router.GET("/api/v1/transactions", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetTransactions(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/transactions?start_date=2024-01-01&end_date=2024-12-31", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("FilterByDate returned %d", w.Code)
+		}
 	}
 }

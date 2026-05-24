@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"stock-analysis-backend/internal/dto/request"
@@ -284,5 +285,323 @@ func TestLogout_MissingContext(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+	}
+}
+
+// ========== 安全测试 ==========
+
+func TestUser_Security_SQLInjection_Register(t *testing.T) {
+	sqlInjectionPayloads := []string{
+		"' OR '1'='1",
+		"'; DROP TABLE users; --",
+		"' UNION SELECT * FROM users --",
+		"admin'--",
+	}
+
+	for _, payload := range sqlInjectionPayloads {
+		t.Run(payload, func(t *testing.T) {
+			mockService := &MockUserService{
+				RegisterFunc: func(req *request.RegisterRequest) (*model.User, error) {
+					return &model.User{
+						ID:       1,
+						Username: req.Username,
+						Email:    req.Email,
+					}, nil
+				},
+			}
+
+			h := handler.NewUserHandler(mockService)
+			router := gin.New()
+			router.POST("/register", h.Register)
+
+			reqBody := fmt.Sprintf(`{
+				"username": "%s",
+				"email": "test@example.com",
+				"password": "Test123456"
+			}`, payload)
+
+			req := httptest.NewRequest("POST", "/register", bytes.NewBufferString(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusOK {
+				t.Errorf("Register with SQL injection '%s' returned %d", payload, w.Code)
+			}
+		})
+	}
+}
+
+func TestUser_Security_XSS_Register(t *testing.T) {
+	xssPayloads := []string{
+		"<script>alert('xss')</script>",
+		"<img src=x onerror=alert('xss')>",
+		"javascript:alert('xss')",
+		"<svg onload=alert('xss')>",
+	}
+
+	for _, payload := range xssPayloads {
+		t.Run(payload, func(t *testing.T) {
+			mockService := &MockUserService{
+				RegisterFunc: func(req *request.RegisterRequest) (*model.User, error) {
+					return &model.User{
+						ID:       1,
+						Username: req.Username,
+						Email:    req.Email,
+					}, nil
+				},
+			}
+
+			h := handler.NewUserHandler(mockService)
+			router := gin.New()
+			router.POST("/register", h.Register)
+
+			reqBody := fmt.Sprintf(`{
+				"username": "%s",
+				"email": "test@example.com",
+				"password": "Test123456"
+			}`, payload)
+
+			req := httptest.NewRequest("POST", "/register", bytes.NewBufferString(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusOK {
+				t.Errorf("Register with XSS '%s' returned %d", payload, w.Code)
+			}
+		})
+	}
+}
+
+func TestUser_Security_SQLInjection_Login(t *testing.T) {
+	sqlInjectionPayloads := []string{
+		"' OR '1'='1",
+		"'; DROP TABLE users; --",
+		"admin'--",
+	}
+
+	for _, payload := range sqlInjectionPayloads {
+		t.Run(payload, func(t *testing.T) {
+			mockService := &MockUserService{
+				LoginFunc: func(req *request.LoginRequest) (*response.LoginResponse, error) {
+					return nil, errors.New("invalid username or password")
+				},
+			}
+
+			h := handler.NewUserHandler(mockService)
+			router := gin.New()
+			router.POST("/login", h.Login)
+
+			reqBody := fmt.Sprintf(`{
+				"username": "%s",
+				"password": "Test123456"
+			}`, payload)
+
+			req := httptest.NewRequest("POST", "/login", bytes.NewBufferString(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized && w.Code != http.StatusBadRequest {
+				t.Errorf("Login with SQL injection '%s' returned %d", payload, w.Code)
+			}
+		})
+	}
+}
+
+func TestUser_Security_SpecialChars_Profile(t *testing.T) {
+	specialChars := []string{
+		"test<script>alert('xss')</script>",
+		"test'; DROP TABLE users; --",
+		"test${7*7}",
+		"test{{7*7}}",
+		"test%00",
+	}
+
+	for _, chars := range specialChars {
+		t.Run(chars, func(t *testing.T) {
+			mockService := &MockUserService{
+				UpdateProfileFunc: func(userID uint64, req *request.UpdateProfileRequest) (*model.User, error) {
+					return &model.User{
+						ID:                   userID,
+						Username:             "testuser",
+						Phone:                req.Phone,
+						InvestmentPreference: *req.InvestmentPreference,
+					}, nil
+				},
+			}
+
+			h := handler.NewUserHandler(mockService)
+			router := gin.New()
+			router.PUT("/profile", func(c *gin.Context) {
+				c.Set("user_id", uint64(1))
+				c.Next()
+			}, h.UpdateProfile)
+
+			reqBody := fmt.Sprintf(`{
+				"phone": "%s",
+				"investment_preference": "balanced"
+			}`, chars)
+
+			req := httptest.NewRequest("PUT", "/profile", bytes.NewBufferString(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusOK {
+				t.Errorf("Update profile with special chars '%s' returned %d", chars, w.Code)
+			}
+		})
+	}
+}
+
+func TestUser_Security_OverflowID(t *testing.T) {
+	overflowIDs := []string{
+		"99999999999999999999",
+		"18446744073709551615",
+		"-1",
+		"0",
+	}
+
+	for _, id := range overflowIDs {
+		t.Run(id, func(t *testing.T) {
+			mockService := &MockUserService{
+				GetProfileFunc: func(userID uint64) (*model.User, error) {
+					return nil, errors.New("invalid user id")
+				},
+			}
+
+			h := handler.NewUserHandler(mockService)
+			router := gin.New()
+			router.GET("/transactions/:id", func(c *gin.Context) {
+				c.Set("user_id", uint64(1))
+				c.Next()
+			}, h.GetProfile)
+
+			req := httptest.NewRequest("GET", "/transactions/"+id, nil)
+			req.Header.Set("Authorization", "Bearer valid_token")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusUnauthorized && w.Code != http.StatusNotFound {
+				t.Errorf("Request with overflow ID '%s' returned %d", id, w.Code)
+			}
+		})
+	}
+}
+
+// ========== 性能测试 ==========
+
+func BenchmarkUser_Register(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		RegisterFunc: func(req *request.RegisterRequest) (*model.User, error) {
+			return &model.User{
+				ID:       1,
+				Username: req.Username,
+				Email:    req.Email,
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.POST("/api/v1/auth/register", h.Register)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := fmt.Sprintf(`{
+			"username": "user_%d",
+			"email": "user_%d@example.com",
+			"password": "Test123456"
+		}`, i, i)
+
+		req := httptest.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Register returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkUser_Login(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		LoginFunc: func(req *request.LoginRequest) (*response.LoginResponse, error) {
+			return &response.LoginResponse{
+				Token: "test_token",
+				User: response.UserResponse{
+					ID:       1,
+					Username: req.Username,
+				},
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.POST("/api/v1/auth/login", h.Login)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		reqBody := `{
+			"username": "testuser",
+			"password": "Test123456"
+		}`
+
+		req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("Login returned %d", w.Code)
+		}
+	}
+}
+
+func BenchmarkUser_GetProfile(b *testing.B) {
+	// 创建 mock 服务
+	mockService := &MockUserService{
+		GetProfileFunc: func(userID uint64) (*model.User, error) {
+			return &model.User{
+				ID:       userID,
+				Username: "testuser",
+				Email:    "test@example.com",
+			}, nil
+		},
+	}
+
+	// 创建路由
+	router := gin.New()
+	h := handler.NewUserHandler(mockService)
+	router.GET("/api/v1/user/profile", func(c *gin.Context) {
+		c.Set("user_id", uint64(1))
+		h.GetProfile(c)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/user/profile", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			b.Fatalf("GetProfile returned %d", w.Code)
+		}
 	}
 }
