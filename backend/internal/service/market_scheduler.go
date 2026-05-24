@@ -30,6 +30,7 @@ func NewMarketScheduler(interval time.Duration, marketDataService MarketDataServ
 
 func (s *marketScheduler) Start(ctx context.Context) {
 	go func() {
+		s.warmup(ctx)
 		s.runOnce(ctx)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
@@ -44,6 +45,14 @@ func (s *marketScheduler) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (s *marketScheduler) warmup(ctx context.Context) {
+	if err := s.marketDataService.EnsureTrackedIndexHistory(ctx); err != nil {
+		s.logger.Warn("market index history warmup failed", zap.Error(err))
+		return
+	}
+	s.logger.Info("market index history warmup finished")
 }
 
 func (s *marketScheduler) runOnce(ctx context.Context) {

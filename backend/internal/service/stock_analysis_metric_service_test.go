@@ -164,6 +164,10 @@ func (s *MockMetricMarketDataService) FetchAndStoreQuotesBySymbols(ctx context.C
 	return s.Snapshots, nil
 }
 
+func (s *MockMetricMarketDataService) EnsureTrackedIndexHistory(ctx context.Context) error {
+	return s.Err
+}
+
 // TestNormalizeSymbols 测试股票代码标准化
 func TestNormalizeSymbols(t *testing.T) {
 	tests := []struct {

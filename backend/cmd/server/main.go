@@ -59,23 +59,39 @@ func main() {
 	analysisReportItemRepo := repository.NewAnalysisReportItemRepository(db)
 	uploadedFileRepo := repository.NewUploadedFileRepository(db)
 	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
+	stockQuoteDetailRepo := repository.NewStockQuoteDetailRepository(db)
+	stockKlineRepo := repository.NewStockKlineRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
+	revokedTokenRepo := repository.NewRevokedTokenRepository(db)
 
 	llmProvider, err := llm.NewProvider(cfg)
 	if err != nil {
 		log.Fatal("Failed to initialize llm provider", zap.Error(err), zap.String("provider", cfg.LLM.Provider))
 	}
-	marketProvider, err := marketdata.NewProvider(cfg.Market)
-	if err != nil {
-		log.Fatal("Failed to initialize market provider", zap.Error(err))
+	var marketProvider marketdata.Provider
+	if cfg.Market.Enabled {
+		marketProvider, err = marketdata.NewProvider(cfg.Market)
+		if err != nil {
+			log.Fatal("Failed to initialize market provider", zap.Error(err), zap.String("provider", cfg.Market.Provider))
+		}
+		log.Info("Market data provider initialized",
+			zap.String("provider", cfg.Market.Provider),
+			zap.String("symbols", cfg.Market.Symbols),
+			zap.Int("snapshot_interval_seconds", cfg.Market.SnapshotInterval),
+		)
+		if cfg.Market.Provider == "mock" {
+			log.Warn("Market data provider is mock; analysis and recommendation features will not use real-time market data")
+		}
+	} else {
+		log.Info("Market data integration disabled")
 	}
 
-	userService := service.NewUserService(userRepo, cfg.JWT)
+	userService := service.NewUserService(userRepo, revokedTokenRepo, cfg.JWT)
 	fileParserService := service.NewFileParserService()
 	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
 	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, portfolioService, fileParserService, cfg.Upload)
 	transactionService := service.NewTransactionService(transactionRepo, portfolioService)
-	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo)
+	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo, stockKlineRepo)
 	stockMetricService := service.NewStockAnalysisMetricService(stockMetricRepo, transactionRepo, marketSnapshotRepo, marketDataService)
 	aiService := service.NewAIService(
 		analysisTaskRepo,
@@ -95,6 +111,7 @@ func main() {
 		llmProvider,
 	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
+	marketStockService := service.NewMarketStockService(marketProvider, stockQuoteDetailRepo, stockKlineRepo)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	userHandler := handler.NewUserHandler(userService)
@@ -102,7 +119,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
 	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService)
-	marketHandler := handler.NewMarketHandler(marketSnapshotService)
+	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService)
 
 	router := router.SetupRouter(
 		userHandler,
@@ -111,6 +128,7 @@ func main() {
 		portfolioHandler,
 		analysisHandler,
 		marketHandler,
+		revokedTokenRepo,
 		cfg.JWT.Secret,
 	)
 

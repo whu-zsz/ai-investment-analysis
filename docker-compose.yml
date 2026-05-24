@@ -1,0 +1,55 @@
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:-myrt1egu/stock-frontend}:${APP_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-18080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - stock-network
+
+  backend:
+    image: ${BACKEND_IMAGE:-myrt1egu/stock-backend}:${APP_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - ${BACKEND_ENV_FILE:-./.env}
+    environment:
+      SERVER_PORT: 8080
+      UPLOAD_PATH: /app/uploads
+    expose:
+      - "8080"
+    volumes:
+      - backend_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - stock-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - stock-network
+
+volumes:
+  backend_uploads:
+  redis_data:
+
+networks:
+  stock-network:
+    driver: bridge

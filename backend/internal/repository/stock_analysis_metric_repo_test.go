@@ -402,3 +402,96 @@ func TestStockAnalysisMetricRepository_Interface(t *testing.T) {
 	_, _ = repo.FindByUserPeriod(1, now, now, nil)
 	_, _ = repo.FindByUserSymbolPeriod(1, "600519.SH", now, now)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestStockAnalysisMetricRepository_Boundary_Upsert_ZeroFields(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	metric := &model.StockAnalysisMetric{
+		UserID:      0,
+		Symbol:      "",
+		AssetName:   "",
+		Market:      "",
+		PeriodStart: time.Now(),
+		PeriodEnd:   time.Now(),
+	}
+	err := repo.Upsert(metric)
+	if err != nil {
+		t.Fatalf("Upsert() with zero fields error = %v", err)
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_BatchUpsert_EmptySlice(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	err := repo.BatchUpsert([]model.StockAnalysisMetric{})
+	if err != nil {
+		t.Fatalf("BatchUpsert([]) error = %v", err)
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_BatchUpsert_SingleItem(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	now := time.Now()
+	metrics := []model.StockAnalysisMetric{
+		{
+			UserID: 1, Symbol: "600519", AssetName: "贵州茅台", Market: "SH",
+			PeriodStart: now, PeriodEnd: now, EndingPositionQty: decimal.Zero, ComputedAt: now,
+		},
+	}
+	err := repo.BatchUpsert(metrics)
+	if err != nil {
+		t.Fatalf("BatchUpsert(single item) error = %v", err)
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_FindByUserPeriod_EmptySymbols(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	now := time.Now()
+	repo.Upsert(&model.StockAnalysisMetric{
+		UserID: 1, Symbol: "600519", AssetName: "贵州茅台", Market: "SH",
+		PeriodStart: now, PeriodEnd: now, EndingPositionQty: decimal.Zero, ComputedAt: now,
+	})
+	metrics, err := repo.FindByUserPeriod(1, now, now, []string{})
+	if err != nil {
+		t.Fatalf("FindByUserPeriod(empty symbols) error = %v", err)
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("FindByUserPeriod(empty symbols) returned %d items, want 1", len(metrics))
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_FindByUserPeriod_NoMetrics(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	now := time.Now()
+	metrics, err := repo.FindByUserPeriod(999, now, now, []string{"600519"})
+	if err != nil {
+		t.Fatalf("FindByUserPeriod(999) error = %v", err)
+	}
+	if len(metrics) != 0 {
+		t.Fatalf("FindByUserPeriod(999) returned %d items, want 0", len(metrics))
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_FindByUserSymbolPeriod_EmptySymbol(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	now := time.Now()
+	metric, err := repo.FindByUserSymbolPeriod(1, "", now, now)
+	if err == nil {
+		t.Fatalf("FindByUserSymbolPeriod('') should return error")
+	}
+	if metric != nil {
+		t.Fatalf("FindByUserSymbolPeriod('') should return nil")
+	}
+}
+
+func TestStockAnalysisMetricRepository_Boundary_FindByUserSymbolPeriod_NotFound(t *testing.T) {
+	repo := NewInMemoryStockAnalysisMetricRepository()
+	now := time.Now()
+	metric, err := repo.FindByUserSymbolPeriod(999, "NONEXISTENT", now, now)
+	if err == nil {
+		t.Fatalf("FindByUserSymbolPeriod(999, 'NONEXISTENT') should return error")
+	}
+	if metric != nil {
+		t.Fatalf("FindByUserSymbolPeriod(999, 'NONEXISTENT') should return nil")
+	}
+}

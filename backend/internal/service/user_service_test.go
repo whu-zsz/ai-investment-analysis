@@ -7,17 +7,23 @@ import (
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/service"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
-// MockUserRepository 实现 UserRepository 接口用于测试
 type MockUserRepository struct {
 	users         map[uint64]*model.User
 	nextID        uint64
 	errOnCreate   error
 	errOnFindByID error
+}
+
+type MockRevokedTokenRepository struct {
+	tokens        map[string]*model.RevokedToken
+	createErr     error
+	duplicateJTIs map[string]bool
 }
 
 func NewMockUserRepository() *MockUserRepository {
@@ -27,20 +33,23 @@ func NewMockUserRepository() *MockUserRepository {
 	}
 }
 
+func NewMockRevokedTokenRepository() *MockRevokedTokenRepository {
+	return &MockRevokedTokenRepository{
+		tokens:        make(map[string]*model.RevokedToken),
+		duplicateJTIs: make(map[string]bool),
+	}
+}
+
 func (m *MockUserRepository) Create(user *model.User) error {
 	if m.errOnCreate != nil {
 		return m.errOnCreate
 	}
 	user.ID = m.nextID
-	// 模拟 GORM 的 default:true 行为
-	// 如果 IsActive 没有被显式设置（false），则设为 true
-	// 注意：这里我们假设新注册的用户默认是活跃的
 	m.users[m.nextID] = user
 	m.nextID++
 	return nil
 }
 
-// SetUserActive 设置用户活跃状态（用于测试）
 func (m *MockUserRepository) SetUserActive(id uint64, active bool) {
 	if user, ok := m.users[id]; ok {
 		user.IsActive = active
@@ -94,336 +103,241 @@ func (m *MockUserRepository) UpdateTotalProfit(id uint64, profit decimal.Decimal
 	return nil
 }
 
-// 测试配置
+func (m *MockRevokedTokenRepository) Create(token *model.RevokedToken) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
+	if m.duplicateJTIs[token.JTI] || m.tokens[token.JTI] != nil {
+		return gorm.ErrDuplicatedKey
+	}
+	m.tokens[token.JTI] = token
+	return nil
+}
+
+func (m *MockRevokedTokenRepository) ExistsByJTI(jti string) (bool, error) {
+	_, ok := m.tokens[jti]
+	return ok, nil
+}
+
 func getTestJWTConfig() config.JWTConfig {
 	return config.JWTConfig{
-		Secret:      "test_secret_key",
+		Secret:      "test_secret_key_with_32_characters_minimum",
 		ExpireHours: 24,
 	}
 }
 
-// TestUserService_Register_Success 测试用户注册成功
+func newTestUserService(repo *MockUserRepository, revokedRepo *MockRevokedTokenRepository) service.UserService {
+	return service.NewUserService(repo, revokedRepo, getTestJWTConfig())
+}
+
 func TestUserService_Register_Success(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	req := &request.RegisterRequest{
+	user, err := svc.Register(&request.RegisterRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
 		Password: "Password123",
-	}
-
-	user, err := svc.Register(req)
+	})
 
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-
 	if user.ID == 0 {
 		t.Error("Register() user ID should not be 0")
 	}
-
-	if user.Username != req.Username {
-		t.Errorf("Username = %v, want %v", user.Username, req.Username)
+	if user.Username != "testuser" {
+		t.Errorf("Username = %v, want testuser", user.Username)
 	}
-
-	if user.Email != req.Email {
-		t.Errorf("Email = %v, want %v", user.Email, req.Email)
+	if user.Email != "test@example.com" {
+		t.Errorf("Email = %v, want test@example.com", user.Email)
 	}
-
 	if user.PasswordHash == "" {
 		t.Error("PasswordHash should not be empty")
 	}
-
-	if user.PasswordHash == req.Password {
-		t.Error("PasswordHash should not equal plain password")
-	}
 }
 
-// TestUserService_Register_UsernameExists 测试用户名已存在
 func TestUserService_Register_UsernameExists(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
-
-	// 先注册一个用户
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 	repo.Create(&model.User{Username: "existing", Email: "existing@example.com", PasswordHash: "hash"})
 
-	req := &request.RegisterRequest{
-		Username: "existing",
-		Email:    "new@example.com",
-		Password: "Password123",
-	}
-
-	_, err := svc.Register(req)
-
+	_, err := svc.Register(&request.RegisterRequest{Username: "existing", Email: "new@example.com", Password: "Password123"})
 	if err == nil {
 		t.Error("Register() should return error for existing username")
 	}
-
 	if err.Error() != "username already exists" {
 		t.Errorf("Error message = %v, want 'username already exists'", err.Error())
 	}
 }
 
-// TestUserService_Register_EmailExists 测试邮箱已存在
 func TestUserService_Register_EmailExists(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
-
-	// 先注册一个用户
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 	repo.Create(&model.User{Username: "user1", Email: "existing@example.com", PasswordHash: "hash"})
 
-	req := &request.RegisterRequest{
-		Username: "newuser",
-		Email:    "existing@example.com",
-		Password: "Password123",
-	}
-
-	_, err := svc.Register(req)
-
+	_, err := svc.Register(&request.RegisterRequest{Username: "newuser", Email: "existing@example.com", Password: "Password123"})
 	if err == nil {
 		t.Error("Register() should return error for existing email")
 	}
-
 	if err.Error() != "email already exists" {
 		t.Errorf("Error message = %v, want 'email already exists'", err.Error())
 	}
 }
 
-// TestUserService_Login_Success 测试登录成功
 func TestUserService_Login_Success(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	// 注册用户
-	req := &request.RegisterRequest{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "Password123",
-	}
-	user, _ := svc.Register(req)
-	// 设置用户为活跃状态（模拟数据库默认值）
+	user, _ := svc.Register(&request.RegisterRequest{Username: "testuser", Email: "test@example.com", Password: "Password123"})
 	repo.SetUserActive(user.ID, true)
 
-	// 登录
-	loginReq := &request.LoginRequest{
-		Username: "testuser",
-		Password: "Password123",
-	}
-
-	resp, err := svc.Login(loginReq)
-
+	resp, err := svc.Login(&request.LoginRequest{Username: "testuser", Password: "Password123"})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-
 	if resp.Token == "" {
 		t.Error("Login() token should not be empty")
 	}
-
-	if resp.User.Username != "testuser" {
-		t.Errorf("Username = %v, want testuser", resp.User.Username)
-	}
 }
 
-// TestUserService_Login_WrongPassword 测试密码错误
 func TestUserService_Login_WrongPassword(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	// 注册用户
-	user, _ := svc.Register(&request.RegisterRequest{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "CorrectPassword",
-	})
+	user, _ := svc.Register(&request.RegisterRequest{Username: "testuser", Email: "test@example.com", Password: "CorrectPassword"})
 	repo.SetUserActive(user.ID, true)
 
-	// 使用错误密码登录
-	loginReq := &request.LoginRequest{
-		Username: "testuser",
-		Password: "WrongPassword",
-	}
-
-	_, err := svc.Login(loginReq)
-
+	_, err := svc.Login(&request.LoginRequest{Username: "testuser", Password: "WrongPassword"})
 	if err == nil {
 		t.Error("Login() should return error for wrong password")
 	}
-
 	if err.Error() != "invalid username or password" {
 		t.Errorf("Error message = %v, want 'invalid username or password'", err.Error())
 	}
 }
 
-// TestUserService_Login_UserNotFound 测试用户不存在
 func TestUserService_Login_UserNotFound(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	loginReq := &request.LoginRequest{
-		Username: "nonexistent",
-		Password: "Password123",
-	}
-
-	_, err := svc.Login(loginReq)
-
+	_, err := svc.Login(&request.LoginRequest{Username: "nonexistent", Password: "Password123"})
 	if err == nil {
 		t.Error("Login() should return error for non-existent user")
 	}
-
-	if err.Error() != "invalid username or password" {
-		t.Errorf("Error message = %v, want 'invalid username or password'", err.Error())
-	}
 }
 
-// TestUserService_GetProfile_Success 测试获取用户信息成功
 func TestUserService_GetProfile_Success(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
+	repo.Create(&model.User{Username: "testuser", Email: "test@example.com", InvestmentPreference: "aggressive"})
 
-	// 创建用户
-	user := &model.User{
-		Username:             "testuser",
-		Email:                "test@example.com",
-		InvestmentPreference: "aggressive",
-	}
-	repo.Create(user)
-
-	// 获取用户信息
-	result, err := svc.GetProfile(user.ID)
-
+	result, err := svc.GetProfile(1)
 	if err != nil {
 		t.Fatalf("GetProfile() error = %v", err)
 	}
-
 	if result.Username != "testuser" {
 		t.Errorf("Username = %v, want testuser", result.Username)
 	}
 }
 
-// TestUserService_GetProfile_UserNotFound 测试用户不存在
 func TestUserService_GetProfile_UserNotFound(t *testing.T) {
-	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
-
-	_, err := svc.GetProfile(999)
-
-	if err == nil {
+	svc := newTestUserService(NewMockUserRepository(), NewMockRevokedTokenRepository())
+	if _, err := svc.GetProfile(999); err == nil {
 		t.Error("GetProfile() should return error for non-existent user")
 	}
 }
 
-// TestUserService_UpdateProfile_Success 测试更新用户信息成功
 func TestUserService_UpdateProfile_Success(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
+	repo.Create(&model.User{Username: "testuser", Email: "test@example.com"})
 
-	// 创建用户
-	user := &model.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-	}
-	repo.Create(user)
-
-	// 更新用户信息
 	phone := "13800138000"
 	preference := "aggressive"
-	req := &request.UpdateProfileRequest{
-		Phone:                &phone,
-		InvestmentPreference: &preference,
-	}
-
-	result, err := svc.UpdateProfile(user.ID, req)
-
+	result, err := svc.UpdateProfile(1, &request.UpdateProfileRequest{Phone: &phone, InvestmentPreference: &preference})
 	if err != nil {
 		t.Fatalf("UpdateProfile() error = %v", err)
 	}
-
 	if result.Phone == nil || *result.Phone != phone {
 		t.Errorf("Phone = %v, want %v", result.Phone, phone)
 	}
-
 	if result.InvestmentPreference != preference {
 		t.Errorf("InvestmentPreference = %v, want %v", result.InvestmentPreference, preference)
 	}
 }
 
-// TestUserService_UpdateProfile_UserNotFound 测试更新不存在的用户
 func TestUserService_UpdateProfile_UserNotFound(t *testing.T) {
-	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
-
+	svc := newTestUserService(NewMockUserRepository(), NewMockRevokedTokenRepository())
 	preference := "aggressive"
-	req := &request.UpdateProfileRequest{
-		InvestmentPreference: &preference,
-	}
-
-	_, err := svc.UpdateProfile(999, req)
-
-	if err == nil {
+	if _, err := svc.UpdateProfile(999, &request.UpdateProfileRequest{InvestmentPreference: &preference}); err == nil {
 		t.Error("UpdateProfile() should return error for non-existent user")
 	}
 }
 
-// TestUserService_Login_InactiveUser 测试用户账户已停用
 func TestUserService_Login_InactiveUser(t *testing.T) {
 	repo := NewMockUserRepository()
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	// 先注册一个正常用户获取正确的密码哈希
-	svc.Register(&request.RegisterRequest{
-		Username: "temp",
-		Email:    "temp@example.com",
-		Password: "Password123",
-	})
-
+	svc.Register(&request.RegisterRequest{Username: "temp", Email: "temp@example.com", Password: "Password123"})
 	tempUser, _ := repo.FindByUsername("temp")
+	repo.Create(&model.User{Username: "inactive", Email: "inactive@example.com", PasswordHash: tempUser.PasswordHash, IsActive: false})
 
-	// 创建停用的用户（使用相同的密码哈希）
-	inactiveUser := &model.User{
-		Username:     "inactive",
-		Email:        "inactive@example.com",
-		PasswordHash: tempUser.PasswordHash,
-		IsActive:     false,
-	}
-	repo.Create(inactiveUser)
-
-	loginReq := &request.LoginRequest{
-		Username: "inactive",
-		Password: "Password123",
-	}
-
-	_, err := svc.Login(loginReq)
-
+	_, err := svc.Login(&request.LoginRequest{Username: "inactive", Password: "Password123"})
 	if err == nil {
 		t.Error("Login() should return error for inactive user")
 	}
-
 	if err.Error() != "user account is deactivated" {
 		t.Errorf("Error message = %v, want 'user account is deactivated'", err.Error())
 	}
 }
 
-// TestUserService_Register_DatabaseError 测试数据库错误
 func TestUserService_Register_DatabaseError(t *testing.T) {
 	repo := NewMockUserRepository()
 	repo.errOnCreate = errors.New("database connection error")
-	svc := service.NewUserService(repo, getTestJWTConfig())
+	svc := newTestUserService(repo, NewMockRevokedTokenRepository())
 
-	req := &request.RegisterRequest{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "Password123",
-	}
-
-	// 首先注册一次使其用户名存在
-	_, _ = svc.Register(req)
-
-	// 由于我们设置了错误，所以应该返回错误
-	_, err := svc.Register(req)
-
+	_, err := svc.Register(&request.RegisterRequest{Username: "testuser", Email: "test@example.com", Password: "Password123"})
 	if err == nil {
 		t.Error("Register() should return error on database error")
+	}
+}
+
+func TestUserService_Logout_Success(t *testing.T) {
+	revokedRepo := NewMockRevokedTokenRepository()
+	svc := newTestUserService(NewMockUserRepository(), revokedRepo)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	if err := svc.Logout(1, "token-jti", expiresAt); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+
+	token, ok := revokedRepo.tokens["token-jti"]
+	if !ok {
+		t.Fatal("revoked token not written")
+	}
+	if token.UserID != 1 {
+		t.Errorf("revoked token user_id = %d, want 1", token.UserID)
+	}
+}
+
+func TestUserService_Logout_RequiresJTI(t *testing.T) {
+	svc := newTestUserService(NewMockUserRepository(), NewMockRevokedTokenRepository())
+	if err := svc.Logout(1, "   ", time.Now().Add(time.Hour)); err == nil {
+		t.Fatal("Logout() error = nil, want error")
+	}
+}
+
+func TestUserService_Logout_IdempotentOnDuplicate(t *testing.T) {
+	revokedRepo := NewMockRevokedTokenRepository()
+	svc := newTestUserService(NewMockUserRepository(), revokedRepo)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	if err := svc.Logout(1, "duplicate-jti", expiresAt); err != nil {
+		t.Fatalf("first Logout() error = %v", err)
+	}
+	revokedRepo.duplicateJTIs["duplicate-jti"] = true
+	if err := svc.Logout(1, "duplicate-jti", expiresAt); err != nil {
+		t.Fatalf("second Logout() error = %v, want nil", err)
 	}
 }

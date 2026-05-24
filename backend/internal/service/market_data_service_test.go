@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"stock-analysis-backend/internal/config"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/pkg/marketdata"
@@ -14,8 +15,12 @@ import (
 
 // MockMarketDataProvider 模拟市场数据提供者
 type MockMarketDataProvider struct {
-	Quotes []marketdata.Quote
-	Err    error
+	Quotes          []marketdata.Quote
+	Klines          []marketdata.KlineBar
+	Detail          *marketdata.StockDetail
+	Err             error
+	DetailCalls     int
+	KlineCalls      int
 }
 
 func (p *MockMarketDataProvider) GetQuotes(ctx context.Context, symbols []string) ([]marketdata.Quote, error) {
@@ -25,10 +30,83 @@ func (p *MockMarketDataProvider) GetQuotes(ctx context.Context, symbols []string
 	return p.Quotes, nil
 }
 
+func (p *MockMarketDataProvider) GetStockDetail(ctx context.Context, symbol string) (*marketdata.StockDetail, error) {
+	p.DetailCalls++
+	if p.Err != nil {
+		return nil, p.Err
+	}
+	if p.Detail != nil {
+		return p.Detail, nil
+	}
+	return &marketdata.StockDetail{Symbol: symbol, Name: symbol, Market: "cn_stock", FetchedAt: time.Now(), Source: "mock"}, nil
+}
+
+func (p *MockMarketDataProvider) GetKlines(ctx context.Context, symbol, period, adjust string, limit int) ([]marketdata.KlineBar, error) {
+	p.KlineCalls++
+	if p.Err != nil {
+		return nil, p.Err
+	}
+	if len(p.Klines) > 0 {
+		return p.Klines, nil
+	}
+	return []marketdata.KlineBar{}, nil
+}
+
 // MockMarketDataSnapshotRepo 模拟市场快照仓储
 type MockMarketDataSnapshotRepo struct {
 	Snapshots []model.MarketSnapshot
 	Err       error
+}
+
+type MockStockQuoteDetailRepo struct {
+	Detail       *model.StockQuoteDetail
+	FindErr      error
+	Upserted     *model.StockQuoteDetail
+	UpsertErr    error
+}
+
+func (r *MockStockQuoteDetailRepo) Upsert(detail *model.StockQuoteDetail) error {
+	r.Upserted = detail
+	return r.UpsertErr
+}
+
+func (r *MockStockQuoteDetailRepo) FindBySymbol(symbol string) (*model.StockQuoteDetail, error) {
+	if r.FindErr != nil {
+		return nil, r.FindErr
+	}
+	if r.Detail == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return r.Detail, nil
+}
+
+type MockStockKlineRepo struct {
+	Bars           []model.StockKlineBar
+	LatestBars     map[string]*model.StockKlineBar
+	UpsertedBars   []model.StockKlineBar
+	FindLatestErr  error
+	UpsertErr      error
+}
+
+func (r *MockStockKlineRepo) UpsertBars(bars []model.StockKlineBar) error {
+	r.UpsertedBars = append(r.UpsertedBars, bars...)
+	return r.UpsertErr
+}
+
+func (r *MockStockKlineRepo) FindBars(symbol, period, adjust string, limit int) ([]model.StockKlineBar, error) {
+	return r.Bars, nil
+}
+
+func (r *MockStockKlineRepo) FindLatestBar(symbol, period, adjust string) (*model.StockKlineBar, error) {
+	if r.LatestBars != nil {
+		if bar, ok := r.LatestBars[symbol+"|"+period+"|"+adjust]; ok {
+			return bar, nil
+		}
+	}
+	if r.FindLatestErr != nil {
+		return nil, r.FindLatestErr
+	}
+	return nil, gorm.ErrRecordNotFound
 }
 
 func (r *MockMarketDataSnapshotRepo) BatchCreate(snapshots []model.MarketSnapshot) error {
@@ -217,6 +295,7 @@ func TestMarketDataService_FetchAndStoreMarketSnapshots(t *testing.T) {
 		config.MarketConfig{Symbols: "000001.SH"},
 		mockProvider,
 		mockRepo,
+		nil,
 	)
 
 	batchNo, count, err := svc.FetchAndStoreMarketSnapshots(context.Background())
@@ -326,6 +405,283 @@ func TestMarketDataService_QuoteConversion(t *testing.T) {
 	}
 	if !s.Volume.Equal(decimal.NewFromFloat(quote.Volume)) {
 		t.Errorf("Volume = %v, want %v", s.Volume, quote.Volume)
+	}
+}
+
+func TestMarketDataService_EnsureTrackedIndexHistory_FetchMissing(t *testing.T) {
+	mockProvider := &MockMarketDataProvider{
+		Klines: []marketdata.KlineBar{
+			{
+				Symbol:     "000001.SZ",
+				Period:     "day",
+				AdjustType: "none",
+				BarTime:    time.Now(),
+				Open:       3000,
+				Close:      3050,
+				High:       3060,
+				Low:        2990,
+				Source:     "mock",
+			},
+		},
+	}
+	mockRepo := &MockStockKlineRepo{}
+
+	svc := &marketDataService{
+		marketConfig: config.MarketConfig{Symbols: "000001.SH"},
+		provider:     mockProvider,
+		klineRepo:    mockRepo,
+	}
+
+	if err := svc.EnsureTrackedIndexHistory(context.Background()); err != nil {
+		t.Fatalf("EnsureTrackedIndexHistory() error = %v", err)
+	}
+
+	if len(mockRepo.UpsertedBars) != 1 {
+		t.Fatalf("UpsertedBars = %d, want 1", len(mockRepo.UpsertedBars))
+	}
+	if mockRepo.UpsertedBars[0].Symbol != "000001.SZ" {
+		t.Fatalf("Symbol = %s, want 000001.SZ", mockRepo.UpsertedBars[0].Symbol)
+	}
+	if mockRepo.UpsertedBars[0].Period != "day" {
+		t.Fatalf("Period = %s, want day", mockRepo.UpsertedBars[0].Period)
+	}
+	if mockRepo.UpsertedBars[0].AdjustType != "none" {
+		t.Fatalf("AdjustType = %s, want none", mockRepo.UpsertedBars[0].AdjustType)
+	}
+}
+
+func TestMarketDataService_EnsureTrackedIndexHistory_SkipExisting(t *testing.T) {
+	mockProvider := &MockMarketDataProvider{
+		Klines: []marketdata.KlineBar{{Symbol: "000001.SH", Period: "day", AdjustType: "none", BarTime: time.Now(), Source: "mock"}},
+	}
+	mockRepo := &MockStockKlineRepo{
+		LatestBars: map[string]*model.StockKlineBar{
+			"000001.SH|day|none": {Symbol: "000001.SH", Period: "day", AdjustType: "none", BarTime: time.Now()},
+		},
+	}
+
+	svc := &marketDataService{
+		marketConfig: config.MarketConfig{Symbols: "000001.SH"},
+		provider:     mockProvider,
+		klineRepo:    mockRepo,
+	}
+
+	if err := svc.EnsureTrackedIndexHistory(context.Background()); err != nil {
+		t.Fatalf("EnsureTrackedIndexHistory() error = %v", err)
+	}
+	if len(mockRepo.UpsertedBars) != 0 {
+		t.Fatalf("UpsertedBars = %d, want 0", len(mockRepo.UpsertedBars))
+	}
+}
+
+func TestMarketDataService_EnsureTrackedIndexHistory_ContinueOnError(t *testing.T) {
+	expectedErr := errors.New("provider failed")
+	mockProvider := &MockMarketDataProvider{Err: expectedErr}
+	mockRepo := &MockStockKlineRepo{}
+
+	svc := &marketDataService{
+		marketConfig: config.MarketConfig{Symbols: "000001.SH,399001.SZ"},
+		provider:     mockProvider,
+		klineRepo:    mockRepo,
+	}
+
+	err := svc.EnsureTrackedIndexHistory(context.Background())
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("EnsureTrackedIndexHistory() error = %v, want %v", err, expectedErr)
+	}
+}
+
+func TestMarketStockService_GetStockDetailUsesDatabaseCache(t *testing.T) {
+	detailRepo := &MockStockQuoteDetailRepo{
+		Detail: &model.StockQuoteDetail{
+			Symbol:    "000858.SZ",
+			Name:      "五粮液",
+			Market:    "cn_stock",
+			LastPrice: decimal.NewFromFloat(128.88),
+			Industry:  "GP-A-CYB",
+			Region:    "—",
+			Concepts:  "腾讯行情,白酒,白酒",
+			Source:    "eastmoney",
+			FetchedAt: time.Now().Add(-24 * time.Hour),
+		},
+	}
+	provider := &MockMarketDataProvider{}
+	svc := &marketStockService{provider: provider, detailRepo: detailRepo, klineRepo: &MockStockKlineRepo{}}
+
+	res, err := svc.GetStockDetail("000858.SZ", false)
+	if err != nil {
+		t.Fatalf("GetStockDetail() error = %v", err)
+	}
+	if provider.DetailCalls != 0 {
+		t.Fatalf("DetailCalls = %d, want 0", provider.DetailCalls)
+	}
+	if res.Symbol != "000858.SZ" {
+		t.Fatalf("Symbol = %s, want 000858.SZ", res.Symbol)
+	}
+	if res.RefreshTriggered {
+		t.Fatal("RefreshTriggered = true, want false")
+	}
+	if res.Industry != "" {
+		t.Fatalf("Industry = %q, want empty", res.Industry)
+	}
+	if res.Region != "" {
+		t.Fatalf("Region = %q, want empty", res.Region)
+	}
+	if len(res.Concepts) != 1 || res.Concepts[0] != "白酒" {
+		t.Fatalf("Concepts = %#v, want [白酒]", res.Concepts)
+	}
+}
+
+func TestMarketStockService_GetStockDetailForceRefreshAndUpsert(t *testing.T) {
+	detailRepo := &MockStockQuoteDetailRepo{
+		Detail: &model.StockQuoteDetail{
+			Symbol:    "000858.SZ",
+			Name:      "旧详情",
+			Market:    "cn_stock",
+			FetchedAt: time.Now().Add(-24 * time.Hour),
+		},
+	}
+	provider := &MockMarketDataProvider{
+		Detail: &marketdata.StockDetail{
+			Symbol:    "000858.SZ",
+			Name:      "五粮液",
+			Market:    "cn_stock",
+			LastPrice: 129.66,
+			PrevClose: 128.00,
+			FetchedAt: time.Now(),
+			Source:    "eastmoney",
+		},
+	}
+	svc := &marketStockService{provider: provider, detailRepo: detailRepo, klineRepo: &MockStockKlineRepo{}}
+
+	res, err := svc.GetStockDetail("000858.SZ", true)
+	if err != nil {
+		t.Fatalf("GetStockDetail() error = %v", err)
+	}
+	if provider.DetailCalls != 1 {
+		t.Fatalf("DetailCalls = %d, want 1", provider.DetailCalls)
+	}
+	if detailRepo.Upserted == nil {
+		t.Fatal("expected detail upsert")
+	}
+	if detailRepo.Upserted.Industry != "" {
+		t.Fatalf("Upserted Industry = %q, want empty", detailRepo.Upserted.Industry)
+	}
+	if detailRepo.Upserted.Region != "" {
+		t.Fatalf("Upserted Region = %q, want empty", detailRepo.Upserted.Region)
+	}
+	if detailRepo.Upserted.Concepts != "" {
+		t.Fatalf("Upserted Concepts = %q, want empty", detailRepo.Upserted.Concepts)
+	}
+	if !res.RefreshTriggered {
+		t.Fatal("RefreshTriggered = false, want true")
+	}
+}
+
+func TestMarketStockService_GetStockKlinesUsesDatabaseCacheWhenEnoughBars(t *testing.T) {
+	now := time.Now()
+	bars := make([]model.StockKlineBar, 0, 120)
+	for i := 0; i < 120; i++ {
+		bars = append(bars, model.StockKlineBar{
+			Symbol:     "000858.SZ",
+			Period:     "day",
+			AdjustType: "qfq",
+			BarTime:    now.Add(-time.Duration(i) * 24 * time.Hour),
+			ClosePrice: decimal.NewFromFloat(100 + float64(i)),
+			Source:     "tencent",
+		})
+	}
+	provider := &MockMarketDataProvider{}
+	svc := &marketStockService{
+		provider:   provider,
+		detailRepo: &MockStockQuoteDetailRepo{},
+		klineRepo:  &MockStockKlineRepo{Bars: bars},
+	}
+
+	res, err := svc.GetStockKlines("000858.SZ", "day", "qfq", 60, false)
+	if err != nil {
+		t.Fatalf("GetStockKlines() error = %v", err)
+	}
+	if provider.KlineCalls != 0 {
+		t.Fatalf("KlineCalls = %d, want 0", provider.KlineCalls)
+	}
+	if len(res.Items) != 120 {
+		t.Fatalf("Items len = %d, want 120", len(res.Items))
+	}
+	if res.RefreshTriggered {
+		t.Fatal("RefreshTriggered = true, want false")
+	}
+}
+
+func TestMarketStockService_GetStockKlinesFetchesAndUpsertsWhenCacheInsufficient(t *testing.T) {
+	now := time.Now()
+	cached := []model.StockKlineBar{{
+		Symbol:     "000858.SZ",
+		Period:     "day",
+		AdjustType: "qfq",
+		BarTime:    now.Add(-24 * time.Hour),
+		ClosePrice: decimal.NewFromFloat(120),
+		Source:     "tencent",
+	}}
+	fetched := []marketdata.KlineBar{
+		{Symbol: "000858.SZ", Period: "day", AdjustType: "qfq", BarTime: now.Add(-24 * time.Hour), Close: 120, Source: "tencent"},
+		{Symbol: "000858.SZ", Period: "day", AdjustType: "qfq", BarTime: now, Close: 121, Source: "tencent"},
+	}
+	provider := &MockMarketDataProvider{Klines: fetched}
+	repo := &MockStockKlineRepo{Bars: cached}
+	svc := &marketStockService{
+		provider:   provider,
+		detailRepo: &MockStockQuoteDetailRepo{},
+		klineRepo:  repo,
+	}
+
+	res, err := svc.GetStockKlines("000858.SZ", "day", "qfq", 2, false)
+	if err != nil {
+		t.Fatalf("GetStockKlines() error = %v", err)
+	}
+	if provider.KlineCalls != 1 {
+		t.Fatalf("KlineCalls = %d, want 1", provider.KlineCalls)
+	}
+	if len(repo.UpsertedBars) != 2 {
+		t.Fatalf("UpsertedBars len = %d, want 2", len(repo.UpsertedBars))
+	}
+	if !res.RefreshTriggered {
+		t.Fatal("RefreshTriggered = false, want true")
+	}
+}
+
+func TestMarketDataService_FetchAndStoreMarketSnapshotsWithTencentStyleQuotes(t *testing.T) {
+	now := time.Now()
+	mockProvider := &MockMarketDataProvider{
+		Quotes: []marketdata.Quote{
+			{Symbol: "000001.SH", Name: "上证指数", Market: "cn_index", LastPrice: 4112.9, ChangeAmount: 35.62, ChangePercent: 0.87, SnapshotTime: now, Source: "tencent"},
+			{Symbol: "399001.SZ", Name: "深证成指", Market: "cn_index", LastPrice: 15597.3, ChangeAmount: 350.03, ChangePercent: 2.30, SnapshotTime: now, Source: "tencent"},
+		},
+	}
+	mockRepo := &MockMarketDataSnapshotRepo{}
+
+	svc := NewMarketDataService(
+		config.MarketConfig{Symbols: "000001.SH,399001.SZ"},
+		mockProvider,
+		mockRepo,
+		nil,
+	)
+
+	batchNo, count, err := svc.FetchAndStoreMarketSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAndStoreMarketSnapshots() error = %v", err)
+	}
+	if batchNo == "" {
+		t.Fatal("BatchNo should not be empty")
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+	if len(mockRepo.Snapshots) != 2 {
+		t.Fatalf("Snapshots len = %d, want 2", len(mockRepo.Snapshots))
+	}
+	if mockRepo.Snapshots[0].Source != "tencent" {
+		t.Fatalf("Source = %s, want tencent", mockRepo.Snapshots[0].Source)
 	}
 }
 

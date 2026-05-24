@@ -251,9 +251,16 @@ export interface PortfolioResponse {
 export interface MarketIndexItemResponse {
   symbol: string;
   name: string;
+  market: string;
   last_price: string;
   change_amount: string;
   change_percent: string;
+  open_price: string;
+  high_price: string;
+  low_price: string;
+  prev_close: string;
+  volume: string;
+  turnover: string;
 }
 
 export interface MarketChartPoint {
@@ -296,6 +303,63 @@ export interface MarketSnapshotResponse {
   turnover: string;
   source: string;
   batch_no: string;
+}
+
+export interface MarketStockDetailResponse {
+  symbol: string;
+  name: string;
+  market: string;
+  last_price: string;
+  open_price: string;
+  high_price: string;
+  low_price: string;
+  prev_close: string;
+  change_amount: string;
+  change_percent: string;
+  volume: string;
+  turnover: string;
+  volume_ratio: string;
+  turnover_rate: string;
+  amplitude: string;
+  limit_up: string;
+  limit_down: string;
+  average_price: string;
+  total_shares: string;
+  float_shares: string;
+  total_market_cap: string;
+  float_market_cap: string;
+  industry: string;
+  region: string;
+  concepts: string[];
+  source: string;
+  fetched_at: string;
+  is_stale: boolean;
+  refresh_triggered: boolean;
+}
+
+export interface MarketKlineBarResponse {
+  bar_time: string;
+  open_price: string;
+  close_price: string;
+  high_price: string;
+  low_price: string;
+  volume: string;
+  turnover: string;
+  amplitude: string;
+  change_percent: string;
+  change_amount: string;
+  turnover_rate: string;
+}
+
+export interface MarketStockKlineResponse {
+  symbol: string;
+  period: string;
+  adjust_type: string;
+  source: string;
+  fetched_at: string;
+  is_stale: boolean;
+  refresh_triggered: boolean;
+  items: MarketKlineBarResponse[];
 }
 
 export interface AnalysisCandidateSource {

@@ -18,23 +18,27 @@ import (
 type MarketDataService interface {
 	FetchAndStoreMarketSnapshots(ctx context.Context) (string, int, error)
 	FetchAndStoreQuotesBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error)
+	EnsureTrackedIndexHistory(ctx context.Context) error
 }
 
 type marketDataService struct {
 	marketConfig config.MarketConfig
 	provider     marketdata.Provider
 	snapshotRepo repository.MarketSnapshotRepository
+	klineRepo    repository.StockKlineRepository
 }
 
 func NewMarketDataService(
 	marketConfig config.MarketConfig,
 	provider marketdata.Provider,
 	snapshotRepo repository.MarketSnapshotRepository,
+	klineRepo repository.StockKlineRepository,
 ) MarketDataService {
 	return &marketDataService{
 		marketConfig: marketConfig,
 		provider:     provider,
 		snapshotRepo: snapshotRepo,
+		klineRepo:    klineRepo,
 	}
 }
 
@@ -70,6 +74,43 @@ func (s *marketDataService) fetchAndStoreBySymbols(ctx context.Context, symbols 
 		return nil, fmt.Errorf("no quotes returned")
 	}
 
+	snapshots := convertQuotesToSnapshots(quotes)
+	if err := s.snapshotRepo.BatchCreate(snapshots); err != nil {
+		return nil, err
+	}
+	return snapshots, nil
+}
+
+func (s *marketDataService) EnsureTrackedIndexHistory(ctx context.Context) error {
+	if s.provider == nil || s.klineRepo == nil {
+		return nil
+	}
+
+	var firstErr error
+	for _, symbol := range s.symbols() {
+		normalized := normalizeSymbol(symbol)
+		if _, err := s.klineRepo.FindLatestBar(normalized, "day", "none"); err == nil {
+			continue
+		}
+
+		bars, err := s.provider.GetKlines(ctx, normalized, "day", "none", 30)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if len(bars) == 0 {
+			continue
+		}
+		if err := s.klineRepo.UpsertBars(convertKlinesToModels(bars)); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func convertQuotesToSnapshots(quotes []marketdata.Quote) []model.MarketSnapshot {
 	batchNo := time.Now().Format("20060102150405") + "-" + uuid.NewString()
 	snapshots := make([]model.MarketSnapshot, 0, len(quotes))
 	for _, quote := range quotes {
@@ -91,11 +132,7 @@ func (s *marketDataService) fetchAndStoreBySymbols(ctx context.Context, symbols 
 			BatchNo:       batchNo,
 		})
 	}
-
-	if err := s.snapshotRepo.BatchCreate(snapshots); err != nil {
-		return nil, err
-	}
-	return snapshots, nil
+	return snapshots
 }
 
 func (s *marketDataService) symbols() []string {

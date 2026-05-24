@@ -194,11 +194,11 @@ export default function UploadPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">交易导入</Tag>
-              <Tag color="blue">对齐后端解析规则</Tag>
+              <Tag color="blue">支持多种账单格式</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>交易记录导入</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              上传券商导出的 CSV、XLSX 或 XLS 文件，服务端会按当前解析规则导入交易记录。
+              上传券商导出的 CSV、XLSX 或 XLS 文件，系统将自动识别并导入交易记录。
             </Paragraph>
           </div>
         </div>

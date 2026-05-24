@@ -1,0 +1,26 @@
+services:
+  mysql:
+    container_name: stock-mysql-test
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data_test:/var/lib/mysql
+  backend:
+    container_name: stock-backend-test
+    ports:
+      - "18080:8080"
+    environment:
+      JWT_SECRET: docker_test_jwt_secret_key_with_32_chars_min
+    depends_on:
+      mysql:
+        condition: service_healthy
+  redis:
+    container_name: stock-redis-test
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data_test:/data
+
+volumes:
+  mysql_data_test:
+  redis_data_test:

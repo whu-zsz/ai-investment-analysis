@@ -204,3 +204,40 @@ func TestAnalysisReportItemRepository_Interface(t *testing.T) {
 	}})
 	_, _ = repo.FindByReportID(1)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestAnalysisReportItemRepository_Boundary_BatchCreate_EmptySlice(t *testing.T) {
+	repo := NewInMemoryAnalysisReportItemRepository()
+	err := repo.BatchCreate([]model.AnalysisReportItem{})
+	if err != nil {
+		t.Fatalf("BatchCreate([]) error = %v", err)
+	}
+}
+
+func TestAnalysisReportItemRepository_Boundary_BatchCreate_SingleItem(t *testing.T) {
+	repo := NewInMemoryAnalysisReportItemRepository()
+	items := []model.AnalysisReportItem{
+		{
+			ReportID: 1, UserID: 1, Symbol: "600519", AssetName: "贵州茅台",
+			EndingPositionQty: decimal.Zero, EndingAvgCost: decimal.Zero,
+			LatestPrice: decimal.Zero, UnrealizedProfit: decimal.Zero,
+			TotalProfit: decimal.Zero, RiskLevel: "medium", Recommendation: "买入",
+		},
+	}
+	err := repo.BatchCreate(items)
+	if err != nil {
+		t.Fatalf("BatchCreate(single item) error = %v", err)
+	}
+}
+
+func TestAnalysisReportItemRepository_Boundary_FindByReportID_NotFound(t *testing.T) {
+	repo := NewInMemoryAnalysisReportItemRepository()
+	items, err := repo.FindByReportID(999)
+	if err != nil {
+		t.Fatalf("FindByReportID(999) error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("FindByReportID(999) returned %d items, want 0", len(items))
+	}
+}

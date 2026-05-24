@@ -2,6 +2,9 @@ package service
 
 import (
 	"errors"
+	"strings"
+	"time"
+
 	"stock-analysis-backend/internal/config"
 	"stock-analysis-backend/internal/dto/request"
 	"stock-analysis-backend/internal/dto/response"
@@ -13,40 +16,39 @@ import (
 type UserService interface {
 	Register(req *request.RegisterRequest) (*model.User, error)
 	Login(req *request.LoginRequest) (*response.LoginResponse, error)
+	Logout(userID uint64, tokenJTI string, tokenExpiresAt time.Time) error
 	GetProfile(userID uint64) (*model.User, error)
 	UpdateProfile(userID uint64, req *request.UpdateProfileRequest) (*model.User, error)
 }
 
 type userService struct {
-	userRepo repository.UserRepository
-	jwtCfg   config.JWTConfig
+	userRepo         repository.UserRepository
+	revokedTokenRepo repository.RevokedTokenRepository
+	jwtCfg           config.JWTConfig
 }
 
-func NewUserService(userRepo repository.UserRepository, jwtCfg config.JWTConfig) UserService {
+func NewUserService(userRepo repository.UserRepository, revokedTokenRepo repository.RevokedTokenRepository, jwtCfg config.JWTConfig) UserService {
 	return &userService{
-		userRepo: userRepo,
-		jwtCfg:   jwtCfg,
+		userRepo:         userRepo,
+		revokedTokenRepo: revokedTokenRepo,
+		jwtCfg:           jwtCfg,
 	}
 }
 
 func (s *userService) Register(req *request.RegisterRequest) (*model.User, error) {
-	// 检查用户名是否已存在
 	if _, err := s.userRepo.FindByUsername(req.Username); err == nil {
 		return nil, errors.New("username already exists")
 	}
 
-	// 检查邮箱是否已存在
 	if _, err := s.userRepo.FindByEmail(req.Email); err == nil {
 		return nil, errors.New("email already exists")
 	}
 
-	// 密码加密
 	passwordHash, err := utils.HashPassword(req.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	// 创建用户
 	user := &model.User{
 		Username:     req.Username,
 		Email:        req.Email,
@@ -61,32 +63,26 @@ func (s *userService) Register(req *request.RegisterRequest) (*model.User, error
 }
 
 func (s *userService) Login(req *request.LoginRequest) (*response.LoginResponse, error) {
-	// 查找用户
 	user, err := s.userRepo.FindByUsername(req.Username)
 	if err != nil {
 		return nil, errors.New("invalid username or password")
 	}
 
-	// 验证密码
 	if !utils.CheckPassword(req.Password, user.PasswordHash) {
 		return nil, errors.New("invalid username or password")
 	}
 
-	// 检查用户是否激活
 	if !user.IsActive {
 		return nil, errors.New("user account is deactivated")
 	}
 
-	// 生成JWT token
 	token, err := utils.GenerateToken(user.ID, user.Username, s.jwtCfg.Secret, s.jwtCfg.ExpireHours)
 	if err != nil {
 		return nil, err
 	}
 
-	// 更新最后登录时间
 	_ = s.userRepo.UpdateLastLogin(user.ID)
 
-	// 返回响应
 	return &response.LoginResponse{
 		Token: token,
 		User: response.UserResponse{
@@ -100,6 +96,30 @@ func (s *userService) Login(req *request.LoginRequest) (*response.LoginResponse,
 			RiskTolerance:        user.RiskTolerance,
 		},
 	}, nil
+}
+
+func (s *userService) Logout(userID uint64, tokenJTI string, tokenExpiresAt time.Time) error {
+	tokenJTI = strings.TrimSpace(tokenJTI)
+	if tokenJTI == "" {
+		return errors.New("token jti is required")
+	}
+
+	revokedToken := &model.RevokedToken{
+		UserID:         userID,
+		JTI:            tokenJTI,
+		TokenExpiresAt: tokenExpiresAt,
+		RevokedAt:      time.Now(),
+		Reason:         "logout",
+	}
+
+	if err := s.revokedTokenRepo.Create(revokedToken); err != nil {
+		if repository.IsDuplicateRevokedTokenError(err) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (s *userService) GetProfile(userID uint64) (*model.User, error) {

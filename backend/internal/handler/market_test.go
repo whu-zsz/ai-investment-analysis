@@ -16,9 +16,9 @@ import (
 
 // MockMarketSnapshotService 模拟市场快照服务
 type MockMarketSnapshotService struct {
-	Snapshots        []response.MarketSnapshotResponse
+	Snapshots         []response.MarketSnapshotResponse
 	DashboardSnapshot *response.DashboardMarketSnapshotResponse
-	Err              error
+	Err               error
 }
 
 func (m *MockMarketSnapshotService) GetLatestSnapshots() ([]response.MarketSnapshotResponse, error) {
@@ -42,6 +42,27 @@ func (m *MockMarketSnapshotService) GetDashboardSnapshot() (*response.DashboardM
 	return m.DashboardSnapshot, nil
 }
 
+type MockMarketStockService struct {
+	Detail *response.MarketStockDetailResponse
+	Kline  *response.MarketStockKlineResponse
+	Err    error
+}
+
+func (m *MockMarketStockService) GetStockDetail(symbol string, forceRefresh bool) (*response.MarketStockDetailResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return m.Detail, nil
+}
+
+func (m *MockMarketStockService) GetStockKlines(symbol, period, adjust string, limit int, forceRefresh bool) (*response.MarketStockKlineResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return m.Kline, nil
+}
+
+
 // TestMarketHandler_GetLatestSnapshots 测试获取最新快照
 func TestMarketHandler_GetLatestSnapshots(t *testing.T) {
 	mockService := &MockMarketSnapshotService{
@@ -51,7 +72,7 @@ func TestMarketHandler_GetLatestSnapshots(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -79,7 +100,7 @@ func TestMarketHandler_GetLatestSnapshots_Empty(t *testing.T) {
 		Snapshots: []response.MarketSnapshotResponse{},
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -99,7 +120,7 @@ func TestMarketHandler_GetLatestSnapshots_Error(t *testing.T) {
 		Err: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -121,7 +142,7 @@ func TestMarketHandler_GetSnapshotHistory(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -143,7 +164,7 @@ func TestMarketHandler_GetSnapshotHistory_WithTimeRange(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -161,7 +182,7 @@ func TestMarketHandler_GetSnapshotHistory_WithTimeRange(t *testing.T) {
 func TestMarketHandler_GetSnapshotHistory_InvalidStartTime(t *testing.T) {
 	mockService := &MockMarketSnapshotService{}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -179,7 +200,7 @@ func TestMarketHandler_GetSnapshotHistory_InvalidStartTime(t *testing.T) {
 func TestMarketHandler_GetSnapshotHistory_InvalidEndTime(t *testing.T) {
 	mockService := &MockMarketSnapshotService{}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -203,7 +224,7 @@ func TestMarketHandler_GetDashboardSnapshot(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/dashboard", h.GetDashboardSnapshot)
 
@@ -231,7 +252,7 @@ func TestMarketHandler_GetDashboardSnapshot_Error(t *testing.T) {
 		Err: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewMarketHandler(mockService)
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
 	router := gin.New()
 	router.GET("/market/dashboard", h.GetDashboardSnapshot)
 

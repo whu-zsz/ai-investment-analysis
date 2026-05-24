@@ -93,9 +93,16 @@ func (s *marketSnapshotService) GetDashboardSnapshot() (*marketResponse.Dashboar
 		indices = append(indices, marketResponse.MarketIndexItemResponse{
 			Symbol:        snapshot.Symbol,
 			Name:          snapshot.Name,
+			Market:        snapshot.Market,
 			LastPrice:     snapshot.LastPrice.String(),
 			ChangeAmount:  snapshot.ChangeAmount.String(),
 			ChangePercent: snapshot.ChangePercent.String(),
+			OpenPrice:     snapshot.OpenPrice.String(),
+			HighPrice:     snapshot.HighPrice.String(),
+			LowPrice:      snapshot.LowPrice.String(),
+			PrevClose:     snapshot.PrevClose.String(),
+			Volume:        snapshot.Volume.String(),
+			Turnover:      snapshot.Turnover.String(),
 		})
 	}
 

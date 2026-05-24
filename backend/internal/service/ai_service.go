@@ -1583,10 +1583,19 @@ func normalizeSymbol(value string) string {
 	if trimmed == "" {
 		return ""
 	}
+	if trimmed == "000001.SH" || trimmed == "000001.SZ" {
+		return "000001.SH"
+	}
+	if trimmed == "000300.SH" || trimmed == "000300.SZ" {
+		return "000300.SH"
+	}
 	if strings.HasSuffix(trimmed, ".SH") || strings.HasSuffix(trimmed, ".SZ") {
 		return trimmed
 	}
 	if len(trimmed) == 6 {
+		if trimmed == "000001" || trimmed == "000300" {
+			return trimmed + ".SH"
+		}
 		if strings.HasPrefix(trimmed, "6") {
 			return trimmed + ".SH"
 		}

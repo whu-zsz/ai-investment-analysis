@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"strconv"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
 	"time"
@@ -11,10 +12,14 @@ import (
 
 type MarketHandler struct {
 	marketSnapshotService service.MarketSnapshotService
+	marketStockService    service.MarketStockService
 }
 
-func NewMarketHandler(marketSnapshotService service.MarketSnapshotService) *MarketHandler {
-	return &MarketHandler{marketSnapshotService: marketSnapshotService}
+func NewMarketHandler(marketSnapshotService service.MarketSnapshotService, marketStockService service.MarketStockService) *MarketHandler {
+	return &MarketHandler{
+		marketSnapshotService: marketSnapshotService,
+		marketStockService:    marketStockService,
+	}
 }
 
 func (h *MarketHandler) GetLatestSnapshots(c *gin.Context) {
@@ -62,6 +67,33 @@ func (h *MarketHandler) GetDashboardSnapshot(c *gin.Context) {
 		return
 	}
 	response.Success(c, snapshot)
+}
+
+func (h *MarketHandler) GetStockDetail(c *gin.Context) {
+	symbol := c.Param("symbol")
+	forceRefresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
+
+	detail, err := h.marketStockService.GetStockDetail(symbol, forceRefresh)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, detail)
+}
+
+func (h *MarketHandler) GetStockKlines(c *gin.Context) {
+	symbol := c.Param("symbol")
+	period := c.DefaultQuery("period", "day")
+	adjust := c.DefaultQuery("adjust", "qfq")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "120"))
+	forceRefresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
+
+	result, err := h.marketStockService.GetStockKlines(symbol, period, adjust, limit, forceRefresh)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
 }
 
 func parseOptionalTime(raw string) (*time.Time, error) {

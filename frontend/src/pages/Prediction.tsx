@@ -236,11 +236,11 @@ export default function PredictionPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">预测总览</Tag>
-              <Tag color="blue">复用分析报告</Tag>
+              <Tag color="blue">趋势研判参考</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 收益趋势预测</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前页面优先展示 summary 报告中的结构化预测结论，并用历史收益分布、动量与收益构成作为预测依据。
+              基于近期分析结果与收益表现，汇总展示投资组合的趋势判断与参考依据。
             </Paragraph>
           </div>
           {report && (
@@ -334,7 +334,7 @@ export default function PredictionPage() {
 
               <Alert
                 message="说明"
-                description="新报告会优先展示结构化 prediction；历史报告若只有 prediction_text，会自动降级为文本与依据图表展示。"
+                description="系统会结合已有分析结果，为你展示趋势判断、关键依据和相关图表信息。"
                 type="info"
                 showIcon
                 icon={<InfoCircleOutlined />}

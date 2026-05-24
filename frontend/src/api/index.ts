@@ -5,6 +5,7 @@ import type {
   TransactionListResponse, TransactionStats, CreateTransactionRequest, UpdateTransactionRequest, TransactionResponse,
   PortfolioResponse,
   DashboardMarketSnapshotResponse, MarketSnapshotResponse,
+  MarketStockDetailResponse, MarketStockKlineResponse,
   AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
   AnalysisCandidatesResponse, AnalysisRecommendationsResponse,
@@ -129,6 +130,17 @@ export const marketApi = {
     limit?: number;
   }): Promise<MarketSnapshotResponse[]> =>
     request.get('/market/snapshots/history', { params }),
+
+  /** GET /market/stocks/:symbol/detail */
+  getStockDetail: (symbol: string, params?: { refresh?: boolean }): Promise<MarketStockDetailResponse> =>
+    request.get(`/market/stocks/${encodeURIComponent(symbol)}/detail`, { params }),
+
+  /** GET /market/stocks/:symbol/kline */
+  getStockKlines: (
+    symbol: string,
+    params?: { period?: string; adjust?: string; limit?: number; refresh?: boolean },
+  ): Promise<MarketStockKlineResponse> =>
+    request.get(`/market/stocks/${encodeURIComponent(symbol)}/kline`, { params }),
 };
 
 // ══════════════════════════════════════════

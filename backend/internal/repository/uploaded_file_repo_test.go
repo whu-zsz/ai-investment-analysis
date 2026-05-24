@@ -259,3 +259,87 @@ func TestUploadedFileRepository_Interface(t *testing.T) {
 	_, _ = repo.FindByUserID(1)
 	_ = repo.UpdateStatus(file.ID, "success", 100, nil)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestUploadedFileRepository_Boundary_Create_ZeroUserID(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	f := &model.UploadedFile{
+		UserID:   0,
+		FileName: "test.csv",
+		FilePath: "/uploads/test.csv",
+		FileSize: 1024,
+		FileType: "csv",
+	}
+	err := repo.Create(f)
+	if err != nil {
+		t.Fatalf("Create() with zero UserID error = %v", err)
+	}
+}
+
+func TestUploadedFileRepository_Boundary_Create_EmptyFileName(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	f := &model.UploadedFile{
+		UserID:   1,
+		FileName: "",
+		FilePath: "/uploads/test.csv",
+		FileSize: 1024,
+		FileType: "csv",
+	}
+	err := repo.Create(f)
+	if err != nil {
+		t.Fatalf("Create() with empty filename error = %v", err)
+	}
+}
+
+func TestUploadedFileRepository_Boundary_Create_ZeroFileSize(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	f := &model.UploadedFile{
+		UserID:   1,
+		FileName: "test.csv",
+		FilePath: "/uploads/test.csv",
+		FileSize: 0,
+		FileType: "csv",
+	}
+	err := repo.Create(f)
+	if err != nil {
+		t.Fatalf("Create() with zero file size error = %v", err)
+	}
+}
+
+func TestUploadedFileRepository_Boundary_FindByID_Zero(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	f, err := repo.FindByID(0)
+	if err == nil {
+		t.Fatalf("FindByID(0) should return error")
+	}
+	if f != nil {
+		t.Fatalf("FindByID(0) should return nil")
+	}
+}
+
+func TestUploadedFileRepository_Boundary_FindByID_NotFound(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	repo.Create(&model.UploadedFile{
+		UserID: 1, FileName: "test.csv", FilePath: "/uploads/test.csv",
+		FileSize: 1024, FileType: "csv",
+	})
+	f, err := repo.FindByID(999999)
+	if err == nil {
+		t.Fatalf("FindByID(999999) should return error")
+	}
+	if f != nil {
+		t.Fatalf("FindByID(999999) should return nil")
+	}
+}
+
+func TestUploadedFileRepository_Boundary_FindByUserID_NoFiles(t *testing.T) {
+	repo := NewInMemoryUploadedFileRepository()
+	files, err := repo.FindByUserID(999)
+	if err != nil {
+		t.Fatalf("FindByUserID(999) error = %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("FindByUserID(999) returned %d items, want 0", len(files))
+	}
+}

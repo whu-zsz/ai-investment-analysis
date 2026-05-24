@@ -392,3 +392,139 @@ func TestMarketSnapshotRepository_Interface(t *testing.T) {
 	_, _ = repo.FindHistory(10, nil, nil)
 	_, _ = repo.FindHistoryBySymbol("000001.SH", 10, nil, nil)
 }
+
+// ========== 边界条件测试 ==========
+
+func TestMarketSnapshotRepository_Boundary_BatchCreate_EmptySlice(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	err := repo.BatchCreate([]model.MarketSnapshot{})
+	if err != nil {
+		t.Fatalf("BatchCreate([]) error = %v", err)
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_BatchCreate_SingleItem(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	snapshots := []model.MarketSnapshot{
+		{
+			Symbol: "600519", Name: "贵州茅台", Market: "SH",
+			SnapshotTime: time.Now(), LastPrice: decimal.NewFromInt(1800),
+			ChangeAmount: decimal.NewFromInt(10), ChangePercent: decimal.NewFromFloat(0.56),
+			Source: "eastmoney", BatchNo: "B001",
+		},
+	}
+	err := repo.BatchCreate(snapshots)
+	if err != nil {
+		t.Fatalf("BatchCreate(single item) error = %v", err)
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindLatestBatchNo_Empty(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	batchNo, err := repo.FindLatestBatchNo()
+	if err == nil {
+		t.Fatalf("FindLatestBatchNo() on empty repo should return error")
+	}
+	if batchNo != "" {
+		t.Fatalf("FindLatestBatchNo() on empty repo should return empty string")
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindByBatchNo_Empty(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	snapshots, err := repo.FindByBatchNo("")
+	if err != nil {
+		t.Fatalf("FindByBatchNo('') error = %v", err)
+	}
+	if len(snapshots) != 0 {
+		t.Fatalf("FindByBatchNo('') returned %d items, want 0", len(snapshots))
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindByBatchNo_NotFound(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	repo.BatchCreate([]model.MarketSnapshot{
+		{
+			Symbol: "600519", Name: "贵州茅台", Market: "SH",
+			SnapshotTime: time.Now(), LastPrice: decimal.NewFromInt(1800),
+			ChangeAmount: decimal.NewFromInt(10), ChangePercent: decimal.NewFromFloat(0.56),
+			Source: "eastmoney", BatchNo: "B001",
+		},
+	})
+	snapshots, err := repo.FindByBatchNo("NONEXISTENT")
+	if err != nil {
+		t.Fatalf("FindByBatchNo('NONEXISTENT') error = %v", err)
+	}
+	if len(snapshots) != 0 {
+		t.Fatalf("FindByBatchNo('NONEXISTENT') returned %d items, want 0", len(snapshots))
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindLatestBySymbol_Empty(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	snapshot, err := repo.FindLatestBySymbol("")
+	if err == nil {
+		t.Fatalf("FindLatestBySymbol('') should return error")
+	}
+	if snapshot != nil {
+		t.Fatalf("FindLatestBySymbol('') should return nil")
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindLatestBySymbol_NotFound(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	snapshot, err := repo.FindLatestBySymbol("NONEXISTENT")
+	if err == nil {
+		t.Fatalf("FindLatestBySymbol('NONEXISTENT') should return error")
+	}
+	if snapshot != nil {
+		t.Fatalf("FindLatestBySymbol('NONEXISTENT') should return nil")
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindHistory_ZeroLimit(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	repo.BatchCreate([]model.MarketSnapshot{
+		{
+			Symbol: "600519", Name: "贵州茅台", Market: "SH",
+			SnapshotTime: time.Now(), LastPrice: decimal.NewFromInt(1800),
+			ChangeAmount: decimal.NewFromInt(10), ChangePercent: decimal.NewFromFloat(0.56),
+			Source: "eastmoney", BatchNo: "B001",
+		},
+	})
+	snapshots, err := repo.FindHistory(0, nil, nil)
+	if err != nil {
+		t.Fatalf("FindHistory(0) error = %v", err)
+	}
+	_ = snapshots
+}
+
+func TestMarketSnapshotRepository_Boundary_FindHistory_NilTimes(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	repo.BatchCreate([]model.MarketSnapshot{
+		{
+			Symbol: "600519", Name: "贵州茅台", Market: "SH",
+			SnapshotTime: time.Now(), LastPrice: decimal.NewFromInt(1800),
+			ChangeAmount: decimal.NewFromInt(10), ChangePercent: decimal.NewFromFloat(0.56),
+			Source: "eastmoney", BatchNo: "B001",
+		},
+	})
+	snapshots, err := repo.FindHistory(10, nil, nil)
+	if err != nil {
+		t.Fatalf("FindHistory(nil, nil) error = %v", err)
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("FindHistory(nil, nil) returned %d items, want 1", len(snapshots))
+	}
+}
+
+func TestMarketSnapshotRepository_Boundary_FindHistoryBySymbol_EmptySymbol(t *testing.T) {
+	repo := NewInMemoryMarketSnapshotRepository()
+	snapshots, err := repo.FindHistoryBySymbol("", 10, nil, nil)
+	if err != nil {
+		t.Fatalf("FindHistoryBySymbol('') error = %v", err)
+	}
+	if len(snapshots) != 0 {
+		t.Fatalf("FindHistoryBySymbol('') returned %d items, want 0", len(snapshots))
+	}
+}
