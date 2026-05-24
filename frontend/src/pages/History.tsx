@@ -128,7 +128,7 @@ export default function HistoryPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>历史交易归档</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前页面展示后端已提供的分页交易流水和汇总统计，不再展示未接入的筛选或导出能力。
+              集中查看历史交易流水与关键汇总数据，帮助你快速回顾交易表现。
             </Paragraph>
           </div>
           <Space wrap>
@@ -186,7 +186,7 @@ export default function HistoryPage() {
             <Card bordered={false} style={{ ...cardStyle, marginTop: 16 }}>
               <Alert type="info" showIcon icon={<BulbOutlined />}
                 message="说明"
-                description="本页当前仅展示真实的交易流水分页结果与汇总统计。若需要筛选、导出或更多分析能力，需要后端先提供对应接口。"
+                description="本页提供历史交易流水与关键汇总信息，便于快速查看整体交易表现。"
               />
             </Card>
           </>

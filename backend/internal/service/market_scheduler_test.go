@@ -11,10 +11,11 @@ import (
 
 // MockSchedulerMarketDataService 模拟市场数据服务用于调度器测试
 type MockSchedulerMarketDataService struct {
-	BatchNo string
-	Count   int
-	Err     error
-	Called  bool
+	BatchNo        string
+	Count          int
+	Err            error
+	Called         bool
+	WarmupCalled   bool
 }
 
 func (s *MockSchedulerMarketDataService) FetchAndStoreMarketSnapshots(ctx context.Context) (string, int, error) {
@@ -24,6 +25,11 @@ func (s *MockSchedulerMarketDataService) FetchAndStoreMarketSnapshots(ctx contex
 
 func (s *MockSchedulerMarketDataService) FetchAndStoreQuotesBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error) {
 	return nil, nil
+}
+
+func (s *MockSchedulerMarketDataService) EnsureTrackedIndexHistory(ctx context.Context) error {
+	s.WarmupCalled = true
+	return s.Err
 }
 
 // TestNewMarketScheduler 测试创建调度器
@@ -67,16 +73,13 @@ func TestMarketScheduler_Start(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 启动调度器
 	scheduler.Start(ctx)
-
-	// 等待一段时间让调度器执行一次
 	time.Sleep(100 * time.Millisecond)
-
-	// 取消上下文停止调度器
 	cancel()
 
-	// 验证服务被调用
+	if !mockSvc.WarmupCalled {
+		t.Error("MarketScheduler should have called EnsureTrackedIndexHistory")
+	}
 	if !mockSvc.Called {
 		t.Error("MarketScheduler should have called FetchAndStoreMarketSnapshots")
 	}

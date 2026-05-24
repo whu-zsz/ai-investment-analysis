@@ -134,7 +134,7 @@ export default function PortfolioPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">持仓总览</Tag>
-              <Tag color="blue">来自后端实时持仓</Tag>
+              <Tag color="blue">实时持仓视图</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>当前持仓视图</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 620 }}>

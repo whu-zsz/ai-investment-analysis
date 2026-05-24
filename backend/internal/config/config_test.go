@@ -75,6 +75,18 @@ func TestValidateConfigRejectsUnsupportedMarketProvider(t *testing.T) {
 	assertValidateConfigErrorContains(t, cfg, "unsupported market provider")
 }
 
+func TestValidateConfigAllowsTencentProvider(t *testing.T) {
+	cfg := validConfig()
+	cfg.Market.Provider = "tencent"
+	cfg.Market.TencentBaseURL = "https://web.ifzq.gtimg.cn"
+	cfg.Market.EastmoneyBaseURL = ""
+	cfg.Market.EastmoneyReferer = ""
+
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("expected tencent market config to pass validation, got %v", err)
+	}
+}
+
 func TestValidateConfigRequiresEastmoneyFields(t *testing.T) {
 	cfg := validConfig()
 	cfg.Market.Provider = "eastmoney"
@@ -82,4 +94,14 @@ func TestValidateConfigRequiresEastmoneyFields(t *testing.T) {
 	cfg.Market.EastmoneyReferer = ""
 
 	assertValidateConfigErrorContains(t, cfg, "MARKET_EASTMONEY_BASE_URL")
+}
+
+func TestValidateConfigRequiresTencentFieldsForHybrid(t *testing.T) {
+	cfg := validConfig()
+	cfg.Market.Provider = "hybrid"
+	cfg.Market.EastmoneyBaseURL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+	cfg.Market.EastmoneyReferer = "https://quote.eastmoney.com/center/gridlist.html"
+	cfg.Market.TencentBaseURL = ""
+
+	assertValidateConfigErrorContains(t, cfg, "MARKET_TENCENT_BASE_URL")
 }

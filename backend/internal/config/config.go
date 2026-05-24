@@ -70,6 +70,8 @@ type MarketConfig struct {
 	EastmoneyBaseURL   string `mapstructure:"MARKET_EASTMONEY_BASE_URL"`
 	EastmoneyUserAgent string `mapstructure:"MARKET_EASTMONEY_USER_AGENT"`
 	EastmoneyReferer   string `mapstructure:"MARKET_EASTMONEY_REFERER"`
+	TencentBaseURL     string `mapstructure:"MARKET_TENCENT_BASE_URL"`
+	TencentUserAgent   string `mapstructure:"MARKET_TENCENT_USER_AGENT"`
 }
 
 type UploadConfig struct {
@@ -129,6 +131,8 @@ func LoadConfig() (*Config, error) {
 			EastmoneyBaseURL:   v.GetString("MARKET_EASTMONEY_BASE_URL"),
 			EastmoneyUserAgent: v.GetString("MARKET_EASTMONEY_USER_AGENT"),
 			EastmoneyReferer:   v.GetString("MARKET_EASTMONEY_REFERER"),
+			TencentBaseURL:     v.GetString("MARKET_TENCENT_BASE_URL"),
+			TencentUserAgent:   v.GetString("MARKET_TENCENT_USER_AGENT"),
 		},
 		Upload: UploadConfig{
 			Path:          v.GetString("UPLOAD_PATH"),
@@ -175,6 +179,12 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.Market.EastmoneyReferer == "" {
 		cfg.Market.EastmoneyReferer = "https://quote.eastmoney.com/center/gridlist.html"
+	}
+	if cfg.Market.TencentBaseURL == "" {
+		cfg.Market.TencentBaseURL = "https://web.ifzq.gtimg.cn"
+	}
+	if cfg.Market.TencentUserAgent == "" {
+		cfg.Market.TencentUserAgent = cfg.Market.EastmoneyUserAgent
 	}
 	if cfg.Upload.Path == "" {
 		cfg.Upload.Path = "./uploads"
@@ -249,15 +259,20 @@ func validateConfig(cfg *Config) error {
 	if cfg.Market.Provider == "" {
 		return fmt.Errorf("missing required configuration: MARKET_PROVIDER")
 	}
-	if cfg.Market.Provider != "mock" && cfg.Market.Provider != "eastmoney" {
+	if cfg.Market.Provider != "mock" && cfg.Market.Provider != "eastmoney" && cfg.Market.Provider != "hybrid" && cfg.Market.Provider != "tencent" {
 		return fmt.Errorf("unsupported market provider: %s", cfg.Market.Provider)
 	}
-	if cfg.Market.Provider == "eastmoney" {
+	if cfg.Market.Provider == "eastmoney" || cfg.Market.Provider == "hybrid" {
 		if strings.TrimSpace(cfg.Market.EastmoneyBaseURL) == "" {
 			return fmt.Errorf("missing required configuration: MARKET_EASTMONEY_BASE_URL")
 		}
 		if strings.TrimSpace(cfg.Market.EastmoneyReferer) == "" {
 			return fmt.Errorf("missing required configuration: MARKET_EASTMONEY_REFERER")
+		}
+	}
+	if cfg.Market.Provider == "hybrid" || cfg.Market.Provider == "tencent" {
+		if strings.TrimSpace(cfg.Market.TencentBaseURL) == "" {
+			return fmt.Errorf("missing required configuration: MARKET_TENCENT_BASE_URL")
 		}
 	}
 

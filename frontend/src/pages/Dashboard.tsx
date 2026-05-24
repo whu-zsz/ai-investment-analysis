@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Col, Descriptions, Divider, Avatar, Dropdown, Popover, Row, Space, Statistic, Tag, Typography, Skeleton, Empty } from 'antd';
+import { Alert, Avatar, Button, Card, Col, Dropdown, Empty, Row, Segmented, Skeleton, Space, Spin, Tag, Typography } from 'antd';
 import {
   BulbOutlined,
   LineChartOutlined,
@@ -10,16 +10,19 @@ import {
   SettingOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { useMemo, useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useAuth } from '../hooks/useAuth';
 import { marketApi } from '../api/index';
-import type { DashboardMarketSnapshotResponse } from '../api/types';
+import type { DashboardMarketSnapshotResponse, MarketStockKlineResponse } from '../api/types';
 import type { MenuProps } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
+
+type DashboardRange = '3d' | '7d' | '30d';
+type MarketIndexSnapshot = DashboardMarketSnapshotResponse['indices'][number];
 
 interface ChartParam {
   axisValueLabel?: string;
@@ -36,6 +39,7 @@ interface KpiChartConfig {
 }
 
 interface DashboardInsightCard {
+  symbol: string;
   title: string;
   value: number;
   precision: number;
@@ -45,9 +49,21 @@ interface DashboardInsightCard {
   tagText: string;
   desc: string;
   chart: KpiChartConfig;
+  hasHistory: boolean;
+  snapshot: MarketIndexSnapshot;
 }
 
 const chartPalette = ['#1677ff', '#52c41a', '#722ed1', '#fa8c16', '#13c2c2', '#eb2f96'];
+const dashboardRangeOptions: Array<{ label: string; value: DashboardRange }> = [
+  { label: '3日', value: '3d' },
+  { label: '7日', value: '7d' },
+  { label: '月', value: '30d' },
+];
+const dashboardRangeLimitMap: Record<DashboardRange, number> = {
+  '3d': 3,
+  '7d': 7,
+  '30d': 30,
+};
 
 const statColorMap: Record<string, string> = {
   指数数量: '#1677ff',
@@ -59,7 +75,7 @@ const statColorMap: Record<string, string> = {
 
 function toNumber(value?: string): number {
   if (!value) return 0;
-  const parsed = Number.parseFloat(value.replace(/[%亿,+]/g, ''));
+  const parsed = Number.parseFloat(value.replace(/[%亿万,+]/g, ''));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -68,13 +84,40 @@ function formatValue(value?: string) {
   return text ? text : '—';
 }
 
-function formatChangePercent(changePercent?: string): string {
-  if (!changePercent) return '—';
-  const normalized = changePercent.trim();
-  if (normalized.endsWith('%')) {
-    return normalized;
+function formatSignedNumber(value?: string, precision = 2, suffix = ''): string {
+  const numeric = toNumber(value);
+  if (!value?.trim() || !Number.isFinite(numeric)) {
+    return '—';
   }
-  return `${normalized}%`;
+  const sign = numeric > 0 ? '+' : numeric < 0 ? '-' : '';
+  return `${sign}${Math.abs(numeric).toFixed(precision)}${suffix}`;
+}
+
+function formatSignedPercent(changePercent?: string): string {
+  const numeric = toNumber(changePercent);
+  if (!changePercent?.trim() || !Number.isFinite(numeric)) {
+    return '—';
+  }
+  const sign = numeric > 0 ? '+' : numeric < 0 ? '-' : '';
+  return `${sign}${Math.abs(numeric).toFixed(2)}%`;
+}
+
+function formatCompactNumber(value?: string): string {
+  const numeric = toNumber(value);
+  if (!value?.trim() || !Number.isFinite(numeric)) {
+    return '—';
+  }
+  const abs = Math.abs(numeric);
+  if (abs >= 100000000) {
+    return `${(numeric / 100000000).toFixed(2)}亿`;
+  }
+  if (abs >= 10000) {
+    return `${(numeric / 10000).toFixed(2)}万`;
+  }
+  if (abs >= 1000) {
+    return numeric.toFixed(0);
+  }
+  return numeric.toFixed(2);
 }
 
 function getTrendTag(changePercent?: string) {
@@ -84,24 +127,75 @@ function getTrendTag(changePercent?: string) {
 
   const numeric = toNumber(changePercent);
   if (numeric > 0) {
-    return { color: 'green', text: `涨幅 ${formatChangePercent(changePercent)}` };
+    return { color: 'green', text: `上涨 ${formatSignedPercent(changePercent)}` };
   }
   if (numeric < 0) {
-    return { color: 'red', text: `跌幅 ${formatChangePercent(changePercent).replace('-', '')}` };
+    return { color: 'red', text: `下跌 ${formatSignedPercent(changePercent).replace('-', '')}` };
   }
   return { color: 'default', text: '平盘' };
 }
 
-function buildInsightCards(marketData: DashboardMarketSnapshotResponse | null): DashboardInsightCard[] {
+function getDashboardRangeLabel(range: DashboardRange): string {
+  return dashboardRangeOptions.find((item) => item.value === range)?.label ?? '月';
+}
+
+function getDashboardHistoryCacheKey(symbol: string, range: DashboardRange): string {
+  return `${symbol}:${range}`;
+}
+
+function formatDashboardBarTime(value: string): string {
+  if (value.length >= 10) {
+    return value.slice(5, 10);
+  }
+  return value;
+}
+
+function normalizeKlineResponse(history: MarketStockKlineResponse): MarketStockKlineResponse {
+  return {
+    ...history,
+    items: [...history.items].sort((a, b) => a.bar_time.localeCompare(b.bar_time)),
+  };
+}
+
+function buildHistoryChart(name: string, history: MarketStockKlineResponse, color: string): KpiChartConfig {
+  return {
+    seriesName: name,
+    unit: '点',
+    labels: history.items.map((point) => formatDashboardBarTime(point.bar_time)),
+    values: history.items.map((point) => toNumber(point.close_price)),
+    color,
+  };
+}
+
+function buildFallbackChart(marketData: DashboardMarketSnapshotResponse, color: string): KpiChartConfig {
+  return {
+    seriesName: marketData.main_chart.index_name || '指数走势',
+    unit: '点',
+    labels: marketData.main_chart.series.map((point) => point.label),
+    values: marketData.main_chart.series.map((point) => toNumber(point.value)),
+    color,
+  };
+}
+
+function buildInsightCards(
+  marketData: DashboardMarketSnapshotResponse | null,
+  indexHistories: Record<string, MarketStockKlineResponse | null>,
+  chartRange: DashboardRange,
+): DashboardInsightCard[] {
   if (!marketData?.indices?.length) {
     return [];
   }
 
+  const rangeLabel = getDashboardRangeLabel(chartRange);
+
   return marketData.indices.slice(0, 4).map((item, index) => {
     const color = chartPalette[index % chartPalette.length];
     const trend = getTrendTag(item.change_percent);
+    const history = indexHistories[getDashboardHistoryCacheKey(item.symbol, chartRange)] ?? null;
+    const hasHistory = Boolean(history?.items?.length);
 
     return {
+      symbol: item.symbol,
       title: item.name,
       value: toNumber(item.last_price),
       precision: 2,
@@ -109,14 +203,14 @@ function buildInsightCards(marketData: DashboardMarketSnapshotResponse | null): 
       accent: color,
       tagColor: trend.color,
       tagText: trend.text,
-      desc: `${item.symbol} · 最新涨跌额 ${formatValue(item.change_amount)}`,
-      chart: {
-        seriesName: item.name,
-        unit: '点',
-        labels: marketData.main_chart.series.map(point => point.label),
-        values: marketData.main_chart.series.map(point => toNumber(point.value)),
-        color,
-      }
+      desc: hasHistory
+        ? `${item.symbol} · ${rangeLabel}走势可用 · 高低 ${formatValue(item.high_price)}/${formatValue(item.low_price)}`
+        : `${item.symbol} · ${rangeLabel}走势暂不可用 · 成交额 ${formatCompactNumber(item.turnover)}`,
+      chart: hasHistory
+        ? buildHistoryChart(item.name, history as MarketStockKlineResponse, color)
+        : { seriesName: item.name, unit: '点', labels: [], values: [], color },
+      hasHistory,
+      snapshot: item,
     };
   });
 }
@@ -186,34 +280,211 @@ function getKpiChartOption(chart: KpiChartConfig, mode: 'mini' | 'expanded'): EC
   };
 }
 
+function getMainChartOption(chart: KpiChartConfig | null): EChartsOption {
+  const chartColor = chart?.color ?? '#1677ff';
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.96)',
+      borderColor: '#d9e6ff',
+      borderWidth: 1,
+      formatter: (params: unknown) => {
+        const list = params as ChartParam[];
+        const data = list[0];
+        return `<div style="padding: 4px 6px;">
+                  <div style="color: #888; margin-bottom: 4px;">${data.name}</div>
+                  <div style="font-weight: bold; color: ${chartColor}; font-size: 16px;">${data.value.toLocaleString()} ${chart?.unit ?? '点'}</div>
+                </div>`;
+      }
+    },
+    grid: {
+      top: '10%',
+      left: '3%',
+      right: '4%',
+      bottom: '8%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: chart?.labels ?? [],
+      axisLine: { lineStyle: { color: '#d9d9d9' } }
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }
+    },
+    series: [
+      {
+        name: chart?.seriesName ?? '',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        data: chart?.values ?? [],
+        lineStyle: { width: 3, color: chartColor },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: `${chartColor}40` },
+              { offset: 1, color: `${chartColor}08` }
+            ]
+          }
+        }
+      }
+    ]
+  };
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicHome = location.pathname === '/';
   const { isLoggedIn, userInfo, logoutWithRevoke } = useAuth();
+  const requestRef = useRef(0);
 
   const [marketData, setMarketData] = useState<DashboardMarketSnapshotResponse | null>(null);
+  const [indexHistories, setIndexHistories] = useState<Record<string, MarketStockKlineResponse | null>>({});
+  const [activeIndexSymbol, setActiveIndexSymbol] = useState('');
+  const [chartRange, setChartRange] = useState<DashboardRange>('30d');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
+  const [historyError, setHistoryError] = useState('');
 
-  const fetchMarketData = async () => {
-    setLoading(true);
+  const fetchIndexHistories = async (
+    indices: DashboardMarketSnapshotResponse['indices'],
+    range: DashboardRange,
+    requestId: number,
+  ) => {
+    const topIndices = indices.slice(0, 4);
+    if (!topIndices.length) {
+      if (requestId !== requestRef.current) return;
+      setIndexHistories({});
+      setActiveIndexSymbol('');
+      setHistoryError('');
+      setHistoryLoading(false);
+      return;
+    }
+
+    const missingIndices = topIndices.filter((item) => !(getDashboardHistoryCacheKey(item.symbol, range) in indexHistories));
+    if (!missingIndices.length) {
+      if (requestId !== requestRef.current) return;
+      const firstAvailable = topIndices.find((item) => indexHistories[getDashboardHistoryCacheKey(item.symbol, range)]?.items?.length);
+      setActiveIndexSymbol((prev) => {
+        if (prev && indexHistories[getDashboardHistoryCacheKey(prev, range)]?.items?.length) {
+          return prev;
+        }
+        if (prev && topIndices.some((item) => item.symbol === prev) && !firstAvailable) {
+          return prev;
+        }
+        return firstAvailable?.symbol ?? topIndices[0]?.symbol ?? '';
+      });
+      setHistoryError(firstAvailable ? '' : '指数走势暂时不可用，主图已回退为聚合走势。');
+      setHistoryLoading(false);
+      return;
+    }
+
+    setHistoryLoading(true);
+    setHistoryError('');
+
+    const results = await Promise.allSettled(
+      missingIndices.map((item) => marketApi.getStockKlines(item.symbol, {
+        period: 'day',
+        adjust: 'none',
+        limit: dashboardRangeLimitMap[range],
+      })),
+    );
+
+    if (requestId !== requestRef.current) {
+      return;
+    }
+
+    const nextHistories: Record<string, MarketStockKlineResponse | null> = {};
+    missingIndices.forEach((item, index) => {
+      const result = results[index];
+      nextHistories[getDashboardHistoryCacheKey(item.symbol, range)] = result.status === 'fulfilled'
+        ? normalizeKlineResponse(result.value)
+        : null;
+    });
+
+    const mergedHistories = { ...indexHistories, ...nextHistories };
+    const firstAvailable = topIndices.find((item) => mergedHistories[getDashboardHistoryCacheKey(item.symbol, range)]?.items?.length);
+
+    setIndexHistories((prev) => ({ ...prev, ...nextHistories }));
+    setActiveIndexSymbol((prev) => {
+      if (prev && mergedHistories[getDashboardHistoryCacheKey(prev, range)]?.items?.length) {
+        return prev;
+      }
+      if (prev && topIndices.some((item) => item.symbol === prev) && !firstAvailable) {
+        return prev;
+      }
+      return firstAvailable?.symbol ?? topIndices[0]?.symbol ?? '';
+    });
+    setHistoryError(firstAvailable ? '' : '指数走势暂时不可用，主图已回退为聚合走势。');
+    setHistoryLoading(false);
+  };
+
+  const fetchMarketData = async (options?: { silent?: boolean }) => {
+    const requestId = ++requestRef.current;
+    const isSilent = options?.silent === true;
+    if (isSilent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError('');
+    setHistoryError('');
     try {
       const res = await marketApi.getDashboardSnapshot();
+      if (requestId !== requestRef.current) return;
       setMarketData(res);
+      setActiveIndexSymbol((prev) => prev || res.indices[0]?.symbol || '');
+      void fetchIndexHistories(res.indices ?? [], chartRange, requestId);
     } catch (err: unknown) {
+      if (requestId !== requestRef.current) return;
       const apiError = err as { message?: string; data?: { message?: string } };
-      setMarketData(null);
-      setError(apiError.message ?? apiError.data?.message ?? '市场快照加载失败');
+      if (!isSilent) {
+        setMarketData(null);
+        setIndexHistories({});
+        setActiveIndexSymbol('');
+        setError(apiError.message ?? apiError.data?.message ?? '市场快照加载失败');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) {
+        if (isSilent) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
     }
   };
 
   useEffect(() => {
     void fetchMarketData();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchMarketData({ silent: true });
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [chartRange]);
+
+  useEffect(() => {
+    if (!marketData?.indices?.length) {
+      return;
+    }
+    const requestId = requestRef.current;
+    void fetchIndexHistories(marketData.indices, chartRange, requestId);
+  }, [chartRange, marketData]);
 
   const guardNavigate = (path: string) => {
     if (!isLoggedIn) navigate('/login', { state: { from: path } });
@@ -231,64 +502,36 @@ export default function Dashboard() {
     if (key === 'logout') void logoutWithRevoke('/');
   };
 
-  const getOption = (): EChartsOption => ({
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: 'rgba(255, 255, 255, 0.96)',
-      borderColor: '#d9e6ff',
-      borderWidth: 1,
-      formatter: (params: unknown) => {
-        const list = params as ChartParam[];
-        const data = list[0];
-        return `<div style="padding: 4px 6px;">
-                  <div style="color: #888; margin-bottom: 4px;">${data.name}</div>
-                  <div style="font-weight: bold; color: #1677ff; font-size: 16px;">${data.value.toLocaleString()} 点</div>
-                </div>`;
-      }
-    },
-    grid: {
-      top: '10%',
-      left: '3%',
-      right: '4%',
-      bottom: '8%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: marketData?.main_chart.series.map(point => point.label) ?? [],
-      axisLine: { lineStyle: { color: '#d9d9d9' } }
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }
-    },
-    series: [
-      {
-        name: marketData?.main_chart.index_name ?? '',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: marketData?.main_chart.series.map(point => toNumber(point.value)) ?? [],
-        lineStyle: { width: 3, color: '#1677ff' },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(22, 119, 255, 0.35)' },
-              { offset: 1, color: 'rgba(22, 119, 255, 0.02)' }
-            ]
-          }
-        }
-      }
-    ]
-  });
+  const insightCards = useMemo(
+    () => buildInsightCards(marketData, indexHistories, chartRange),
+    [chartRange, indexHistories, marketData],
+  );
 
-  const insightCards = useMemo(() => buildInsightCards(marketData), [marketData]);
+  const activeInsightCard = useMemo(() => {
+    if (!insightCards.length) {
+      return null;
+    }
+    return insightCards.find((item) => item.symbol === activeIndexSymbol)
+      ?? insightCards.find((item) => item.hasHistory)
+      ?? insightCards[0];
+  }, [activeIndexSymbol, insightCards]);
+
+  const activeSnapshot = activeInsightCard?.snapshot ?? marketData?.indices?.[0] ?? null;
+
+  const mainChart = useMemo(() => {
+    if (!marketData || !activeInsightCard) {
+      return null;
+    }
+    if (activeInsightCard.hasHistory) {
+      return activeInsightCard.chart;
+    }
+    if (marketData.main_chart.series.length) {
+      return buildFallbackChart(marketData, activeInsightCard.accent);
+    }
+    return null;
+  }, [activeInsightCard, marketData]);
+
+  const isFallbackChart = Boolean(activeInsightCard && !activeInsightCard.hasHistory && mainChart?.labels.length);
 
   const quickStats = useMemo(() => {
     if (!marketData?.stats?.length) {
@@ -301,6 +544,15 @@ export default function Dashboard() {
       color: statColorMap[item.label] || '#1677ff',
     }));
   }, [marketData]);
+
+  const mainSummaryItems = activeSnapshot ? [
+    { label: '今开', value: formatValue(activeSnapshot.open_price) },
+    { label: '最高', value: formatValue(activeSnapshot.high_price) },
+    { label: '最低', value: formatValue(activeSnapshot.low_price) },
+    { label: '昨收', value: formatValue(activeSnapshot.prev_close) },
+    { label: '成交量', value: formatCompactNumber(activeSnapshot.volume) },
+    { label: '成交额', value: formatCompactNumber(activeSnapshot.turnover) },
+  ] : [];
 
   return (
     <div style={{ padding: isPublicHome ? '24px' : '4px' }}>
@@ -365,73 +617,101 @@ export default function Dashboard() {
             action={<Button size="small" onClick={() => void fetchMarketData()}>重试</Button>}
           />
         </Card>
-      ) : !marketData?.indices?.length || !marketData.main_chart.series.length ? (
+      ) : !marketData?.indices?.length ? (
         <Card bordered={false} style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}>
           <Empty description="当前暂无可用市场快照数据" />
         </Card>
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {insightCards.map((item) => (
-              <Col xs={24} sm={12} lg={6} key={item.title}>
-                <Card
-                  bordered={false}
-                  hoverable
-                  onClick={() => navigate('/app/analysis')}
-                  style={{ borderRadius: 16, boxShadow: '0 6px 22px rgba(15, 23, 42, 0.06)' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text type="secondary">{item.title}</Text>
-                      <Statistic
-                        value={item.value}
-                        precision={item.precision}
-                        suffix={item.suffix}
-                        valueStyle={{ color: item.accent, fontSize: 30 }}
-                        style={{ marginTop: 8 }}
-                      />
+            {insightCards.map((item) => {
+              const isActive = item.symbol === activeInsightCard?.symbol;
+              return (
+                <Col xs={24} sm={12} lg={6} key={item.symbol}>
+                  <Card
+                    bordered={false}
+                    hoverable
+                    onClick={() => setActiveIndexSymbol(item.symbol)}
+                    style={{
+                      borderRadius: 16,
+                      border: isActive ? '1px solid #91caff' : '1px solid transparent',
+                      background: isActive ? '#f7fbff' : '#fff',
+                      boxShadow: isActive ? '0 10px 28px rgba(22,119,255,0.10)' : '0 6px 22px rgba(15, 23, 42, 0.06)'
+                    }}
+                    bodyStyle={{ padding: 18 }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <Text strong style={{ display: 'block', fontSize: 16 }}>{item.title}</Text>
+                        <Text type="secondary">{item.symbol}</Text>
+                      </div>
+                      <Tag color={item.tagColor} style={{ marginInlineEnd: 0 }}>{item.tagText}</Tag>
                     </div>
-                    <div style={{ width: 124, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
-                      <Tag color={item.tagColor} style={{ marginInlineEnd: 0, textAlign: 'center' }}>{item.tagText}</Tag>
-                      <Popover
-                        trigger="hover"
-                        placement="bottom"
-                        overlayStyle={{ maxWidth: 360 }}
-                        content={
-                          <div style={{ width: 320 }}>
-                            <Text strong>{item.title}走势明细</Text>
-                            <ReactECharts option={getKpiChartOption(item.chart, 'expanded')} style={{ height: 220, marginTop: 8 }} />
-                          </div>
-                        }
-                      >
-                        <div style={{ cursor: 'zoom-in', borderRadius: 12, background: '#fafcff', border: '1px solid #eef2f6', padding: '4px 6px' }}>
-                          <ReactECharts option={getKpiChartOption(item.chart, 'mini')} style={{ height: 62 }} />
+
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 32, lineHeight: 1.1, fontWeight: 700, color: item.accent }}>
+                        {item.value.toFixed(item.precision)}
+                        <span style={{ fontSize: 14, marginLeft: 4, color: '#8c8c8c' }}>{item.suffix}</span>
+                      </div>
+                      <Space size={12} wrap style={{ marginTop: 8 }}>
+                        <Text type={toNumber(item.snapshot.change_amount) >= 0 ? 'success' : 'danger'}>
+                          {formatSignedNumber(item.snapshot.change_amount)} 点
+                        </Text>
+                        <Text type={toNumber(item.snapshot.change_percent) >= 0 ? 'success' : 'danger'}>
+                          {formatSignedPercent(item.snapshot.change_percent)}
+                        </Text>
+                      </Space>
+                    </div>
+
+                    <div style={{ marginTop: 14, borderRadius: 12, background: '#fafcff', border: '1px solid #eef2f6', padding: '6px 8px' }}>
+                      {item.hasHistory ? (
+                        <ReactECharts option={getKpiChartOption(item.chart, 'mini')} style={{ height: 64 }} />
+                      ) : (
+                        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8c8c8c', fontSize: 12 }}>
+                          暂无走势
                         </div>
-                      </Popover>
+                      )}
                     </div>
-                  </div>
-                  <Paragraph type="secondary" style={{ margin: '14px 0 0', minHeight: 44 }}>
-                    {item.desc}
-                  </Paragraph>
-                </Card>
-              </Col>
-            ))}
+
+                    <Row gutter={[8, 8]} style={{ marginTop: 14 }}>
+                      <Col span={12}>
+                        <div style={{ borderRadius: 10, background: '#fafafa', padding: '10px 12px' }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>区间高低</Text>
+                          <div style={{ marginTop: 4, fontWeight: 600 }}>{formatValue(item.snapshot.high_price)} / {formatValue(item.snapshot.low_price)}</div>
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ borderRadius: 10, background: '#fafafa', padding: '10px 12px' }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>成交额</Text>
+                          <div style={{ marginTop: 4, fontWeight: 600 }}>{formatCompactNumber(item.snapshot.turnover)}</div>
+                        </div>
+                      </Col>
+                    </Row>
+
+                    <Paragraph type="secondary" style={{ margin: '12px 0 0', minHeight: 44 }}>
+                      {item.desc}
+                    </Paragraph>
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
 
           <Card
             title={
-              <span>
-                <LineChartOutlined style={{ marginRight: 8, color: '#1677ff' }} />
-                今日大盘走势
-              </span>
+              <Space size={8} wrap>
+                <LineChartOutlined style={{ color: '#1677ff' }} />
+                <span>{activeInsightCard ? `${activeInsightCard.title}${getDashboardRangeLabel(chartRange)}走势` : '指数走势'}</span>
+              </Space>
             }
             extra={
               <Space size={8} wrap>
-                <Tag color={marketData.is_stale ? 'warning' : 'processing'} icon={<RiseOutlined />}>
-                  {marketData.main_chart.index_name}
-                </Tag>
-                <Text type="secondary">更新时间 {marketData.snapshot_time}</Text>
-                <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void fetchMarketData()}>
+                <Segmented
+                  options={dashboardRangeOptions}
+                  value={chartRange}
+                  onChange={(value) => setChartRange(value as DashboardRange)}
+                />
+                <Button type="text" size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={() => void fetchMarketData({ silent: true })}>
                   刷新
                 </Button>
               </Space>
@@ -439,68 +719,141 @@ export default function Dashboard() {
             bordered={false}
             style={{ marginTop: 24, borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.06)' }}
           >
-            <ReactECharts option={getOption()} style={{ height: '400px' }} />
+            {historyError ? <Alert type="warning" showIcon message={historyError} style={{ marginBottom: 16 }} /> : null}
 
-            <Row gutter={[12, 12]} style={{ marginTop: 8 }}>
+            <Row gutter={[20, 20]} align="stretch">
+              <Col xs={24} xl={16}>
+                <Spin spinning={historyLoading}>
+                  {mainChart?.labels.length ? (
+                    <ReactECharts option={getMainChartOption(mainChart)} style={{ height: '420px' }} />
+                  ) : (
+                    <Empty description="当前暂无可用指数走势数据" />
+                  )}
+                </Spin>
+              </Col>
+              <Col xs={24} xl={8}>
+                <div style={{ height: '100%', borderRadius: 16, border: '1px solid #eef2f6', background: '#fafcff', padding: 20 }}>
+                  <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                    <div>
+                      <Space size={8} wrap>
+                        <Text strong style={{ fontSize: 18 }}>{activeSnapshot?.name ?? '—'}</Text>
+                        <Tag color="blue">{activeSnapshot?.symbol ?? '—'}</Tag>
+                        <Tag color={marketData.is_stale ? 'warning' : 'success'}>
+                          {marketData.is_stale ? '快照可能过期' : '快照有效'}
+                        </Tag>
+                      </Space>
+                      <div style={{ marginTop: 14, fontSize: 38, lineHeight: 1, fontWeight: 700, color: activeInsightCard?.accent ?? '#1677ff' }}>
+                        {formatValue(activeSnapshot?.last_price)}
+                      </div>
+                      <Space size={12} wrap style={{ marginTop: 10 }}>
+                        <Text type={toNumber(activeSnapshot?.change_amount) >= 0 ? 'success' : 'danger'} style={{ fontSize: 16 }}>
+                          {formatSignedNumber(activeSnapshot?.change_amount)} 点
+                        </Text>
+                        <Text type={toNumber(activeSnapshot?.change_percent) >= 0 ? 'success' : 'danger'} style={{ fontSize: 16 }}>
+                          {formatSignedPercent(activeSnapshot?.change_percent)}
+                        </Text>
+                      </Space>
+                    </div>
+
+                    <Row gutter={[12, 12]}>
+                      {mainSummaryItems.map((item) => (
+                        <Col span={12} key={item.label}>
+                          <div style={{ borderRadius: 12, background: '#fff', border: '1px solid #eef2f6', padding: '12px 14px' }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
+                            <div style={{ marginTop: 4, fontSize: 16, fontWeight: 600 }}>{item.value}</div>
+                          </div>
+                        </Col>
+                      ))}
+                    </Row>
+
+                    <div style={{ borderTop: '1px dashed #d9e6ff', paddingTop: 14 }}>
+                      <Space size={[8, 8]} wrap>
+                        <Tag color="processing" icon={<RiseOutlined />}>{formatValue(marketData.source)}</Tag>
+                        <Tag color="default">{activeSnapshot?.market || '指数'}</Tag>
+                        {isFallbackChart ? <Tag color="default">聚合走势兜底</Tag> : null}
+                      </Space>
+                      <div style={{ marginTop: 10 }}>
+                        <Text type="secondary">更新时间 {formatValue(marketData.snapshot_time)}</Text>
+                      </div>
+                    </div>
+                  </Space>
+                </div>
+              </Col>
+            </Row>
+
+            <Row gutter={[12, 12]} style={{ marginTop: 18 }}>
               {quickStats.map((item) => (
-                <Col xs={12} md={8} lg={4} key={item.label}>
+                <Col xs={12} md={8} xl={4} key={item.label}>
                   <div style={{ background: '#f8fafc', borderRadius: 12, padding: '14px 16px', border: '1px solid #eef2f6' }}>
                     <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
-                    <div style={{ marginTop: 6, fontSize: 20, fontWeight: 700, color: item.color }}>{item.value}</div>
+                    <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
                   </div>
                 </Col>
               ))}
             </Row>
           </Card>
 
-          <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
-            <Col span={24} lg={12}>
-              <Card
-                bordered={false}
-                title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />市场快照</span>}
-                style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
-              >
-                <Descriptions column={1} bordered size="small">
-                  {marketData.indices.map((item) => (
-                    <Descriptions.Item key={item.symbol} label={item.name}>
-                      <Space split={<Divider type="vertical" />} size={8} wrap>
-                        <Text strong>{formatValue(item.last_price)}</Text>
-                        <Text type={toNumber(item.change_percent) >= 0 ? 'success' : 'danger'}>
-                          {formatChangePercent(item.change_percent)}
-                        </Text>
-                        <Text type="secondary">{item.symbol}</Text>
-                      </Space>
-                    </Descriptions.Item>
-                  ))}
-                </Descriptions>
-              </Card>
-            </Col>
+          <Card
+            bordered={false}
+            title={<span><RadarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />指数对比明细</span>}
+            style={{ marginTop: 16, borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
+          >
+            <Row gutter={[16, 16]}>
+              {marketData.indices.slice(0, 4).map((item) => {
+                const isActive = item.symbol === activeInsightCard?.symbol;
+                return (
+                  <Col xs={24} md={12} key={item.symbol}>
+                    <div
+                      onClick={() => setActiveIndexSymbol(item.symbol)}
+                      style={{
+                        cursor: 'pointer',
+                        height: '100%',
+                        borderRadius: 16,
+                        border: isActive ? '1px solid #91caff' : '1px solid #eef2f6',
+                        background: isActive ? '#f7fbff' : '#fff',
+                        padding: 18,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                        <div>
+                          <Text strong style={{ display: 'block', fontSize: 16 }}>{item.name}</Text>
+                          <Text type="secondary">{item.symbol}</Text>
+                        </div>
+                        <Tag color={toNumber(item.change_percent) >= 0 ? 'green' : 'red'}>
+                          {formatSignedPercent(item.change_percent)}
+                        </Tag>
+                      </div>
 
-            <Col span={24} lg={12}>
-              <Card
-                bordered={false}
-                title={<span><ThunderboltOutlined style={{ color: '#722ed1', marginRight: 8 }} />数据状态</span>}
-                style={{ borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
-              >
-                <Descriptions column={1} bordered size="small">
-                  <Descriptions.Item label="数据源">
-                    <Text strong>{formatValue(marketData.source)}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="快照时间">
-                    <Text strong>{formatValue(marketData.snapshot_time)}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="新鲜度">
-                    <Tag color={marketData.is_stale ? 'warning' : 'success'}>
-                      {marketData.is_stale ? '数据可能已过期' : '数据新鲜'}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="统计口径">
-                    基于当前最新批次指数快照自动聚合。
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-          </Row>
+                      <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 28, fontWeight: 700 }}>{formatValue(item.last_price)}</span>
+                        <Text type={toNumber(item.change_amount) >= 0 ? 'success' : 'danger'}>
+                          {formatSignedNumber(item.change_amount)} 点
+                        </Text>
+                      </div>
+
+                      <Row gutter={[12, 12]} style={{ marginTop: 14 }}>
+                        {[
+                          { label: '今开', value: formatValue(item.open_price) },
+                          { label: '最高', value: formatValue(item.high_price) },
+                          { label: '最低', value: formatValue(item.low_price) },
+                          { label: '昨收', value: formatValue(item.prev_close) },
+                          { label: '成交量', value: formatCompactNumber(item.volume) },
+                          { label: '成交额', value: formatCompactNumber(item.turnover) },
+                        ].map((metric) => (
+                          <Col span={8} key={metric.label}>
+                            <div style={{ borderRadius: 12, background: '#fafafa', padding: '10px 12px', minHeight: 68 }}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{metric.label}</Text>
+                              <div style={{ marginTop: 4, fontWeight: 600 }}>{metric.value}</div>
+                            </div>
+                          </Col>
+                        ))}
+                      </Row>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+          </Card>
 
           <Card
             bordered={false}
@@ -510,14 +863,32 @@ export default function Dashboard() {
               type={marketData.is_stale ? 'warning' : 'info'}
               showIcon
               icon={<BulbOutlined />}
-              message={`数据结论：当前共追踪 ${marketData.indices.length} 个指数，${marketData.stats.find(item => item.label === '上涨数')?.value ?? '—'} 个上涨，${marketData.stats.find(item => item.label === '下跌数')?.value ?? '—'} 个下跌。`}
+              message={`数据结论：当前共追踪 ${marketData.indices.length} 个指数，${marketData.stats.find((item) => item.label === '上涨数')?.value ?? '—'} 个上涨，${marketData.stats.find((item) => item.label === '下跌数')?.value ?? '—'} 个下跌。`}
               description={
                 <Space direction="vertical" size={6}>
-                  <Text>主图展示 {marketData.main_chart.index_name}，数据来源为 {formatValue(marketData.source)}。</Text>
-                  <Text>{marketData.is_stale ? '当前快照超过阈值，建议先刷新行情数据后再继续分析。' : '当前快照处于有效窗口，可继续联调其他依赖 dashboard 的页面。'}</Text>
+                  <Text>
+                    主图当前展示 {activeInsightCard?.title ?? marketData.main_chart.index_name}
+                    {isFallbackChart ? '，该指数区间走势暂不可用，已回退为聚合走势。' : `，当前区间为${getDashboardRangeLabel(chartRange)}，点击顶部或下方卡片即可切换其他指数。`}
+                  </Text>
+                  <Text>{marketData.is_stale ? '当前快照超过阈值，系统会每 30 秒自动重试刷新。' : '当前快照处于有效窗口，可继续联调其他依赖 dashboard 的页面。'}</Text>
                 </Space>
               }
             />
+          </Card>
+
+          <Card
+            bordered={false}
+            style={{ marginTop: 16, borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
+          >
+            <Space size={10} wrap>
+              <ThunderboltOutlined style={{ color: '#722ed1' }} />
+              <Text strong>数据状态</Text>
+              <Tag color={marketData.is_stale ? 'warning' : 'success'}>
+                {marketData.is_stale ? '数据可能已过期' : '数据新鲜'}
+              </Tag>
+              <Text type="secondary">来源 {formatValue(marketData.source)}</Text>
+              <Text type="secondary">快照时间 {formatValue(marketData.snapshot_time)}</Text>
+            </Space>
           </Card>
         </>
       )}

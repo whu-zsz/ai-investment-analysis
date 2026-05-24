@@ -500,11 +500,11 @@ export default function AnalysisPage() {
           <div>
             <Space size={12} style={{ marginBottom: 12 }}>
               <Tag color="processing">结构化分析</Tag>
-              <Tag color="blue">异步任务生成</Tag>
+              <Tag color="blue">智能报告生成</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 投资分析</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              当前页面通过后端分析任务生成结构化报告，并展示真实返回的风险等级、预警列表、图表数据和 AI 结论。
+              生成投资分析报告，集中查看风险等级、预警信息、图表洞察和 AI 结论。
             </Paragraph>
           </div>
           <Space wrap>

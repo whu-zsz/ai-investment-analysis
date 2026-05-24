@@ -82,6 +82,8 @@ func SetupRouter(
 			{
 				market.GET("/snapshots/latest", marketHandler.GetLatestSnapshots)
 				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
+				market.GET("/stocks/:symbol/detail", marketHandler.GetStockDetail)
+				market.GET("/stocks/:symbol/kline", marketHandler.GetStockKlines)
 			}
 
 			analysis := protected.Group("/analysis")

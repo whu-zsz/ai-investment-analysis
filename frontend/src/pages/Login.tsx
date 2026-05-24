@@ -37,7 +37,7 @@ export default function Login() {
     <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
       <div style={{
         display: 'flex', justifyContent: 'center', alignItems: 'center',
-        minHeight: '100vh', width: '100vw',
+        minHeight: '100vh', width: '100%',
         background: 'radial-gradient(circle at top left, #1e293b 0%, #0b1120 100%)',
         position: 'relative', overflow: 'hidden',
       }}>
@@ -74,14 +74,14 @@ export default function Login() {
             <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]} style={{ marginBottom: 16 }}>
               <Input
                 prefix={<UserOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-                placeholder="管理账号"
+                placeholder="请输入账号"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, height: 48 }}
               />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]} style={{ marginBottom: 32 }}>
               <Input.Password
                 prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-                placeholder="访问密码"
+                placeholder="请输入密码"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, height: 48 }}
               />
             </Form.Item>

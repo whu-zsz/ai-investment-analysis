@@ -63,6 +63,11 @@ func AutoMigrate(db *gorm.DB) error {
 			return err
 		}
 	}
+	if !db.Migrator().HasTable(&model.StockQuoteDetail{}) {
+		if err := db.AutoMigrate(&model.StockQuoteDetail{}); err != nil {
+			return err
+		}
+	}
 
 	if err := db.AutoMigrate(
 		&model.Transaction{},
@@ -73,12 +78,16 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.AnalysisReportItem{},
 		&model.UploadedFile{},
 		&model.MarketSnapshot{},
-		&model.RevokedToken{},
+		&model.StockKlineBar{},
 	); err != nil {
 		return err
 	}
 
-	return ensureAnalysisReportColumns(db)
+	if err := ensureAnalysisReportColumns(db); err != nil {
+		return err
+	}
+
+	return ensureRevokedTokenSchema(db)
 }
 
 func waitForDB(sqlDB interface{ PingContext(context.Context) error }, cfg *DatabaseConfig) error {
@@ -152,4 +161,45 @@ func ensureColumnType(db *gorm.DB, tableName, columnName, targetType string) err
 	}
 
 	return nil
+}
+
+func ensureRevokedTokenSchema(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.RevokedToken{}) {
+		if err := db.AutoMigrate(&model.RevokedToken{}); err != nil {
+			return err
+		}
+	}
+
+	return ensureRevokedTokenIndexes(db)
+}
+
+func ensureRevokedTokenIndexes(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.RevokedToken{}) {
+		return nil
+	}
+
+	type uniqueIndexStat struct {
+		IndexName string
+		NonUnique int
+	}
+
+	var stats []uniqueIndexStat
+	err := db.Raw(`
+		SELECT index_name, non_unique
+		FROM information_schema.statistics
+		WHERE table_schema = DATABASE()
+		  AND table_name = ?
+		  AND column_name = ?
+	`, "revoked_tokens", "jti").Scan(&stats).Error
+	if err != nil {
+		return err
+	}
+
+	for _, stat := range stats {
+		if stat.NonUnique == 0 {
+			return nil
+		}
+	}
+
+	return db.Exec("CREATE UNIQUE INDEX idx_revoked_tokens_jti ON revoked_tokens (jti)").Error
 }

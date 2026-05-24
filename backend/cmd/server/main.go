@@ -59,6 +59,8 @@ func main() {
 	analysisReportItemRepo := repository.NewAnalysisReportItemRepository(db)
 	uploadedFileRepo := repository.NewUploadedFileRepository(db)
 	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
+	stockQuoteDetailRepo := repository.NewStockQuoteDetailRepository(db)
+	stockKlineRepo := repository.NewStockKlineRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
 	revokedTokenRepo := repository.NewRevokedTokenRepository(db)
 
@@ -89,7 +91,7 @@ func main() {
 	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, fileParserService, cfg.Upload)
 	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
 	transactionService := service.NewTransactionService(transactionRepo, portfolioService)
-	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo)
+	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo, stockKlineRepo)
 	stockMetricService := service.NewStockAnalysisMetricService(stockMetricRepo, transactionRepo, marketSnapshotRepo, marketDataService)
 	aiService := service.NewAIService(
 		analysisTaskRepo,
@@ -109,6 +111,7 @@ func main() {
 		llmProvider,
 	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
+	marketStockService := service.NewMarketStockService(marketProvider, stockQuoteDetailRepo, stockKlineRepo)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	userHandler := handler.NewUserHandler(userService)
@@ -116,7 +119,7 @@ func main() {
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
 	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService)
-	marketHandler := handler.NewMarketHandler(marketSnapshotService)
+	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService)
 
 	router := router.SetupRouter(
 		userHandler,
