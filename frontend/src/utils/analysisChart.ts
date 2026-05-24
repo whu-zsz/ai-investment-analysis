@@ -96,10 +96,10 @@ function buildFallbackProfitPoints(items?: AnalysisReportItemResponse[]): Profit
   }
 
   return items
-    .filter((item) => item.symbol?.trim() && item.total_profit?.trim())
+    .filter((item) => item.symbol?.trim() && (item.realized_profit?.trim() || item.total_profit?.trim()))
     .map((item) => ({
       symbol: item.symbol,
-      value: item.total_profit,
+      value: item.realized_profit?.trim() || item.total_profit,
     }));
 }
 

@@ -193,6 +193,7 @@ func TestAggregateMetricTransactions(t *testing.T) {
 	profit := decimal.NewFromInt(1000)
 	transactions := []model.Transaction{
 		{
+			AssetType:       "stock",
 			AssetCode:       "600519.SH",
 			AssetName:       "贵州茅台",
 			TransactionType: "buy",
@@ -200,6 +201,7 @@ func TestAggregateMetricTransactions(t *testing.T) {
 			TotalAmount:     decimal.NewFromInt(180000),
 		},
 		{
+			AssetType:       "stock",
 			AssetCode:       "600519.SH",
 			AssetName:       "贵州茅台",
 			TransactionType: "sell",
@@ -208,6 +210,7 @@ func TestAggregateMetricTransactions(t *testing.T) {
 			Profit:          &profit,
 		},
 		{
+			AssetType:       "stock",
 			AssetCode:       "000858.SZ",
 			AssetName:       "五粮液",
 			TransactionType: "buy",
@@ -241,6 +244,50 @@ func TestAggregateMetricTransactions(t *testing.T) {
 
 	if !agg.NetQuantity.Equal(decimal.NewFromInt(50)) {
 		t.Errorf("NetQuantity = %v, want 50", agg.NetQuantity)
+	}
+}
+
+func TestAggregateMetricTransactions_ExcludesNonStockAssets(t *testing.T) {
+	transactions := []model.Transaction{
+		{
+			AssetType:       "stock",
+			AssetCode:       "600519.SH",
+			AssetName:       "贵州茅台",
+			TransactionType: "buy",
+			Quantity:        decimal.NewFromInt(100),
+			TotalAmount:     decimal.NewFromInt(180000),
+		},
+		{
+			AssetType:       "fund",
+			AssetCode:       "110011",
+			AssetName:       "易方达中小盘",
+			TransactionType: "buy",
+			Quantity:        decimal.NewFromInt(50),
+			TotalAmount:     decimal.NewFromInt(5000),
+		},
+		{
+			AssetType:       "bond",
+			AssetCode:       "123001",
+			AssetName:       "转债测试",
+			TransactionType: "buy",
+			Quantity:        decimal.NewFromInt(20),
+			TotalAmount:     decimal.NewFromInt(2000),
+		},
+	}
+
+	result := aggregateMetricTransactions(transactions)
+
+	if len(result) != 1 {
+		t.Fatalf("aggregateMetricTransactions() returned %d symbols, want 1", len(result))
+	}
+	if _, ok := result["600519.SH"]; !ok {
+		t.Fatal("Expected 600519.SH in result")
+	}
+	if _, ok := result["110011"]; ok {
+		t.Fatal("Did not expect fund asset in result")
+	}
+	if _, ok := result["123001"]; ok {
+		t.Fatal("Did not expect bond asset in result")
 	}
 }
 
@@ -345,6 +392,7 @@ func TestStockAnalysisMetricService_PrepareMetrics(t *testing.T) {
 	mockTxRepo := &MockMetricTransactionRepository{
 		Transactions: []model.Transaction{
 			{
+				AssetType:       "stock",
 				AssetCode:       "600519.SH",
 				AssetName:       "贵州茅台",
 				TransactionType: "buy",
@@ -365,6 +413,49 @@ func TestStockAnalysisMetricService_PrepareMetrics(t *testing.T) {
 
 	if len(metrics) != 1 {
 		t.Errorf("PrepareMetrics() returned %d metrics, want 1", len(metrics))
+	}
+}
+
+func TestStockAnalysisMetricService_PrepareMetrics_ExcludesNonStockAssets(t *testing.T) {
+	now := time.Now()
+	start := now.AddDate(0, -1, 0)
+	end := now
+
+	mockMetricRepo := &MockMetricRepository{}
+	mockTxRepo := &MockMetricTransactionRepository{
+		Transactions: []model.Transaction{
+			{
+				AssetType:       "fund",
+				AssetCode:       "110011",
+				AssetName:       "易方达中小盘",
+				TransactionType: "buy",
+				Quantity:        decimal.NewFromInt(50),
+				TotalAmount:     decimal.NewFromInt(5000),
+			},
+			{
+				AssetType:       "stock",
+				AssetCode:       "600519.SH",
+				AssetName:       "贵州茅台",
+				TransactionType: "buy",
+				Quantity:        decimal.NewFromInt(100),
+				TotalAmount:     decimal.NewFromInt(180000),
+			},
+		},
+	}
+	mockSnapshotRepo := &MockMetricMarketSnapshotRepository{}
+	mockMarketSvc := &MockMetricMarketDataService{}
+
+	svc := NewStockAnalysisMetricService(mockMetricRepo, mockTxRepo, mockSnapshotRepo, mockMarketSvc)
+
+	metrics, err := svc.PrepareMetrics(context.Background(), 1, nil, start, end, nil, true, true)
+	if err != nil {
+		t.Fatalf("PrepareMetrics() error = %v", err)
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("PrepareMetrics() returned %d metrics, want 1", len(metrics))
+	}
+	if metrics[0].Symbol != "600519.SH" {
+		t.Fatalf("PrepareMetrics() returned symbol %s, want 600519.SH", metrics[0].Symbol)
 	}
 }
 

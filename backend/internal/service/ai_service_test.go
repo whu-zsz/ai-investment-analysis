@@ -17,12 +17,16 @@ import (
 
 // MockLLMProvider 模拟 LLM 提供者
 type MockLLMProvider struct {
-	Content     string
-	modelName   string
-	Err         error
+	Content      string
+	SystemPrompt string
+	UserPrompt   string
+	modelName    string
+	Err          error
 }
 
 func (m *MockLLMProvider) GetContent(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	m.SystemPrompt = systemPrompt
+	m.UserPrompt = userPrompt
 	if m.Err != nil {
 		return "", m.Err
 	}
@@ -1092,6 +1096,7 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 		Transactions: []model.Transaction{
 			{
 				UserID:          1,
+				AssetType:       "stock",
 				AssetCode:       "600519",
 				AssetName:       "贵州茅台",
 				TransactionType: "buy",
@@ -1114,6 +1119,7 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 				TradeCount:       1,
 				BuyCount:         1,
 				BuyAmount:        decimal.NewFromFloat(185000),
+				RealizedProfit:   decimal.NewFromFloat(5000),
 				TotalProfit:      decimal.NewFromFloat(5000),
 				MarketDataStatus: "complete",
 			},
@@ -1147,8 +1153,77 @@ func TestAIService_GenerateInvestmentSummary_Success(t *testing.T) {
 	if report.ChartData == "" {
 		t.Error("Expected chart_data to be populated")
 	}
+	if !strings.Contains(report.ChartData, `"metric":"realized_profit"`) {
+		t.Fatalf("expected realized_profit chart_data, got %s", report.ChartData)
+	}
 	if report.RiskAnalysis != "持仓集中在单一标的，若价格回撤会放大波动。" {
 		t.Errorf("Expected structured risk analysis, got %s", report.RiskAnalysis)
+	}
+}
+
+func TestAIService_GenerateInvestmentSummary_IgnoresNonStockAssets(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{
+		Transactions: []model.Transaction{
+			{
+				UserID:          1,
+				AssetType:       "stock",
+				AssetCode:       "600519",
+				AssetName:       "贵州茅台",
+				TransactionType: "buy",
+				Quantity:        decimal.NewFromInt(100),
+				TotalAmount:     decimal.NewFromFloat(185000),
+			},
+			{
+				UserID:          1,
+				AssetType:       "fund",
+				AssetCode:       "110011",
+				AssetName:       "易方达中小盘",
+				TransactionType: "buy",
+				Quantity:        decimal.NewFromInt(50),
+				TotalAmount:     decimal.NewFromFloat(5000),
+			},
+		},
+	}
+
+	llmProvider := &MockLLMProvider{
+		Content:   `{"summary":{"report_title":"测试总结报告","summary_text":"组合总盈亏为正，贵州茅台贡献了主要收益。","risk_level":"medium","investment_style":"balanced","risk_analysis":"持仓集中在单一标的。","pattern_insights":"交易集中在少数标的。","prediction_text":"若继续维持当前集中仓位，波动可能放大。","recommendations":["控制仓位","关注回撤"]},"stocks":[{"symbol":"600519.SH","asset_name":"贵州茅台","risk_level":"low","investment_style":"value","analysis_text":"贵州茅台当前总盈亏为正。","recommendation":"hold","key_points":["龙头白酒"]}]}`,
+		modelName: "test-model",
+	}
+
+	metricService := &MockStockMetricService{
+		Metrics: []model.StockAnalysisMetric{
+			{
+				Symbol:           "600519.SH",
+				AssetName:        "贵州茅台",
+				TradeCount:       1,
+				BuyCount:         1,
+				BuyAmount:        decimal.NewFromFloat(185000),
+				RealizedProfit:   decimal.NewFromFloat(5000),
+				TotalProfit:      decimal.NewFromFloat(5000),
+				MarketDataStatus: "complete",
+			},
+		},
+	}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		NewMockAnalysisReportRepository(),
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		metricService,
+		llmProvider,
+		zap.NewNop(),
+	)
+
+	_, err := aiService.GenerateInvestmentSummary(1, "2024-01-01", "2024-12-31")
+	if err != nil {
+		t.Fatalf("GenerateInvestmentSummary() error = %v", err)
+	}
+	if strings.Contains(llmProvider.UserPrompt, "易方达中小盘") {
+		t.Fatalf("expected non-stock asset to be excluded from prompt, got %s", llmProvider.UserPrompt)
+	}
+	if !strings.Contains(llmProvider.UserPrompt, "贵州茅台") {
+		t.Fatalf("expected stock asset to remain in prompt, got %s", llmProvider.UserPrompt)
 	}
 }
 
@@ -1159,6 +1234,7 @@ func TestAIService_GenerateInvestmentSummary_NoMetrics(t *testing.T) {
 		Transactions: []model.Transaction{
 			{
 				UserID:          1,
+				AssetType:       "stock",
 				AssetCode:       "600519",
 				AssetName:       "贵州茅台",
 				TransactionType: "buy",
@@ -1202,6 +1278,7 @@ func waitForTaskStatus(t *testing.T, taskRepo *MockAnalysisTaskRepository, taskI
 func TestAIService_CreateStockAnalysisTask_WeakOutputFails(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
 		UserID:          1,
+		AssetType:       "stock",
 		AssetCode:       "600519",
 		AssetName:       "贵州茅台",
 		TransactionType: "buy",
@@ -1213,6 +1290,7 @@ func TestAIService_CreateStockAnalysisTask_WeakOutputFails(t *testing.T) {
 		AssetName:        "贵州茅台",
 		TradeCount:       1,
 		BuyCount:         1,
+		RealizedProfit:   decimal.NewFromInt(5000),
 		TotalProfit:      decimal.NewFromInt(5000),
 		MarketDataStatus: "complete",
 	}}}
@@ -1242,9 +1320,80 @@ func TestAIService_CreateStockAnalysisTask_WeakOutputFails(t *testing.T) {
 	}
 }
 
+func TestAIService_CreateStockAnalysisTask_OnlyNonStockAssetsFails(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
+		UserID:          1,
+		AssetType:       "fund",
+		AssetCode:       "110011",
+		AssetName:       "易方达中小盘",
+		TransactionType: "buy",
+		Quantity:        decimal.NewFromInt(50),
+		TotalAmount:     decimal.NewFromFloat(5000),
+	}}}
+	taskRepo := NewMockAnalysisTaskRepository()
+	reportRepo := NewMockAnalysisReportRepository()
+	aiService := service.NewAIService(
+		taskRepo,
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	task, err := aiService.CreateStockAnalysisTask(1, &request.CreateAnalysisTaskRequest{StartDate: "2024-01-01", EndDate: "2024-12-31"})
+	if err != nil {
+		t.Fatalf("CreateStockAnalysisTask() error = %v", err)
+	}
+	finished := waitForTaskStatus(t, taskRepo, task.ID)
+	if finished.Status != "failed" {
+		t.Fatalf("expected failed task, got %s", finished.Status)
+	}
+	if reportRepo.LastReport != nil {
+		t.Fatal("expected no report to be persisted")
+	}
+}
+
+func TestAIService_CreateStockAnalysisTask_SymbolFilterDoesNotMatchNonStockAsset(t *testing.T) {
+	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
+		UserID:          1,
+		AssetType:       "fund",
+		AssetCode:       "600519",
+		AssetName:       "基金占位",
+		TransactionType: "buy",
+		Quantity:        decimal.NewFromInt(10),
+		TotalAmount:     decimal.NewFromFloat(1000),
+	}}}
+	taskRepo := NewMockAnalysisTaskRepository()
+	reportRepo := NewMockAnalysisReportRepository()
+	aiService := service.NewAIService(
+		taskRepo,
+		reportRepo,
+		NewMockAnalysisReportItemRepository(),
+		txRepo,
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	task, err := aiService.CreateStockAnalysisTask(1, &request.CreateAnalysisTaskRequest{StartDate: "2024-01-01", EndDate: "2024-12-31", Symbols: []string{"600519.SH"}})
+	if err != nil {
+		t.Fatalf("CreateStockAnalysisTask() error = %v", err)
+	}
+	finished := waitForTaskStatus(t, taskRepo, task.ID)
+	if finished.Status != "failed" {
+		t.Fatalf("expected failed task, got %s", finished.Status)
+	}
+	if reportRepo.LastReport != nil {
+		t.Fatal("expected no report to be persisted")
+	}
+}
+
 func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
 		UserID:          1,
+		AssetType:       "stock",
 		AssetCode:       "600519",
 		AssetName:       "贵州茅台",
 		TransactionType: "buy",
@@ -1256,6 +1405,7 @@ func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T)
 		AssetName:        "贵州茅台",
 		TradeCount:       1,
 		BuyCount:         1,
+		RealizedProfit:   decimal.NewFromInt(5000),
 		TotalProfit:      decimal.NewFromInt(5000),
 		MarketDataStatus: "complete",
 	}}}
@@ -1301,6 +1451,15 @@ func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T)
 	if reportRepo.LastItems[0].KeyPoints == nil || *reportRepo.LastItems[0].KeyPoints == "" {
 		t.Fatal("expected key points to be persisted")
 	}
+	if !reportRepo.LastReport.TotalProfit.Equal(decimal.NewFromInt(5000)) {
+		t.Fatalf("expected report total_profit to use realized profit, got %s", reportRepo.LastReport.TotalProfit.String())
+	}
+	if !reportRepo.LastItems[0].TotalProfit.Equal(decimal.NewFromInt(5000)) {
+		t.Fatalf("expected item total_profit to use realized profit, got %s", reportRepo.LastItems[0].TotalProfit.String())
+	}
+	if reportRepo.LastReport.ChartData == nil || !strings.Contains(*reportRepo.LastReport.ChartData, `"metric":"realized_profit"`) {
+		t.Fatalf("expected realized_profit chart_data, got %+v", reportRepo.LastReport.ChartData)
+	}
 	if strings.Contains(*reportRepo.LastItems[0].KeyPoints, "贡献利润") {
 		t.Fatalf("expected weak key point to be filtered, got %s", *reportRepo.LastItems[0].KeyPoints)
 	}
@@ -1314,6 +1473,7 @@ func TestAIService_CreateStockAnalysisTask_CleansAndPersistsOutput(t *testing.T)
 func TestAIService_CreateStockAnalysisTask_TransparentFallbackForWeakStockAnalysis(t *testing.T) {
 	txRepo := &MockTransactionRepositoryForAI{Transactions: []model.Transaction{{
 		UserID:          1,
+		AssetType:       "stock",
 		AssetCode:       "600519",
 		AssetName:       "贵州茅台",
 		TransactionType: "buy",
@@ -1325,6 +1485,7 @@ func TestAIService_CreateStockAnalysisTask_TransparentFallbackForWeakStockAnalys
 		AssetName:        "贵州茅台",
 		TradeCount:       1,
 		BuyCount:         1,
+		RealizedProfit:   decimal.NewFromInt(5000),
 		TotalProfit:      decimal.NewFromInt(5000),
 		MarketDataStatus: "complete",
 	}}}
@@ -1352,7 +1513,7 @@ func TestAIService_CreateStockAnalysisTask_TransparentFallbackForWeakStockAnalys
 	if reportRepo.LastReport == nil || len(reportRepo.LastItems) != 1 {
 		t.Fatal("expected persisted report and items")
 	}
-	if !strings.Contains(reportRepo.LastItems[0].AnalysisText, "总盈亏") {
+	if !strings.Contains(reportRepo.LastItems[0].AnalysisText, "已实现盈亏") {
 		t.Fatalf("expected transparent fallback analysis text, got %s", reportRepo.LastItems[0].AnalysisText)
 	}
 }

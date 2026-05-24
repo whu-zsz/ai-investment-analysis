@@ -51,7 +51,7 @@ func (r *InMemoryTransactionRepository) FindByID(id uint64) (*model.Transaction,
 func (r *InMemoryTransactionRepository) FindByUserID(userID uint64, limit, offset int) ([]model.Transaction, int64, error) {
 	var result []model.Transaction
 	for _, t := range r.transactions {
-		if t.UserID == userID {
+		if t.UserID == userID && t.AssetType == "stock" {
 			result = append(result, *t)
 		}
 	}
@@ -103,27 +103,33 @@ func (r *InMemoryTransactionRepository) Delete(id uint64) error {
 }
 
 func (r *InMemoryTransactionRepository) GetTransactionStats(userID uint64) (*response.TransactionStats, error) {
-	var buyCount, sellCount int64
+	var totalTransactions, buyCount, sellCount int64
 	var totalInvestment decimal.Decimal
+	var totalProfit decimal.Decimal
 
 	for _, t := range r.transactions {
-		if t.UserID == userID {
-			switch t.TransactionType {
-			case "buy":
-				buyCount++
-				totalInvestment = totalInvestment.Add(t.TotalAmount)
-			case "sell":
-				sellCount++
-			}
+		if t.UserID != userID || t.AssetType != "stock" {
+			continue
+		}
+		totalTransactions++
+		switch t.TransactionType {
+		case "buy":
+			buyCount++
+			totalInvestment = totalInvestment.Add(t.TotalAmount)
+		case "sell":
+			sellCount++
+		}
+		if t.Profit != nil {
+			totalProfit = totalProfit.Add(*t.Profit)
 		}
 	}
 
 	return &response.TransactionStats{
-		TotalTransactions: int64(len(r.transactions)),
-		BuyCount:         buyCount,
-		SellCount:        sellCount,
-		TotalInvestment:  totalInvestment.String(),
-		TotalProfit:      "0.00",
+		TotalTransactions: totalTransactions,
+		BuyCount:          buyCount,
+		SellCount:         sellCount,
+		TotalInvestment:   totalInvestment.String(),
+		TotalProfit:       totalProfit.String(),
 	}, nil
 }
 
@@ -212,9 +218,14 @@ func TestTransactionRepository_FindByID(t *testing.T) {
 func TestTransactionRepository_FindByUserID(t *testing.T) {
 	repo := NewInMemoryTransactionRepository()
 
-	// 用户 1 的交易
+	// 用户 1 的股票交易
 	repo.Create(createTestTx(1, "buy", "600519", 100, 1850.00))
 	repo.Create(createTestTx(1, "sell", "600519", 50, 1900.00))
+	// 用户 1 的非股票交易
+	fundTx := createTestTx(1, "buy", "110011", 10, 100.00)
+	fundTx.AssetType = "fund"
+	fundTx.AssetName = "基金测试"
+	repo.Create(fundTx)
 	// 用户 2 的交易
 	repo.Create(createTestTx(2, "buy", "000858", 200, 180.00))
 
@@ -228,6 +239,11 @@ func TestTransactionRepository_FindByUserID(t *testing.T) {
 	}
 	if len(transactions) != 2 {
 		t.Errorf("Transactions count = %v, want 2", len(transactions))
+	}
+	for _, tx := range transactions {
+		if tx.AssetType != "stock" {
+			t.Fatalf("expected only stock transactions, got %s", tx.AssetType)
+		}
 	}
 }
 
@@ -336,10 +352,13 @@ func TestTransactionRepository_Delete(t *testing.T) {
 // TestTransactionRepository_GetTransactionStats 测试获取交易统计
 func TestTransactionRepository_GetTransactionStats(t *testing.T) {
 	repo := NewInMemoryTransactionRepository()
+	profit := decimal.NewFromInt(1200)
 
 	repo.Create(createTestTx(1, "buy", "600519", 100, 1850.00))
 	repo.Create(createTestTx(1, "buy", "000858", 200, 180.00))
-	repo.Create(createTestTx(1, "sell", "600519", 50, 1900.00))
+	sellTx := createTestTx(1, "sell", "600519", 50, 1900.00)
+	sellTx.Profit = &profit
+	repo.Create(sellTx)
 	repo.Create(createTestTx(1, "dividend", "600519", 0, 0))
 
 	stats, err := repo.GetTransactionStats(1)
@@ -355,6 +374,9 @@ func TestTransactionRepository_GetTransactionStats(t *testing.T) {
 	}
 	if stats.SellCount != 1 {
 		t.Errorf("SellCount = %v, want 1", stats.SellCount)
+	}
+	if stats.TotalProfit != "1200" {
+		t.Errorf("TotalProfit = %v, want 1200", stats.TotalProfit)
 	}
 }
 

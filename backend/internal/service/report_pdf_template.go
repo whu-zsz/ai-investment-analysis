@@ -194,10 +194,17 @@ func buildProfitDistributionView(detail *responsedto.AnalysisReportDetailRespons
 	if len(points) == 0 {
 		points = make([]chartPoint, 0, len(detail.Items))
 		for _, item := range detail.Items {
-			if strings.TrimSpace(item.Symbol) == "" || strings.TrimSpace(item.TotalProfit) == "" {
+			if strings.TrimSpace(item.Symbol) == "" {
 				continue
 			}
-			points = append(points, chartPoint{Symbol: item.Symbol, Value: item.TotalProfit})
+			value := strings.TrimSpace(item.RealizedProfit)
+			if value == "" {
+				value = strings.TrimSpace(item.TotalProfit)
+			}
+			if value == "" {
+				continue
+			}
+			points = append(points, chartPoint{Symbol: item.Symbol, Value: value})
 		}
 	}
 	if len(points) == 0 {

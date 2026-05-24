@@ -49,7 +49,9 @@ func (r *transactionRepository) FindByUserID(userID uint64, limit, offset int) (
 	var transactions []model.Transaction
 	var total int64
 
-	db := r.db.Model(&model.Transaction{}).Where("user_id = ?", userID)
+	db := r.db.Model(&model.Transaction{}).
+		Where("user_id = ?", userID).
+		Where("asset_type = ?", "stock")
 	db.Count(&total)
 
 	err := db.Order("transaction_date DESC, created_at DESC").
@@ -87,27 +89,30 @@ func (r *transactionRepository) Delete(id uint64) error {
 func (r *transactionRepository) GetTransactionStats(userID uint64) (*response.TransactionStats, error) {
 	var stats response.TransactionStats
 
+	baseQuery := r.db.Model(&model.Transaction{}).
+		Where("user_id = ?", userID).
+		Where("asset_type = ?", "stock")
+
 	// 总交易次数
-	r.db.Model(&model.Transaction{}).Where("user_id = ?", userID).Count(&stats.TotalTransactions)
+	baseQuery.Count(&stats.TotalTransactions)
 
 	// 买入次数
-	r.db.Model(&model.Transaction{}).Where("user_id = ? AND transaction_type = ?", userID, "buy").Count(&stats.BuyCount)
+	baseQuery.Where("transaction_type = ?", "buy").Count(&stats.BuyCount)
 
 	// 卖出次数
-	r.db.Model(&model.Transaction{}).Where("user_id = ? AND transaction_type = ?", userID, "sell").Count(&stats.SellCount)
+	baseQuery.Where("transaction_type = ?", "sell").Count(&stats.SellCount)
 
 	// 总投资额
 	var totalInvestment decimal.Decimal
-	r.db.Model(&model.Transaction{}).
-		Where("user_id = ? AND transaction_type = ?", userID, "buy").
+	baseQuery.
+		Where("transaction_type = ?", "buy").
 		Select("COALESCE(SUM(total_amount), 0)").
 		Scan(&totalInvestment)
 	stats.TotalInvestment = totalInvestment.String()
 
 	// 总盈亏
 	var totalProfit decimal.Decimal
-	r.db.Model(&model.Transaction{}).
-		Where("user_id = ?", userID).
+	baseQuery.
 		Where("profit IS NOT NULL").
 		Select("COALESCE(SUM(profit), 0)").
 		Scan(&totalProfit)

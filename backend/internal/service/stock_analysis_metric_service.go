@@ -85,6 +85,7 @@ func (s *stockAnalysisMetricService) PrepareMetrics(ctx context.Context, userID 
 	if err != nil {
 		return nil, err
 	}
+	transactions = filterStockTransactions(transactions)
 	aggregates := aggregateMetricTransactions(transactions)
 	if len(normalizedSymbols) > 0 {
 		filter := make(map[string]struct{}, len(normalizedSymbols))
@@ -157,9 +158,21 @@ func (s *stockAnalysisMetricService) PrepareMetrics(ctx context.Context, userID 
 	return s.metricRepo.FindByUserPeriod(userID, start, end, normalizedSymbols)
 }
 
-func aggregateMetricTransactions(transactions []model.Transaction) map[string]*metricAggregate {
-	result := make(map[string]*metricAggregate)
+func filterStockTransactions(transactions []model.Transaction) []model.Transaction {
+	filtered := make([]model.Transaction, 0, len(transactions))
 	for _, tx := range transactions {
+		if !strings.EqualFold(strings.TrimSpace(tx.AssetType), "stock") {
+			continue
+		}
+		filtered = append(filtered, tx)
+	}
+	return filtered
+}
+
+func aggregateMetricTransactions(transactions []model.Transaction) map[string]*metricAggregate {
+	stockTransactions := filterStockTransactions(transactions)
+	result := make(map[string]*metricAggregate)
+	for _, tx := range stockTransactions {
 		symbol := normalizeSymbol(tx.AssetCode)
 		if symbol == "" {
 			continue
@@ -206,8 +219,16 @@ func aggregateMetricTransactions(transactions []model.Transaction) map[string]*m
 			agg.SellAmount = agg.SellAmount.Add(tx.TotalAmount)
 			agg.NetQuantity = agg.NetQuantity.Sub(tx.Quantity)
 		}
-		if tx.Profit != nil {
-			agg.RealizedProfit = agg.RealizedProfit.Add(*tx.Profit)
+	}
+	profits := buildRealizedProfitSnapshots(stockTransactions)
+	for _, tx := range stockTransactions {
+		symbol := normalizeSymbol(tx.AssetCode)
+		agg, ok := result[symbol]
+		if !ok {
+			continue
+		}
+		if profit, exists := profits[tx.ID]; exists {
+			agg.RealizedProfit = agg.RealizedProfit.Add(profit)
 		}
 	}
 	for _, agg := range result {

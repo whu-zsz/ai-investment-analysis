@@ -73,7 +73,7 @@ function buildQuickMetrics(report: AnalysisReportDetailResponse | null) {
   if (!report) return [];
 
   return [
-    { label: '累计收益率', value: `${report.profit_rate}%`, color: '#1677ff', bg: '#e6f4ff' },
+    { label: '累计已实现收益率', value: `${report.profit_rate}%`, color: '#1677ff', bg: '#e6f4ff' },
     { label: '风险等级', value: report.risk_level, color: '#ff4d4f', bg: '#fff1f0' },
     { label: '投资风格', value: styleMap[report.investment_style] ?? report.investment_style, color: '#722ed1', bg: '#f9f0ff' },
     { label: '覆盖标的', value: `${report.symbols_count}`, color: '#13c2c2', bg: '#e6fffb' },
@@ -145,7 +145,7 @@ function renderStockCards(items: AnalysisReportItemResponse[], topRiskSymbols: R
                   {riskInfo && <Tag color={getRiskTagColor(riskInfo.risk_level)}>风险分 {riskInfo.risk_score}</Tag>}
                 </Space>
                 <Space wrap>
-                  <Text type="secondary">总盈亏 {formatValue(item.total_profit)}</Text>
+                  <Text type="secondary">已实现盈亏 {formatValue(item.total_profit)}</Text>
                   <Text type="secondary">风险 {formatValue(item.risk_level)}</Text>
                   <Text type="secondary">风格 {styleMap[item.investment_style] ?? formatValue(item.investment_style)}</Text>
                 </Space>
@@ -297,6 +297,7 @@ export default function AnalysisPage() {
       const task = await analysisApi.createTask({
         start_date: range.startDate,
         end_date: range.endDate,
+        force_refresh_metrics: true,
       });
 
       const completedTask: AnalysisTaskDetailResponse = await waitForTask(task.id);
@@ -362,7 +363,7 @@ export default function AnalysisPage() {
         return `<div style="padding: 4px 6px;">
                   <div style="color: #888; margin-bottom: 4px;">${point.symbol}</div>
                   <div style="font-weight: bold; color: ${point.color}; font-size: 16px;">${formatProfitValue(point.numericValue)}</div>
-                  <div style="margin-top: 4px; color: #666;">${point.semanticLabel}</div>
+                  <div style="margin-top: 4px; color: #666;">${point.semanticLabel}（按已实现盈亏口径）</div>
                 </div>`;
       },
     },
@@ -381,7 +382,7 @@ export default function AnalysisPage() {
     },
     series: [{
       type: 'bar',
-      name: '累计收益',
+      name: '累计已实现盈亏',
       data: chartData.map((item) => ({ value: item.numericValue, itemStyle: { color: item.color } })),
       itemStyle: { borderRadius: [6, 6, 0, 0] },
       markLine: {
@@ -504,7 +505,7 @@ export default function AnalysisPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>AI 投资分析</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              生成投资分析报告，集中查看风险等级、预警信息、图表洞察和 AI 结论。
+              生成投资分析报告，集中查看风险等级、预警信息、图表洞察和 AI 结论；本页与历史页统一展示股票交易的已实现盈亏，当前持仓浮盈/浮亏仅在辅助构成视图中参考展示。
             </Paragraph>
           </div>
           <Space wrap>
@@ -558,7 +559,7 @@ export default function AnalysisPage() {
                   <Col span={24} lg={8}>
                     <Card bordered={false} style={cardStyle}>
                       <Statistic
-                        title="累计收益率"
+                        title="累计已实现收益率"
                         value={report.profit_rate || '—'}
                         suffix={report.profit_rate ? '%' : undefined}
                         prefix={<SafetyCertificateOutlined />}
@@ -566,6 +567,9 @@ export default function AnalysisPage() {
                       />
                       <Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'block' }}>
                         风险等级 {report.risk_level} · 数据状态 {marketStatus.text}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                        本页主收益口径为股票已实现盈亏。
                       </Text>
                     </Card>
                   </Col>
@@ -657,11 +661,14 @@ export default function AnalysisPage() {
                     <Card
                       bordered={false}
                       style={cardStyle}
-                      title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股累计收益分布</span>}
+                      title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />个股已实现盈亏分布</span>}
                     >
                       {chartData.length ? (
                         <>
                           <ReactECharts option={getProfitChartOption()} style={{ height: 320 }} />
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                            历史页与本图统一展示股票已实现盈亏，可直接对照同一口径的主收益结果。
+                          </Text>
                           <Row gutter={[8, 8]} style={{ marginTop: 12 }}>
                             <Col span={12}>
                               <div style={{ background: '#f6ffed', borderRadius: 12, padding: '10px 12px' }}>
@@ -720,7 +727,7 @@ export default function AnalysisPage() {
                     <Card
                       bordered={false}
                       style={cardStyle}
-                      title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />已实现与浮动收益构成</span>}
+                      title={<span><FundOutlined style={{ color: '#1677ff', marginRight: 8 }} />已实现与浮动收益构成（参考）</span>}
                     >
                       {profitComposition.points.length ? (
                         <>
@@ -736,7 +743,7 @@ export default function AnalysisPage() {
                             </Col>
                             <Col span={12}>
                               <div style={{ background: '#f6ffed', borderRadius: 12, padding: '10px 12px' }}>
-                                <Text type="secondary" style={{ fontSize: 12 }}>浮动收益汇总</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>浮动盈亏汇总（参考）</Text>
                                 <div style={{ color: '#52c41a', fontSize: 18, fontWeight: 700, marginTop: 4 }}>
                                   {formatProfitValue(profitComposition.unrealizedTotal)}
                                 </div>
@@ -791,7 +798,7 @@ export default function AnalysisPage() {
                         <Descriptions.Item label="盈利标的数">{report.winning_trades}</Descriptions.Item>
                         <Descriptions.Item label="亏损标的数">{report.losing_trades}</Descriptions.Item>
                         <Descriptions.Item label="累计投入">{formatValue(report.total_investment)}</Descriptions.Item>
-                        <Descriptions.Item label="累计盈亏">{formatValue(report.total_profit)}</Descriptions.Item>
+                        <Descriptions.Item label="累计已实现盈亏">{formatValue(report.total_profit)}</Descriptions.Item>
                         <Descriptions.Item label="生成时间">{formatDateTime(report.created_at)}</Descriptions.Item>
                       </Descriptions>
                     </Card>

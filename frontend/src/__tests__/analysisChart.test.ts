@@ -121,6 +121,7 @@ describe('parseProfitBySymbolChartData', () => {
   it('envelope 格式解析', () => {
     const data = JSON.stringify({
       kind: 'profit_by_symbol',
+      metric: 'realized_profit',
       points: [
         { symbol: '600519', value: '100' },
       ],
@@ -128,6 +129,26 @@ describe('parseProfitBySymbolChartData', () => {
     const result = parseProfitBySymbolChartData(data);
     expect(result).toHaveLength(1);
     expect(result[0].symbol).toBe('600519');
+  });
+
+  it('优先使用 realized_profit 作为 fallback', () => {
+    const items = [
+      { symbol: '600519', realized_profit: '100', total_profit: '150' },
+      { symbol: '000858', realized_profit: '-20', total_profit: '10' },
+    ] as unknown as AnalysisReportItemResponse[];
+    const result = parseProfitBySymbolChartData(undefined, items);
+    expect(result).toEqual([
+      { symbol: '600519', value: '100' },
+      { symbol: '000858', value: '-20' },
+    ]);
+  });
+
+  it('兼容旧 total_profit fallback', () => {
+    const items = [
+      { symbol: '600519', realized_profit: '', total_profit: '150' },
+    ] as unknown as AnalysisReportItemResponse[];
+    const result = parseProfitBySymbolChartData(undefined, items);
+    expect(result).toEqual([{ symbol: '600519', value: '150' }]);
   });
 });
 
@@ -143,8 +164,8 @@ describe('buildOutcomeDistributionData', () => {
       symbols_count: 3,
       winning_trades: 2,
       losing_trades: 1,
-      chart_data: undefined,
-      items: undefined,
+      chart_data: '',
+      items: [],
     };
     const result = buildOutcomeDistributionData(report);
     expect(result.total).toBe(3);

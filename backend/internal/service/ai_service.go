@@ -234,8 +234,9 @@ func (s *aiService) GenerateInvestmentSummary(userID uint64, startDate, endDate 
 	if err != nil {
 		return nil, err
 	}
+	transactions = filterStockTransactions(transactions)
 	if len(transactions) == 0 {
-		return nil, fmt.Errorf("no transactions found in the specified period")
+		return nil, fmt.Errorf("no stock transactions found in the specified period")
 	}
 
 	metrics, err := s.stockMetricService.PrepareMetrics(context.Background(), userID, nil, startTime, endTime, nil, false, false)
@@ -405,8 +406,9 @@ func (s *aiService) executeAnalysisTask(taskID, userID uint64, req *requestdto.C
 	if err != nil {
 		return err
 	}
+	transactions = filterStockTransactions(transactions)
 	if len(transactions) == 0 {
-		return fmt.Errorf("no transactions found in the specified period")
+		return fmt.Errorf("no stock transactions found in the specified period")
 	}
 
 	normalizedSymbols := normalizeSymbols(req.Symbols)
@@ -490,19 +492,19 @@ func (s *aiService) generateStructuredAnalysis(startTime, endTime time.Time, met
 
 func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics []model.StockAnalysisMetric, transactions []model.Transaction) string {
 	totalInvestment := modelDecimalZero()
-	totalProfit := modelDecimalZero()
+	totalRealizedProfit := modelDecimalZero()
 	lines := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
 		totalInvestment = totalInvestment.Add(metric.BuyAmount)
-		totalProfit = totalProfit.Add(metric.TotalProfit)
-		lines = append(lines, fmt.Sprintf("- %s %s: 交易%d次, 买入%d次/卖出%d次, 买入金额%s, 卖出金额%s, 买入股数%s, 卖出股数%s, 净持仓%s, 已实现盈亏%s(%s%%), 期末持仓%s, 持仓均价%s, 最新价%s, 最新市值%s, 未实现盈亏%s, 总盈亏%s, 周期涨跌幅%s%%, 周期最高%s, 周期最低%s, 市场数据状态=%s", metric.Symbol, metric.AssetName, metric.TradeCount, metric.BuyCount, metric.SellCount, metric.BuyAmount.StringFixed(2), metric.SellAmount.StringFixed(2), metric.BuyQuantity.StringFixed(2), metric.SellQuantity.StringFixed(2), metric.NetQuantity.StringFixed(2), metric.RealizedProfit.StringFixed(2), metric.RealizedProfitRate.StringFixed(2), metric.EndingPositionQty.StringFixed(2), metric.EndingAvgCost.StringFixed(4), metric.LatestPrice.StringFixed(4), metric.LatestMarketValue.StringFixed(2), metric.UnrealizedProfit.StringFixed(2), metric.TotalProfit.StringFixed(2), metric.PeriodPriceChangePct.StringFixed(2), metric.PeriodHighPrice.StringFixed(4), metric.PeriodLowPrice.StringFixed(4), metric.MarketDataStatus))
+		totalRealizedProfit = totalRealizedProfit.Add(metric.RealizedProfit)
+		lines = append(lines, fmt.Sprintf("- %s %s: 交易%d次, 买入%d次/卖出%d次, 买入金额%s, 卖出金额%s, 买入股数%s, 卖出股数%s, 净持仓%s, 已实现盈亏%s(%s%%), 期末持仓%s, 持仓均价%s, 最新价%s, 最新市值%s, 当前持仓浮盈/浮亏%s, 参考总盈亏%s, 周期涨跌幅%s%%, 周期最高%s, 周期最低%s, 市场数据状态=%s", metric.Symbol, metric.AssetName, metric.TradeCount, metric.BuyCount, metric.SellCount, metric.BuyAmount.StringFixed(2), metric.SellAmount.StringFixed(2), metric.BuyQuantity.StringFixed(2), metric.SellQuantity.StringFixed(2), metric.NetQuantity.StringFixed(2), metric.RealizedProfit.StringFixed(2), metric.RealizedProfitRate.StringFixed(2), metric.EndingPositionQty.StringFixed(2), metric.EndingAvgCost.StringFixed(4), metric.LatestPrice.StringFixed(4), metric.LatestMarketValue.StringFixed(2), metric.UnrealizedProfit.StringFixed(2), metric.TotalProfit.StringFixed(2), metric.PeriodPriceChangePct.StringFixed(2), metric.PeriodHighPrice.StringFixed(4), metric.PeriodLowPrice.StringFixed(4), metric.MarketDataStatus))
 	}
 	return fmt.Sprintf(`请基于以下股票投资分析指标生成一份结构化分析报告。
 分析周期：%s 至 %s
 总交易数：%d
 股票数：%d
 总买入金额：%s
-总盈亏：%s
+累计已实现盈亏：%s
 
 硬性要求：
 - 只能输出一个合法 JSON 对象，禁止 markdown、代码块、解释文字。
@@ -564,7 +566,7 @@ func (s *aiService) buildStructuredPrompt(startTime, endTime time.Time, metrics 
     }
   ]
 }
-`, startTime.Format("2006-01-02"), endTime.Format("2006-01-02"), len(transactions), len(metrics), totalInvestment.StringFixed(2), totalProfit.StringFixed(2), strings.Join(lines, "\n"))
+`, startTime.Format("2006-01-02"), endTime.Format("2006-01-02"), len(transactions), len(metrics), totalInvestment.StringFixed(2), totalRealizedProfit.StringFixed(2), strings.Join(lines, "\n"))
 }
 
 func (s *aiService) buildSummaryPrompt(transactions []model.Transaction, startDate, endDate string) string {
@@ -683,12 +685,55 @@ func (s *aiService) convertToDetailResponse(report *model.AnalysisReport, items 
 	for _, item := range items {
 		result.Items = append(result.Items, toAnalysisReportItemResponse(item))
 	}
+	recalculateDetailReportProfit(result)
 	result.Prediction = buildPredictionResponse(report, result.Items)
 	riskOverview, riskAlerts, topRiskSymbols := buildRiskInsights(result.Items, result.RiskLevel, result.Recommendations)
 	result.RiskOverview = riskOverview
 	result.RiskAlerts = riskAlerts
 	result.TopRiskSymbols = topRiskSymbols
 	return result
+}
+
+func recalculateDetailReportProfit(detail *responsedto.AnalysisReportDetailResponse) {
+	if detail == nil || len(detail.Items) == 0 {
+		return
+	}
+
+	totalInvestment := decimal.Zero
+	totalProfit := decimal.Zero
+	winningTrades := 0
+	losingTrades := 0
+	points := make([]chartPoint, 0, len(detail.Items))
+
+	for _, item := range detail.Items {
+		buyAmount := parseDecimalOrZero(item.BuyAmount)
+		realizedProfit := parseDecimalOrZero(item.RealizedProfit)
+		totalInvestment = totalInvestment.Add(buyAmount)
+		totalProfit = totalProfit.Add(realizedProfit)
+		if realizedProfit.GreaterThan(decimal.Zero) {
+			winningTrades++
+		}
+		if realizedProfit.LessThan(decimal.Zero) {
+			losingTrades++
+		}
+		if strings.TrimSpace(item.Symbol) != "" {
+			points = append(points, chartPoint{Symbol: item.Symbol, Value: realizedProfit.StringFixed(2)})
+		}
+	}
+
+	detail.TotalInvestment = totalInvestment.StringFixed(2)
+	detail.TotalProfit = totalProfit.StringFixed(2)
+	detail.WinningTrades = winningTrades
+	detail.LosingTrades = losingTrades
+	if totalInvestment.IsZero() {
+		detail.ProfitRate = decimal.Zero.StringFixed(2)
+	} else {
+		detail.ProfitRate = totalProfit.Div(totalInvestment).Mul(decimal.NewFromInt(100)).StringFixed(2)
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Symbol < points[j].Symbol })
+	if data, err := json.Marshal(chartDataEnvelope{Version: 2, Kind: "profit_by_symbol", Metric: "realized_profit", Points: points}); err == nil {
+		detail.ChartData = string(data)
+	}
 }
 
 func buildPredictionResponse(report *model.AnalysisReport, items []responsedto.AnalysisReportItemResponse) *responsedto.PredictionResponse {
@@ -1006,14 +1051,14 @@ func riskLevelRank(level string) int {
 
 func summarizeMetricRows(metrics []model.StockAnalysisMetric) (decimal.Decimal, decimal.Decimal, []string) {
 	totalInvestment := modelDecimalZero()
-	totalProfit := modelDecimalZero()
+	totalRealizedProfit := modelDecimalZero()
 	marketStatuses := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
 		totalInvestment = totalInvestment.Add(metric.BuyAmount)
-		totalProfit = totalProfit.Add(metric.TotalProfit)
+		totalRealizedProfit = totalRealizedProfit.Add(metric.RealizedProfit)
 		marketStatuses = append(marketStatuses, metric.MarketDataStatus)
 	}
-	return totalInvestment, totalProfit, marketStatuses
+	return totalInvestment, totalRealizedProfit, marketStatuses
 }
 
 func buildSummaryReport(userID uint64, startTime, endTime time.Time, rawOutput string, output *aiAnalysisOutput, metrics []model.StockAnalysisMetric, modelName string) (*model.AnalysisReport, error) {
@@ -1046,10 +1091,10 @@ func buildSummaryReport(userID uint64, startTime, endTime time.Time, rawOutput s
 	winningTrades := 0
 	losingTrades := 0
 	for _, metric := range metrics {
-		if metric.TotalProfit.GreaterThan(modelDecimalZero()) {
+		if metric.RealizedProfit.GreaterThan(modelDecimalZero()) {
 			winningTrades++
 		}
-		if metric.TotalProfit.LessThan(modelDecimalZero()) {
+		if metric.RealizedProfit.LessThan(modelDecimalZero()) {
 			losingTrades++
 		}
 	}
@@ -1092,10 +1137,10 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 	}
 	items := make([]model.AnalysisReportItem, 0, len(metrics))
 	for _, metric := range metrics {
-		if metric.TotalProfit.GreaterThan(modelDecimalZero()) {
+		if metric.RealizedProfit.GreaterThan(modelDecimalZero()) {
 			winningTrades++
 		}
-		if metric.TotalProfit.LessThan(modelDecimalZero()) {
+		if metric.RealizedProfit.LessThan(modelDecimalZero()) {
 			losingTrades++
 		}
 		aiStock := stockOutputMap[metric.Symbol]
@@ -1122,7 +1167,7 @@ func buildReportModels(taskID, userID uint64, startTime, endTime time.Time, rawO
 			LatestPrice:          metric.LatestPrice,
 			LatestMarketValue:    metric.LatestMarketValue,
 			UnrealizedProfit:     metric.UnrealizedProfit,
-			TotalProfit:          metric.TotalProfit,
+			TotalProfit:          metric.RealizedProfit,
 			ChangePercent7D:      metric.PeriodPriceChangePct,
 			PeriodPriceChangePct: metric.PeriodPriceChangePct,
 			MarketDataStatus:     metric.MarketDataStatus,
@@ -1518,19 +1563,19 @@ func isWeakNarrative(value string, minRunes int) bool {
 }
 
 func buildTransparentStockAnalysis(metric model.StockAnalysisMetric) string {
-	return fmt.Sprintf("%s 在分析期内共 %d 次交易，买入%d次、卖出%d次，总盈亏%s，最新价%s，期末持仓%s。", metric.Symbol, metric.TradeCount, metric.BuyCount, metric.SellCount, metric.TotalProfit.StringFixed(2), metric.LatestPrice.StringFixed(4), metric.EndingPositionQty.StringFixed(2))
+	return fmt.Sprintf("%s 在分析期内共 %d 次交易，买入%d次、卖出%d次，已实现盈亏%s，最新价%s，期末持仓%s。", metric.Symbol, metric.TradeCount, metric.BuyCount, metric.SellCount, metric.RealizedProfit.StringFixed(2), metric.LatestPrice.StringFixed(4), metric.EndingPositionQty.StringFixed(2))
 }
 
 func buildChartData(metrics []model.StockAnalysisMetric) string {
 	points := make([]chartPoint, 0, len(metrics))
 	for _, metric := range metrics {
-		points = append(points, chartPoint{Symbol: metric.Symbol, Value: metric.TotalProfit.StringFixed(2)})
+		points = append(points, chartPoint{Symbol: metric.Symbol, Value: metric.RealizedProfit.StringFixed(2)})
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].Symbol < points[j].Symbol })
 	data, _ := json.Marshal(chartDataEnvelope{
 		Version: 2,
 		Kind:    "profit_by_symbol",
-		Metric:  "total_profit",
+		Metric:  "realized_profit",
 		Points:  points,
 	})
 	return string(data)

@@ -88,14 +88,14 @@ func (s *transactionService) GetTransactions(userID uint64, page, pageSize int) 
 	if err != nil {
 		return nil, err
 	}
-
-	transactionResponses := make([]dtoResponse.TransactionResponse, 0, len(transactions))
-	for i := range transactions {
-		transactionResponses = append(transactionResponses, dtoResponse.NewTransactionResponse(&transactions[i]))
+	allTransactions, err := s.transactionRepo.FindByDateRange(userID, "0001-01-01", "9999-12-31")
+	if err != nil {
+		return nil, err
 	}
+	snapshots := buildRealizedProfitSnapshots(allTransactions)
 
 	return &dtoResponse.TransactionListResponse{
-		Transactions: transactionResponses,
+		Transactions: buildTransactionResponsesWithProfitSnapshots(transactions, snapshots),
 		Total:        total,
 		Page:         page,
 		PageSize:     pageSize,
@@ -176,7 +176,19 @@ func (s *transactionService) DeleteTransaction(userID uint64, id uint64) error {
 }
 
 func (s *transactionService) GetTransactionStats(userID uint64) (*dtoResponse.TransactionStats, error) {
-	return s.transactionRepo.GetTransactionStats(userID)
+	transactions, err := s.transactionRepo.FindByDateRange(userID, "0001-01-01", "9999-12-31")
+	if err != nil {
+		return nil, err
+	}
+
+	summary := buildRealizedProfitSummary(transactions)
+	return &dtoResponse.TransactionStats{
+		TotalTransactions: summary.TotalTransactions,
+		BuyCount:          summary.BuyCount,
+		SellCount:         summary.SellCount,
+		TotalInvestment:   summary.TotalInvestment.StringFixed(2),
+		TotalProfit:       summary.TotalProfit.StringFixed(2),
+	}, nil
 }
 
 func parseCreateTransactionRequest(req *request.CreateTransactionRequest) (*parsedTransactionInput, error) {

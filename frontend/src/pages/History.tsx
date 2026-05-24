@@ -87,7 +87,7 @@ export default function HistoryPage() {
       render: (val) => <Text strong>¥{parseFloat(val).toLocaleString()}</Text>,
     },
     {
-      title: '盈亏', dataIndex: 'profit',
+      title: '已实现盈亏', dataIndex: 'profit',
       render: (val?: string) => {
         if (!val) return <Text type="secondary">—</Text>;
         const num = parseFloat(val);
@@ -105,7 +105,7 @@ export default function HistoryPage() {
     { label: '买入次数', value: stats.buy_count, suffix: '次', color: '#52c41a' },
     { label: '卖出次数', value: stats.sell_count, suffix: '次', color: '#722ed1' },
     { label: '累计投入', value: `¥${parseFloat(stats.total_investment).toLocaleString()}`, suffix: '', color: '#262626' },
-    { label: '累计盈亏', value: `¥${parseFloat(stats.total_profit).toLocaleString()}`, suffix: '', color: parseFloat(stats.total_profit) >= 0 ? '#52c41a' : '#ff4d4f' },
+    { label: '累计已实现盈亏', value: `¥${parseFloat(stats.total_profit).toLocaleString()}`, suffix: '', color: parseFloat(stats.total_profit) >= 0 ? '#52c41a' : '#ff4d4f' },
   ] : [];
 
   return (
@@ -128,12 +128,12 @@ export default function HistoryPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>历史交易归档</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 600 }}>
-              集中查看历史交易流水与关键汇总数据，帮助你快速回顾交易表现。
+              集中查看历史交易流水与关键汇总数据；本页按买卖成交序列计算已实现盈亏，不包含当前持仓的浮盈或浮亏。
             </Paragraph>
           </div>
           <Space wrap>
             <Tag color="success" icon={<RiseOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-              累计盈亏 {stats ? `¥${parseFloat(stats.total_profit).toLocaleString()}` : '—'}
+              累计已实现盈亏 {stats ? `¥${parseFloat(stats.total_profit).toLocaleString()}` : '—'}
             </Tag>
             <Tag color="processing" icon={<HistoryOutlined />} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
               共 {stats?.total_transactions ?? '—'} 笔交易
@@ -186,7 +186,7 @@ export default function HistoryPage() {
             <Card bordered={false} style={{ ...cardStyle, marginTop: 16 }}>
               <Alert type="info" showIcon icon={<BulbOutlined />}
                 message="说明"
-                description="本页提供历史交易流水与关键汇总信息，便于快速查看整体交易表现。"
+                description="历史页展示的是交易流水与已实现盈亏汇总；页面会按股票买卖成交序列推导卖出已实现盈亏，当前仍持有仓位的浮盈或浮亏不包含在本页中。"
               />
             </Card>
           </>
