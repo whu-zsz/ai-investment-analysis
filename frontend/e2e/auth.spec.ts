@@ -84,9 +84,19 @@ test.describe('认证流程', () => {
     // 先登录
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
+
+    // 等待输入框出现
+    await page.waitForSelector('input[placeholder*="请输入账号"]', { timeout: 5000 });
+    await page.waitForSelector('input[placeholder*="请输入密码"]', { timeout: 5000 });
+
+    // 填写登录信息
     await page.fill('input[placeholder*="请输入账号"]', 'e2etest');
     await page.fill('input[placeholder*="请输入密码"]', 'Test123456');
+
+    // 点击登录按钮
     await page.click('button[type="submit"]');
+
+    // 等待跳转到首页
     await page.waitForURL('/', { timeout: 10000 });
 
     // 验证登录成功
@@ -96,9 +106,6 @@ test.describe('认证流程', () => {
     // 再次访问登录页
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
-
-    // 验证仍然在登录页（或跳转到首页）
-    // 注意：根据实际实现，可能跳转到首页或停留在登录页
   });
 
   test('路由守卫正确重定向', async ({ page }) => {
