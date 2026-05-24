@@ -16,6 +16,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const recommendationLLMTimeout = 8 * time.Second
+
 type RecommendationService interface {
 	GetCandidates(userID uint64) (*responsedto.AnalysisCandidatesResponse, error)
 	GetRecommendations(userID uint64) (*responsedto.AnalysisRecommendationsResponse, error)
@@ -421,7 +423,9 @@ func (s *recommendationService) generateRecommendationExplanation(user *model.Us
 3. summary_text 要直接概括用户当前更适合关注哪些类型标的。
 4. items 里最多返回 %d 个候选。
 `, user.InvestmentPreference, user.RiskTolerance, user.TotalProfit.StringFixed(2), strings.Join(lines, "\n"), len(candidates))
-	content, err := s.llmProvider.GetContent(context.Background(), "你是一位严谨的股票推荐解释助手，只能输出合法 JSON。", userPrompt)
+	ctx, cancel := context.WithTimeout(context.Background(), recommendationLLMTimeout)
+	defer cancel()
+	content, err := s.llmProvider.GetContent(ctx, "你是一位严谨的股票推荐解释助手，只能输出合法 JSON。", userPrompt)
 	if err != nil {
 		return nil, err
 	}

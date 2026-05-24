@@ -45,16 +45,30 @@ export default function RecommendationPage() {
     setLoading(true);
     setError('');
     try {
-      const [candidateRes, recommendationRes] = await Promise.all([
+      const [candidateResult, recommendationResult] = await Promise.allSettled([
         analysisApi.getCandidates(),
         analysisApi.getRecommendations(),
       ]);
-      setCandidateInfo(candidateRes);
-      setRecommendation(recommendationRes);
-    } catch (err: any) {
-      setCandidateInfo(null);
-      setRecommendation(null);
-      setError(err?.message ?? err?.data?.message ?? 'AI 推荐加载失败');
+
+      const nextCandidateInfo = candidateResult.status === 'fulfilled' ? candidateResult.value : null;
+      const nextRecommendation = recommendationResult.status === 'fulfilled' ? recommendationResult.value : null;
+
+      setCandidateInfo(nextCandidateInfo);
+      setRecommendation(nextRecommendation);
+
+      if (!nextCandidateInfo && !nextRecommendation) {
+        const candidateError = candidateResult.status === 'rejected' ? candidateResult.reason : null;
+        const recommendationError = recommendationResult.status === 'rejected' ? recommendationResult.reason : null;
+        setError(
+          recommendationError?.message
+            ?? recommendationError?.data?.message
+            ?? candidateError?.message
+            ?? candidateError?.data?.message
+            ?? 'AI 推荐加载失败'
+        );
+      } else if (!nextRecommendation && nextCandidateInfo) {
+        setError('AI 解释生成较慢，当前先展示候选股票池。');
+      }
     } finally {
       setLoading(false);
     }
@@ -96,18 +110,24 @@ export default function RecommendationPage() {
       </Card>
 
       <Spin spinning={loading}>
-        {error ? (
+        {error && recommendation ? (
+          <Card bordered={false} style={{ ...cardStyle, marginBottom: 16 }}>
+            <Alert type="warning" showIcon message={error} />
+          </Card>
+        ) : null}
+
+        {error && !recommendation && !candidateInfo ? (
           <Card bordered={false} style={cardStyle}><Alert type="error" showIcon message={error} /></Card>
-        ) : !recommendation ? (
+        ) : !recommendation && !candidateInfo ? (
           <Card bordered={false} style={cardStyle}><Empty description="暂无推荐结果" /></Card>
-        ) : !recommendation.candidates.length ? (
+        ) : recommendation && !recommendation.candidates.length ? (
           <Card bordered={false} style={cardStyle}>
             <Empty description={recommendation.summary_text || '暂无可用推荐，请先补充交易数据'} />
             <div style={{ marginTop: 16 }}>
               <Button type="primary" onClick={() => navigate('/app/upload')}>去导入交易记录</Button>
             </div>
           </Card>
-        ) : (
+        ) : recommendation ? (
           <>
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="候选池数量" value={profileSummary?.candidate_count ?? candidateInfo?.candidates.length ?? 0} /></Card></Col>
@@ -171,6 +191,16 @@ export default function RecommendationPage() {
               })}
             </Row>
           </>
+        ) : (
+          <Card bordered={false} style={cardStyle}>
+            <Empty description="AI 解释生成较慢，当前先展示候选股票池。" />
+            <div style={{ marginTop: 16 }}>
+              <Space wrap>
+                <Tag color="processing">候选池数量 {candidateInfo?.candidates.length ?? 0}</Tag>
+                {candidateInfo?.default_symbol ? <Tag color="blue">默认关注 {candidateInfo.default_symbol}</Tag> : null}
+              </Space>
+            </div>
+          </Card>
         )}
       </Spin>
     </div>

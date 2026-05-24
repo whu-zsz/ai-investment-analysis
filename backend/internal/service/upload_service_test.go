@@ -110,6 +110,27 @@ func (r *MockTransactionRepositoryForUpload) GetTransactionStats(userID uint64) 
 	return &response.TransactionStats{}, nil
 }
 
+type MockPortfolioServiceForUpload struct {
+	RecalculatedAssetCodes []string
+	Err                    error
+}
+
+func (m *MockPortfolioServiceForUpload) GetPortfolios(userID uint64) ([]model.Portfolio, error) {
+	return []model.Portfolio{}, nil
+}
+
+func (m *MockPortfolioServiceForUpload) UpdatePortfolioFromTransaction(userID uint64, transaction *model.Transaction) error {
+	return nil
+}
+
+func (m *MockPortfolioServiceForUpload) RecalculatePortfolio(userID uint64, assetCode string) error {
+	if m.Err != nil {
+		return m.Err
+	}
+	m.RecalculatedAssetCodes = append(m.RecalculatedAssetCodes, assetCode)
+	return nil
+}
+
 // MockFileParserService 模拟文件解析服务
 type MockFileParserService struct {
 	Result     *service.FileParseResult
@@ -143,7 +164,7 @@ func TestUploadService_ProcessUploadedFile_CSV(t *testing.T) {
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	result, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
 	if err != nil {
@@ -177,7 +198,7 @@ func TestUploadService_ProcessUploadedFile_Excel(t *testing.T) {
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	result, err := uploadService.ProcessUploadedFile(1, "/tmp/test.xlsx", "test.xlsx", 2048, "excel")
 	if err != nil {
@@ -195,7 +216,7 @@ func TestUploadService_ProcessUploadedFile_UnsupportedType(t *testing.T) {
 	parser := &MockFileParserService{}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.txt", "test.txt", 1024, "text")
 	if err == nil {
@@ -209,7 +230,7 @@ func TestUploadService_ProcessUploadedFile_FileTooLarge(t *testing.T) {
 	parser := &MockFileParserService{}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 1000}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 2048, "csv")
 	if err == nil {
@@ -223,7 +244,7 @@ func TestUploadService_ProcessUploadedFile_ParseError(t *testing.T) {
 	parser := &MockFileParserService{ParseError: errors.New("parse error")}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
 	if err == nil {
@@ -253,7 +274,7 @@ func TestUploadService_ProcessUploadedFile_PartialSuccess(t *testing.T) {
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	result, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
 	if err != nil {
@@ -285,7 +306,7 @@ func TestUploadService_ProcessUploadedFile_AllRowsFailed(t *testing.T) {
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
 	if err == nil {
@@ -310,7 +331,7 @@ func TestUploadService_ProcessUploadedFile_BatchCreateError(t *testing.T) {
 	}
 	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
 	if err == nil {
@@ -337,7 +358,7 @@ func TestUploadService_GetUploadHistory(t *testing.T) {
 	parser := &MockFileParserService{}
 	uploadCfg := config.UploadConfig{}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	history, err := uploadService.GetUploadHistory(1)
 	if err != nil {
@@ -358,7 +379,7 @@ func TestUploadService_GetUploadHistory_Empty(t *testing.T) {
 	parser := &MockFileParserService{}
 	uploadCfg := config.UploadConfig{}
 
-	uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+	uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 	history, err := uploadService.GetUploadHistory(1)
 	if err != nil {
@@ -370,6 +391,42 @@ func TestUploadService_GetUploadHistory_Empty(t *testing.T) {
 	}
 }
 
+
+func TestUploadService_ProcessUploadedFile_RecalculatesImportedPortfolios(t *testing.T) {
+	fileRepo := NewMockUploadedFileRepository()
+	txRepo := &MockTransactionRepositoryForUpload{}
+	portfolioService := &MockPortfolioServiceForUpload{}
+	parser := &MockFileParserService{
+		Result: &service.FileParseResult{
+			Transactions: []model.Transaction{
+				{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
+				{UserID: 1, AssetCode: "000858", AssetName: "五粮液"},
+				{UserID: 1, AssetCode: "600519", AssetName: "贵州茅台"},
+			},
+			RecordsTotal:    3,
+			RecordsImported: 3,
+			RecordsFailed:   0,
+		},
+	}
+	uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
+
+	uploadService := service.NewUploadService(fileRepo, txRepo, portfolioService, parser, uploadCfg)
+
+	_, err := uploadService.ProcessUploadedFile(1, "/tmp/test.csv", "test.csv", 1024, "csv")
+	if err != nil {
+		t.Fatalf("ProcessUploadedFile() error = %v", err)
+	}
+
+	if len(portfolioService.RecalculatedAssetCodes) != 2 {
+		t.Fatalf("expected 2 recalculated asset codes, got %d", len(portfolioService.RecalculatedAssetCodes))
+	}
+	if portfolioService.RecalculatedAssetCodes[0] != "600519" {
+		t.Fatalf("unexpected first recalculated asset code: %s", portfolioService.RecalculatedAssetCodes[0])
+	}
+	if portfolioService.RecalculatedAssetCodes[1] != "000858" {
+		t.Fatalf("unexpected second recalculated asset code: %s", portfolioService.RecalculatedAssetCodes[1])
+	}
+}
 func TestUploadService_ProcessUploadedFile_DifferentExtensions(t *testing.T) {
 	tests := []struct {
 		filename    string
@@ -399,7 +456,7 @@ func TestUploadService_ProcessUploadedFile_DifferentExtensions(t *testing.T) {
 		}
 		uploadCfg := config.UploadConfig{MaxUploadSize: 10485760}
 
-		uploadService := service.NewUploadService(fileRepo, txRepo, parser, uploadCfg)
+		uploadService := service.NewUploadService(fileRepo, txRepo, &MockPortfolioServiceForUpload{}, parser, uploadCfg)
 
 		_, err := uploadService.ProcessUploadedFile(1, "/tmp/"+tt.filename, tt.filename, 1024, tt.fileType)
 		if tt.expectError && err == nil {

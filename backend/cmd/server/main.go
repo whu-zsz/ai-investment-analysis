@@ -72,8 +72,8 @@ func main() {
 
 	userService := service.NewUserService(userRepo, cfg.JWT)
 	fileParserService := service.NewFileParserService()
-	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, fileParserService, cfg.Upload)
 	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
+	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, portfolioService, fileParserService, cfg.Upload)
 	transactionService := service.NewTransactionService(transactionRepo, portfolioService)
 	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo)
 	stockMetricService := service.NewStockAnalysisMetricService(stockMetricRepo, transactionRepo, marketSnapshotRepo, marketDataService)

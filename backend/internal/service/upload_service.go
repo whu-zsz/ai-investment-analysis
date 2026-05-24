@@ -22,6 +22,7 @@ type UploadService interface {
 type uploadService struct {
 	uploadedFileRepo  repository.UploadedFileRepository
 	transactionRepo   repository.TransactionRepository
+	portfolioService  PortfolioService
 	fileParserService FileParserService
 	uploadCfg         config.UploadConfig
 }
@@ -29,12 +30,14 @@ type uploadService struct {
 func NewUploadService(
 	uploadedFileRepo repository.UploadedFileRepository,
 	transactionRepo repository.TransactionRepository,
+	portfolioService PortfolioService,
 	fileParserService FileParserService,
 	uploadCfg config.UploadConfig,
 ) UploadService {
 	return &uploadService{
 		uploadedFileRepo:  uploadedFileRepo,
 		transactionRepo:   transactionRepo,
+		portfolioService:  portfolioService,
 		fileParserService: fileParserService,
 		uploadCfg:         uploadCfg,
 	}
@@ -99,6 +102,14 @@ func (s *uploadService) ProcessUploadedFile(userID uint64, filePath string, orig
 		return nil, err
 	}
 
+	for _, assetCode := range collectImportedAssetCodes(parseResult.Transactions) {
+		if err := s.portfolioService.RecalculatePortfolio(userID, assetCode); err != nil {
+			errorMsg := err.Error()
+			s.uploadedFileRepo.UpdateStatus(uploadedFile.ID, "failed", 0, &errorMsg)
+			return nil, err
+		}
+	}
+
 	uploadStatus := "success"
 	message := fmt.Sprintf("成功导入 %d 条记录", parseResult.RecordsImported)
 	if parseResult.RecordsFailed > 0 {
@@ -146,6 +157,23 @@ func (s *uploadService) GetUploadHistory(userID uint64) ([]response.UploadHistor
 	}
 
 	return history, nil
+}
+
+func collectImportedAssetCodes(transactions []model.Transaction) []string {
+	seen := make(map[string]struct{}, len(transactions))
+	result := make([]string, 0, len(transactions))
+	for _, transaction := range transactions {
+		assetCode := strings.TrimSpace(transaction.AssetCode)
+		if assetCode == "" {
+			continue
+		}
+		if _, ok := seen[assetCode]; ok {
+			continue
+		}
+		seen[assetCode] = struct{}{}
+		result = append(result, assetCode)
+	}
+	return result
 }
 
 func toUploadRowErrors(errors []UploadRowError) []response.UploadRowError {
