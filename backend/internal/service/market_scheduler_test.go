@@ -11,16 +11,30 @@ import (
 
 // MockSchedulerMarketDataService 模拟市场数据服务用于调度器测试
 type MockSchedulerMarketDataService struct {
-	BatchNo        string
-	Count          int
-	Err            error
-	Called         bool
-	WarmupCalled   bool
+	BatchNo          string
+	Count            int
+	SnapshotErr      error
+	FullSnapshotErr  error
+	BoardSnapshotErr error
+	TrackedCalled    bool
+	FullMarketCalled bool
+	BoardCalled      bool
+	WarmupCalled     bool
 }
 
 func (s *MockSchedulerMarketDataService) FetchAndStoreMarketSnapshots(ctx context.Context) (string, int, error) {
-	s.Called = true
-	return s.BatchNo, s.Count, s.Err
+	s.TrackedCalled = true
+	return s.BatchNo, s.Count, s.SnapshotErr
+}
+
+func (s *MockSchedulerMarketDataService) FetchAndStoreFullMarketSnapshots(ctx context.Context) (string, int, error) {
+	s.FullMarketCalled = true
+	return s.BatchNo, s.Count, s.FullSnapshotErr
+}
+
+func (s *MockSchedulerMarketDataService) FetchAndStoreMarketBoardSnapshots(ctx context.Context) (string, int, error) {
+	s.BoardCalled = true
+	return s.BatchNo, s.Count, s.BoardSnapshotErr
 }
 
 func (s *MockSchedulerMarketDataService) FetchAndStoreQuotesBySymbols(ctx context.Context, symbols []string) ([]model.MarketSnapshot, error) {
@@ -29,7 +43,7 @@ func (s *MockSchedulerMarketDataService) FetchAndStoreQuotesBySymbols(ctx contex
 
 func (s *MockSchedulerMarketDataService) EnsureTrackedIndexHistory(ctx context.Context) error {
 	s.WarmupCalled = true
-	return s.Err
+	return s.SnapshotErr
 }
 
 // TestNewMarketScheduler 测试创建调度器
@@ -80,8 +94,14 @@ func TestMarketScheduler_Start(t *testing.T) {
 	if !mockSvc.WarmupCalled {
 		t.Error("MarketScheduler should have called EnsureTrackedIndexHistory")
 	}
-	if !mockSvc.Called {
+	if !mockSvc.TrackedCalled {
 		t.Error("MarketScheduler should have called FetchAndStoreMarketSnapshots")
+	}
+	if !mockSvc.FullMarketCalled {
+		t.Error("MarketScheduler should have called FetchAndStoreFullMarketSnapshots")
+	}
+	if !mockSvc.BoardCalled {
+		t.Error("MarketScheduler should have called FetchAndStoreMarketBoardSnapshots")
 	}
 }
 
@@ -124,15 +144,23 @@ func TestMarketScheduler_RunOnce(t *testing.T) {
 	ctx := context.Background()
 	s.runOnce(ctx)
 
-	if !mockSvc.Called {
+	if !mockSvc.TrackedCalled {
 		t.Error("runOnce() should call FetchAndStoreMarketSnapshots")
+	}
+	if !mockSvc.FullMarketCalled {
+		t.Error("runOnce() should call FetchAndStoreFullMarketSnapshots")
+	}
+	if !mockSvc.BoardCalled {
+		t.Error("runOnce() should call FetchAndStoreMarketBoardSnapshots")
 	}
 }
 
 // TestMarketScheduler_RunOnce_Error 测试单次运行错误
 func TestMarketScheduler_RunOnce_Error(t *testing.T) {
 	mockSvc := &MockSchedulerMarketDataService{
-		Err: context.Canceled,
+		SnapshotErr:      context.Canceled,
+		FullSnapshotErr:  context.Canceled,
+		BoardSnapshotErr: context.Canceled,
 	}
 	logger := zap.NewNop()
 
@@ -146,8 +174,14 @@ func TestMarketScheduler_RunOnce_Error(t *testing.T) {
 	// 不应该 panic
 	s.runOnce(ctx)
 
-	if !mockSvc.Called {
+	if !mockSvc.TrackedCalled {
 		t.Error("runOnce() should call FetchAndStoreMarketSnapshots even on error")
+	}
+	if !mockSvc.FullMarketCalled {
+		t.Error("runOnce() should call FetchAndStoreFullMarketSnapshots even on error")
+	}
+	if !mockSvc.BoardCalled {
+		t.Error("runOnce() should call FetchAndStoreMarketBoardSnapshots even on error")
 	}
 }
 

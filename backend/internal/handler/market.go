@@ -1,24 +1,29 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	marketResponse "stock-analysis-backend/internal/dto/response"
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type MarketHandler struct {
 	marketSnapshotService service.MarketSnapshotService
 	marketStockService    service.MarketStockService
+	newsService           service.NewsService
 }
 
-func NewMarketHandler(marketSnapshotService service.MarketSnapshotService, marketStockService service.MarketStockService) *MarketHandler {
+func NewMarketHandler(marketSnapshotService service.MarketSnapshotService, marketStockService service.MarketStockService, newsService service.NewsService) *MarketHandler {
 	return &MarketHandler{
 		marketSnapshotService: marketSnapshotService,
 		marketStockService:    marketStockService,
+		newsService:           newsService,
 	}
 }
 
@@ -69,6 +74,96 @@ func (h *MarketHandler) GetDashboardSnapshot(c *gin.Context) {
 	response.Success(c, snapshot)
 }
 
+func (h *MarketHandler) GetDashboardMarketBreadth(c *gin.Context) {
+	limit, err := strconvAtoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		limit = 20
+	}
+	result, err := h.marketSnapshotService.GetDashboardMarketBreadth(c.Request.Context(), limit)
+	if err != nil {
+		response.InternalServerError(c, "failed to get dashboard market breadth")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *MarketHandler) GetBoardDetail(c *gin.Context) {
+	boardType := c.Param("boardType")
+	code := c.Param("code")
+	limit, err := strconvAtoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		limit = 80
+	}
+	result, err := h.marketSnapshotService.GetBoardDetail(c.Request.Context(), boardType, code, limit)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "board detail not found")
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *MarketHandler) GetBoardNews(c *gin.Context) {
+	if h.newsService == nil {
+		response.InternalServerError(c, "news service is unavailable")
+		return
+	}
+	boardType := c.Param("boardType")
+	code := c.Param("code")
+	limit, err := strconvAtoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	boardDetail, detailErr := h.marketSnapshotService.GetBoardDetail(c.Request.Context(), boardType, code, 1)
+	boardName := code
+	if detailErr == nil && boardDetail != nil && boardDetail.Board.Name != "" {
+		boardName = boardDetail.Board.Name
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	defer cancel()
+	newsCtx, err := h.newsService.GetTopicNews(ctx, boardName)
+	if err != nil {
+		response.Success(c, marketResponse.BoardNewsResponse{
+			BoardType:   boardType,
+			Code:        code,
+			BoardName:   boardName,
+			GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
+			Coverage:    err.Error(),
+			Items:       []marketResponse.StockNewsItemResponse{},
+		})
+		return
+	}
+	items := make([]marketResponse.StockNewsItemResponse, 0, len(newsCtx.Items))
+	for index, item := range newsCtx.Items {
+		if index >= limit {
+			break
+		}
+		items = append(items, marketResponse.StockNewsItemResponse{
+			Title:       item.Title,
+			Summary:     item.Summary,
+			Source:      item.Source,
+			URL:         item.URL,
+			PublishedAt: item.PublishedAt.Format("2006-01-02 15:04:05"),
+			Provider:    item.Provider,
+			IsRecent:    time.Since(item.PublishedAt) <= 7*24*time.Hour,
+		})
+	}
+	response.Success(c, marketResponse.BoardNewsResponse{
+		BoardType:   boardType,
+		Code:        code,
+		BoardName:   boardName,
+		GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
+		Coverage:    newsCtx.Coverage,
+		Items:       items,
+	})
+}
+
 func (h *MarketHandler) GetStockDetail(c *gin.Context) {
 	symbol := c.Param("symbol")
 	forceRefresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
@@ -79,6 +174,71 @@ func (h *MarketHandler) GetStockDetail(c *gin.Context) {
 		return
 	}
 	response.Success(c, detail)
+}
+
+func (h *MarketHandler) GetStockProfile(c *gin.Context) {
+	symbol := c.Param("symbol")
+	profile, err := h.marketStockService.GetStockProfile(symbol)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, profile)
+}
+
+func (h *MarketHandler) GetStockNews(c *gin.Context) {
+	if h.newsService == nil {
+		response.InternalServerError(c, "news service is unavailable")
+		return
+	}
+	symbol := c.Param("symbol")
+	limit, err := strconvAtoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	detail, _ := h.marketStockService.GetStockDetail(symbol, false)
+	assetName := symbol
+	if detail != nil && detail.Name != "" {
+		assetName = detail.Name
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	defer cancel()
+	newsCtx, err := h.newsService.GetStockNews(ctx, symbol, assetName)
+	if err != nil {
+		response.Success(c, marketResponse.StockNewsResponse{
+			Symbol:      symbol,
+			AssetName:   assetName,
+			GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
+			Coverage:    err.Error(),
+			Items:       []marketResponse.StockNewsItemResponse{},
+		})
+		return
+	}
+	items := make([]marketResponse.StockNewsItemResponse, 0, len(newsCtx.Items))
+	for index, item := range newsCtx.Items {
+		if index >= limit {
+			break
+		}
+		items = append(items, marketResponse.StockNewsItemResponse{
+			Title:       item.Title,
+			Summary:     item.Summary,
+			Source:      item.Source,
+			URL:         item.URL,
+			PublishedAt: item.PublishedAt.Format("2006-01-02 15:04:05"),
+			Provider:    item.Provider,
+			IsRecent:    time.Since(item.PublishedAt) <= 7*24*time.Hour,
+		})
+	}
+	response.Success(c, marketResponse.StockNewsResponse{
+		Symbol:      symbol,
+		AssetName:   assetName,
+		GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),
+		Coverage:    newsCtx.Coverage,
+		Items:       items,
+	})
 }
 
 func (h *MarketHandler) GetStockKlines(c *gin.Context) {

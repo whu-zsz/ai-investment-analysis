@@ -1,4 +1,4 @@
-import { Alert, Avatar, Button, Card, Col, Dropdown, Empty, Row, Segmented, Skeleton, Space, Spin, Tag, Typography } from 'antd';
+import { Alert, Avatar, Button, Card, Col, Dropdown, Empty, List, Row, Segmented, Skeleton, Space, Spin, Tag, Typography } from 'antd';
 import {
   BulbOutlined,
   LineChartOutlined,
@@ -17,10 +17,11 @@ import type { EChartsOption } from 'echarts';
 import { marketApi } from '../api';
 import { useAuth } from '../hooks/useAuth';
 import { computeNumericAxisRange } from '../utils/chartAxis';
-import type { DashboardMarketSnapshotResponse, MarketKlineBarResponse, MarketStockKlineResponse } from '../api/types';
+import type { DashboardMarketBreadthResponse, DashboardMarketSnapshotResponse, MarketBoardItemResponse, MarketBreadthItemResponse, MarketKlineBarResponse, MarketStockKlineResponse } from '../api/types';
 import type { MenuProps } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
+const MARKET_OVERVIEW_REFRESH_MS = 30 * 60 * 1000;
 
 type DashboardRange = '3d' | '7d' | '30d';
 type MarketIndexSnapshot = DashboardMarketSnapshotResponse['indices'][number];
@@ -400,6 +401,65 @@ function getMainChartOption(chart: KpiChartConfig | null): EChartsOption {
   };
 }
 
+function getChangeDistributionOption(breadth: DashboardMarketBreadthResponse | null): EChartsOption {
+  const buckets = breadth?.change_distribution ?? [];
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { top: 24, left: 34, right: 12, bottom: 28, containLabel: true },
+    xAxis: { type: 'category', data: buckets.map((item) => item.label), axisLabel: { color: '#8c8c8c', fontSize: 11 } },
+    yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } } },
+    series: [{
+      name: '股票数量',
+      type: 'bar',
+      data: buckets.map((item) => item.count),
+      itemStyle: {
+        color: (params: { dataIndex?: number }) => {
+          const label = buckets[params.dataIndex ?? -1]?.label ?? '';
+          if (label.includes('-')) return '#52c41a';
+          if (label.includes('+') || label.includes('>')) return '#ff4d4f';
+          return '#1677ff';
+        },
+        borderRadius: [6, 6, 0, 0],
+      },
+    }],
+  };
+}
+
+function getBoardBarOption(items: MarketBoardItemResponse[], title: string): EChartsOption {
+  const topItems = items.slice(0, 10).reverse();
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { top: 20, left: 90, right: 18, bottom: 20, containLabel: true },
+    xAxis: { type: 'value', axisLabel: { formatter: '{value}%' }, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } } },
+    yAxis: { type: 'category', data: topItems.map((item) => item.name), axisLabel: { color: '#595959', fontSize: 11 } },
+    series: [{
+      name: title,
+      type: 'bar',
+      data: topItems.map((item) => toNumber(item.change_percent)),
+      itemStyle: {
+        color: (params: { value?: unknown }) => toNumber(String(params.value ?? '0')) >= 0 ? '#ff7875' : '#73d13d',
+        borderRadius: [0, 8, 8, 0],
+      },
+    }],
+  };
+}
+
+function getTurnoverRankOption(items: MarketBreadthItemResponse[]): EChartsOption {
+  const topItems = items.slice(0, 10).reverse();
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { top: 20, left: 84, right: 18, bottom: 20, containLabel: true },
+    xAxis: { type: 'value', axisLabel: { formatter: (value: number) => `${(value / 100000000).toFixed(0)}亿` }, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } } },
+    yAxis: { type: 'category', data: topItems.map((item) => item.name || item.symbol), axisLabel: { color: '#595959', fontSize: 11 } },
+    series: [{
+      name: '成交额',
+      type: 'bar',
+      data: topItems.map((item) => toNumber(item.turnover)),
+      itemStyle: { color: '#1677ff', borderRadius: [0, 8, 8, 0] },
+    }],
+  };
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -408,6 +468,7 @@ export default function Dashboard() {
   const requestRef = useRef(0);
 
   const [marketData, setMarketData] = useState<DashboardMarketSnapshotResponse | null>(null);
+  const [marketBreadth, setMarketBreadth] = useState<DashboardMarketBreadthResponse | null>(null);
   const [indexHistories, setIndexHistories] = useState<Record<string, MarketStockKlineResponse | null>>({});
   const [activeIndexSymbol, setActiveIndexSymbol] = useState('');
   const [chartRange, setChartRange] = useState<DashboardRange>('30d');
@@ -416,6 +477,7 @@ export default function Dashboard() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const [breadthError, setBreadthError] = useState('');
 
   const fetchIndexHistories = async (
     indices: DashboardMarketSnapshotResponse['indices'],
@@ -497,9 +559,23 @@ export default function Dashboard() {
     setError('');
     setHistoryError('');
     try {
-      const res = await marketApi.getDashboardSnapshot();
+      const [snapshotRes, breadthRes] = await Promise.allSettled([
+        marketApi.getDashboardSnapshot(),
+        marketApi.getDashboardMarketBreadth({ limit: 10 }),
+      ]);
       if (requestId !== requestRef.current) return;
+      if (snapshotRes.status === 'rejected') {
+        throw snapshotRes.reason;
+      }
+      const res = snapshotRes.value;
       setMarketData(res);
+      if (breadthRes.status === 'fulfilled') {
+        setMarketBreadth(breadthRes.value);
+        setBreadthError('');
+      } else {
+        setMarketBreadth(null);
+        setBreadthError(breadthRes.reason?.message ?? breadthRes.reason?.data?.message ?? '全市场雷达暂时不可用');
+      }
       setActiveIndexSymbol((prev) => prev || res.indices[0]?.symbol || '');
       void fetchIndexHistories(res.indices ?? [], chartRange, requestId);
     } catch (err: unknown) {
@@ -507,6 +583,7 @@ export default function Dashboard() {
       const apiError = err as { message?: string; data?: { message?: string } };
       if (!isSilent) {
         setMarketData(null);
+        setMarketBreadth(null);
         setIndexHistories({});
         setActiveIndexSymbol('');
         setError(apiError.message ?? apiError.data?.message ?? '市场快照加载失败');
@@ -529,7 +606,7 @@ export default function Dashboard() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void fetchMarketData({ silent: true });
-    }, 30000);
+    }, MARKET_OVERVIEW_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [chartRange]);
 
@@ -909,6 +986,91 @@ export default function Dashboard() {
                 );
               })}
             </Row>
+          </Card>
+
+          <Card
+            bordered={false}
+            title={<span><ThunderboltOutlined style={{ color: '#1677ff', marginRight: 8 }} />全市场雷达</span>}
+            extra={
+              <Space size={8} wrap>
+                <Tag color={marketBreadth?.is_partial ? 'warning' : 'success'}>{marketBreadth?.is_partial ? '缓存/部分数据' : 'Sina 全市场'}</Tag>
+                <Text type="secondary">{marketBreadth?.snapshot_time || marketBreadth?.refreshed_at || '等待刷新'}</Text>
+              </Space>
+            }
+            style={{ marginTop: 16, borderRadius: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.05)' }}
+          >
+            {breadthError ? <Alert type="warning" showIcon message={breadthError} style={{ marginBottom: 16 }} /> : null}
+            {!marketBreadth ? (
+              <Empty description="暂无全市场宽度数据" />
+            ) : (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                {marketBreadth.message ? <Alert type={marketBreadth.is_partial ? 'warning' : 'info'} showIcon message={marketBreadth.message} /> : null}
+                <Row gutter={[12, 12]}>
+                  {marketBreadth.coverage.map((item) => (
+                    <Col xs={12} md={8} xl={4} key={item.label}>
+                      <div style={{ background: '#f8fafc', borderRadius: 12, padding: '14px 16px', border: '1px solid #eef2f6' }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
+                        <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: statColorMap[item.label] || '#1677ff' }}>{item.value}</div>
+                      </div>
+                    </Col>
+                  ))}
+                </Row>
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} xl={8}>
+                    <Card size="small" bordered={false} style={{ background: '#fafcff', borderRadius: 14 }} title="涨跌分布">
+                      <ReactECharts option={getChangeDistributionOption(marketBreadth)} style={{ height: 260 }} />
+                    </Card>
+                  </Col>
+                  <Col xs={24} xl={8}>
+                    <Card size="small" bordered={false} style={{ background: '#fafcff', borderRadius: 14 }} title="行业板块表现">
+                      {marketBreadth.sectors.length ? <ReactECharts option={getBoardBarOption(marketBreadth.sectors, '行业涨跌幅')} style={{ height: 260 }} /> : <Empty description="暂无行业板块数据" />}
+                    </Card>
+                  </Col>
+                  <Col xs={24} xl={8}>
+                    <Card size="small" bordered={false} style={{ background: '#fafcff', borderRadius: 14 }} title="成交额 Top">
+                      {marketBreadth.top_turnover.length ? <ReactECharts option={getTurnoverRankOption(marketBreadth.top_turnover)} style={{ height: 260 }} /> : <Empty description="暂无成交额排行" />}
+                    </Card>
+                  </Col>
+                </Row>
+                <Row gutter={[16, 16]}>
+                  {[
+                    { title: '涨幅榜', items: marketBreadth.top_gainers, color: 'red' },
+                    { title: '跌幅榜', items: marketBreadth.top_losers, color: 'green' },
+                    { title: '概念热点', items: marketBreadth.concepts, color: 'blue' },
+                  ].map((block) => (
+                    <Col xs={24} lg={8} key={block.title}>
+                      <Card size="small" bordered={false} style={{ background: '#fff', border: '1px solid #eef2f6', borderRadius: 14 }} title={block.title}>
+                        <List
+                          dataSource={block.items.slice(0, 8)}
+                          renderItem={(item: MarketBreadthItemResponse | MarketBoardItemResponse) => {
+                            const symbol = 'symbol' in item ? item.symbol : '';
+                            const boardLink = 'code' in item ? `/app/board?type=${encodeURIComponent(item.board_type)}&code=${encodeURIComponent(item.code)}` : '';
+                            const clickable = Boolean(symbol || boardLink);
+                            return (
+                              <List.Item
+                                onClick={() => clickable ? guardNavigate(symbol ? `/app/market-trend?symbol=${encodeURIComponent(symbol)}` : boardLink) : undefined}
+                                style={{ cursor: clickable ? 'pointer' : 'default', paddingInline: 0 }}
+                              >
+                                <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                  <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+                                    <Text strong>{item.name || ('symbol' in item ? item.symbol : item.code)}</Text>
+                                    <Tag color={toNumber(item.change_percent) >= 0 ? 'red' : 'green'}>{formatSignedPercent(item.change_percent)}</Tag>
+                                  </Space>
+                                  <Space split={<Text type="secondary">|</Text>} wrap>
+                                    {'symbol' in item ? <Text type="secondary">{item.symbol}</Text> : <Text type="secondary">{item.stock_count} 只成分股</Text>}
+                                    <Text type="secondary">成交额 {formatCompactNumber(item.turnover)}</Text>
+                                  </Space>
+                                </Space>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+              </Space>
+            )}
           </Card>
 
           <Card

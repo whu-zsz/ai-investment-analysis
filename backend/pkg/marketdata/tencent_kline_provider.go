@@ -270,9 +270,6 @@ func (p *tencentKlineProvider) quoteEndpoint() string {
 	parsed.Path = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
-	if parsed.Hostname() == host {
-		parsed.Host = defaultTencentQuoteBaseURL[len("https://"):]
-	}
 	return parsed.String()
 }
 

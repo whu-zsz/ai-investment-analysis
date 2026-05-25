@@ -42,6 +42,22 @@ type StockChatResponse struct {
 	Messages     []StockChatMessageResponse  `json:"messages"`
 }
 
+type BoardChatResponse struct {
+	BoardType    string                      `json:"board_type"`
+	Code         string                      `json:"code"`
+	AssetName    string                      `json:"asset_name"`
+	Market       string                      `json:"market"`
+	Reply        string                      `json:"reply"`
+	AIModel      string                      `json:"ai_model"`
+	GeneratedAt  string                      `json:"generated_at"`
+	NewsStatus   string                      `json:"news_status"`
+	NewsSummary  string                      `json:"news_summary"`
+	NewsCoverage string                      `json:"news_coverage"`
+	NewsItems    []StockChatNewsItemResponse `json:"news_items"`
+	Snapshot     StockChatSnapshotResponse   `json:"snapshot"`
+	Messages     []StockChatMessageResponse  `json:"messages"`
+}
+
 type StockChatStreamEvent struct {
 	Type    string      `json:"type"`
 	Stage   string      `json:"stage,omitempty"`

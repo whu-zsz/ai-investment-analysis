@@ -78,6 +78,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.AnalysisReportItem{},
 		&model.UploadedFile{},
 		&model.MarketSnapshot{},
+		&model.MarketBoardSnapshot{},
+		&model.MarketBoardConstituent{},
 		&model.StockKlineBar{},
 	); err != nil {
 		return err
@@ -165,7 +167,20 @@ func ensureColumnType(db *gorm.DB, tableName, columnName, targetType string) err
 
 func ensureRevokedTokenSchema(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&model.RevokedToken{}) {
-		if err := db.AutoMigrate(&model.RevokedToken{}); err != nil {
+		if err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS revoked_tokens (
+				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				user_id BIGINT UNSIGNED NOT NULL,
+				jti VARCHAR(64) NOT NULL,
+				token_expires_at DATETIME(3) NOT NULL,
+				revoked_at DATETIME(3) NOT NULL,
+				reason VARCHAR(20) NOT NULL DEFAULT 'logout',
+				created_at DATETIME(3) NULL,
+				PRIMARY KEY (id),
+				KEY idx_revoked_tokens_user_id (user_id),
+				KEY idx_revoked_tokens_token_expires_at (token_expires_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`).Error; err != nil {
 			return err
 		}
 	}

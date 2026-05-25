@@ -71,6 +71,18 @@ func TestNewProviderRejectsUnknown(t *testing.T) {
 	}
 }
 
+func TestNewRankingProviderCreatesFallback(t *testing.T) {
+	provider := NewRankingProvider(config.MarketConfig{
+		TimeoutSeconds:     5,
+		SinaRequestDelayMS: 350,
+		EastmoneyUserAgent: "Mozilla/5.0",
+		EastmoneyReferer:   "https://quote.eastmoney.com/center/gridlist.html",
+	})
+	if provider == nil {
+		t.Fatal("NewRankingProvider() returned nil provider")
+	}
+}
+
 func TestToTencentSymbol(t *testing.T) {
 	tests := []struct {
 		symbol string

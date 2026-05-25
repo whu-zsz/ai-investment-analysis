@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"stock-analysis-backend/internal/config"
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/pkg/marketdata"
@@ -54,8 +55,10 @@ func (p *MockMarketDataProvider) GetKlines(ctx context.Context, symbol, period, 
 
 // MockMarketDataSnapshotRepo 模拟市场快照仓储
 type MockMarketDataSnapshotRepo struct {
-	Snapshots []model.MarketSnapshot
-	Err       error
+	Snapshots     []model.MarketSnapshot
+	LatestBatch   string
+	RecentBatches []string
+	Err           error
 }
 
 type MockStockQuoteDetailRepo struct {
@@ -80,12 +83,43 @@ func (r *MockStockQuoteDetailRepo) FindBySymbol(symbol string) (*model.StockQuot
 	return r.Detail, nil
 }
 
+func (r *MockStockQuoteDetailRepo) FindBySymbols(symbols []string) ([]model.StockQuoteDetail, error) {
+	if r.FindErr != nil {
+		return nil, r.FindErr
+	}
+	if r.Detail == nil {
+		return []model.StockQuoteDetail{}, nil
+	}
+	return []model.StockQuoteDetail{*r.Detail}, nil
+}
+
 type MockStockKlineRepo struct {
 	Bars          []model.StockKlineBar
 	LatestBars    map[string]*model.StockKlineBar
 	UpsertedBars  []model.StockKlineBar
 	FindLatestErr error
 	UpsertErr     error
+}
+
+type MockMarketRankingProvider struct {
+	Nodes         []marketdata.MarketNode
+	Rankings      map[string][]marketdata.MarketRankItem
+	RankingErrs   map[string]error
+	NodeStocks    map[string][]marketdata.MarketRankItem
+	NodeStocksErr error
+}
+
+type MockMarketBoardSnapshotRepo struct {
+	Boards []model.MarketBoardSnapshot
+	Err    error
+}
+
+type MockMarketBoardConstituentRepo struct {
+	Items          []model.MarketBoardConstituent
+	ReplaceErr     error
+	FindErr        error
+	LatestSyncedAt time.Time
+	LatestErr      error
 }
 
 func (r *MockStockKlineRepo) UpsertBars(bars []model.StockKlineBar) error {
@@ -109,17 +143,115 @@ func (r *MockStockKlineRepo) FindLatestBar(symbol, period, adjust string) (*mode
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (p *MockMarketRankingProvider) GetMarketRankings(ctx context.Context, sort string, asc bool, page, size int) ([]marketdata.MarketRankItem, error) {
+	key := fmt.Sprintf("%s|%t|%d|%d", sort, asc, page, size)
+	if p.RankingErrs != nil {
+		if err, ok := p.RankingErrs[key]; ok {
+			return nil, err
+		}
+	}
+	if p.Rankings != nil {
+		if items, ok := p.Rankings[key]; ok {
+			return items, nil
+		}
+	}
+	return nil, nil
+}
+
+func (p *MockMarketRankingProvider) GetMarketNodes(ctx context.Context) ([]marketdata.MarketNode, error) {
+	return p.Nodes, nil
+}
+
+func (p *MockMarketRankingProvider) GetNodeStocks(ctx context.Context, node, sort string, asc bool, page, size int) ([]marketdata.MarketRankItem, error) {
+	if p.NodeStocksErr != nil {
+		return nil, p.NodeStocksErr
+	}
+	key := fmt.Sprintf("%s|%s|%t|%d|%d", node, sort, asc, page, size)
+	if items, ok := p.NodeStocks[key]; ok {
+		return items, nil
+	}
+	return nil, nil
+}
+
+func (r *MockMarketBoardSnapshotRepo) BatchCreate(boards []model.MarketBoardSnapshot) error {
+	r.Boards = append(r.Boards, boards...)
+	return r.Err
+}
+
+func (r *MockMarketBoardSnapshotRepo) FindLatestBatchNo(boardType string) (string, error) {
+	return "", r.Err
+}
+
+func (r *MockMarketBoardSnapshotRepo) FindByBatchNo(boardType, batchNo string, limit int) ([]model.MarketBoardSnapshot, error) {
+	return nil, r.Err
+}
+
+func (r *MockMarketBoardSnapshotRepo) FindLatest(limit int) ([]model.MarketBoardSnapshot, error) {
+	return nil, r.Err
+}
+
+func (r *MockMarketBoardConstituentRepo) ReplaceAll(items []model.MarketBoardConstituent) error {
+	r.Items = append([]model.MarketBoardConstituent(nil), items...)
+	if len(items) > 0 {
+		r.LatestSyncedAt = items[0].SyncedAt
+	}
+	return r.ReplaceErr
+}
+
+func (r *MockMarketBoardConstituentRepo) FindAll() ([]model.MarketBoardConstituent, error) {
+	if r.FindErr != nil {
+		return nil, r.FindErr
+	}
+	return append([]model.MarketBoardConstituent(nil), r.Items...), nil
+}
+
+func (r *MockMarketBoardConstituentRepo) FindLatestSyncedAt() (time.Time, error) {
+	if r.LatestErr != nil {
+		return time.Time{}, r.LatestErr
+	}
+	if r.LatestSyncedAt.IsZero() {
+		return time.Time{}, gorm.ErrRecordNotFound
+	}
+	return r.LatestSyncedAt, nil
+}
+
 func (r *MockMarketDataSnapshotRepo) BatchCreate(snapshots []model.MarketSnapshot) error {
 	r.Snapshots = append(r.Snapshots, snapshots...)
 	return r.Err
 }
 
 func (r *MockMarketDataSnapshotRepo) FindLatestBatchNo() (string, error) {
+	if r.Err != nil {
+		return "", r.Err
+	}
+	return r.LatestBatch, nil
+}
+
+func (r *MockMarketDataSnapshotRepo) FindLatestBatchNoBySource(source string) (string, error) {
 	return "", r.Err
 }
 
+func (r *MockMarketDataSnapshotRepo) FindRecentBatchNos(limit int) ([]string, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	if len(r.RecentBatches) == 0 {
+		return []string{r.LatestBatch}, nil
+	}
+	return r.RecentBatches, nil
+}
+
 func (r *MockMarketDataSnapshotRepo) FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error) {
-	return nil, r.Err
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	result := make([]model.MarketSnapshot, 0)
+	for _, snapshot := range r.Snapshots {
+		if snapshot.BatchNo == batchNo {
+			result = append(result, snapshot)
+		}
+	}
+	return result, nil
 }
 
 func (r *MockMarketDataSnapshotRepo) FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error) {
@@ -149,6 +281,13 @@ func TestNormalizeSymbol(t *testing.T) {
 		{"", ""},
 		{"   ", ""},
 		{"000858.SZ", "000858.SZ"},
+		{"510300", "510300.SH"},
+		{"510300.SZ", "510300.SH"},
+		{"159915", "159915.SZ"},
+		{"830799", "830799.BJ"},
+		{"000001", "000001.SZ"},
+		{"000001.SH", "000001.SH"},
+		{"000001.SZ", "000001.SZ"},
 	}
 
 	for _, tt := range tests {
@@ -298,7 +437,10 @@ func TestMarketDataService_FetchAndStoreMarketSnapshots(t *testing.T) {
 	svc := NewMarketDataService(
 		config.MarketConfig{Symbols: "000001.SH"},
 		mockProvider,
+		nil,
 		mockRepo,
+		nil,
+		nil,
 		nil,
 	)
 
@@ -334,6 +476,196 @@ func TestMarketDataService_FetchAndStoreMarketSnapshots_EmptySymbols(t *testing.
 }
 
 // TestMarketDataService_BatchNo 测试批次号生成
+func TestMarketDataService_FetchAndStoreMarketBoardSnapshots_UsesUnifiedSectorConstituents(t *testing.T) {
+	now := time.Now().Truncate(time.Minute)
+	mockRepo := &MockMarketDataSnapshotRepo{
+		LatestBatch: "batch001",
+		Snapshots: []model.MarketSnapshot{
+			{
+				Symbol:        "000001.SZ",
+				Name:          "样本A",
+				Market:        "cn_stock",
+				LastPrice:     decimal.NewFromFloat(10),
+				ChangeAmount:  decimal.NewFromFloat(1),
+				ChangePercent: decimal.NewFromFloat(10),
+				Volume:        decimal.NewFromInt(1000),
+				Turnover:      decimal.NewFromInt(10000),
+				Source:        "akshare_sina",
+				BatchNo:       "batch001",
+				SnapshotTime:  now,
+			},
+			{
+				Symbol:        "000002.SZ",
+				Name:          "样本B",
+				Market:        "cn_stock",
+				LastPrice:     decimal.NewFromFloat(20),
+				ChangeAmount:  decimal.NewFromFloat(-1),
+				ChangePercent: decimal.NewFromFloat(-5),
+				Volume:        decimal.NewFromInt(2000),
+				Turnover:      decimal.NewFromInt(30000),
+				Source:        "akshare_sina",
+				BatchNo:       "batch001",
+				SnapshotTime:  now,
+			},
+		},
+	}
+	mockBoardRepo := &MockMarketBoardSnapshotRepo{}
+	mockConstituentRepo := &MockMarketBoardConstituentRepo{
+		LatestSyncedAt: now,
+		Items: []model.MarketBoardConstituent{
+			{BoardType: "industry", BoardCode: "hangye_ZA01", BoardName: "农业", Symbol: "000001.SZ", TotalMarketCap: decimal.NewFromInt(100), FloatMarketCap: decimal.NewFromInt(80), Source: "akshare_sector", SyncedAt: now},
+			{BoardType: "industry", BoardCode: "hangye_ZA01", BoardName: "农业", Symbol: "000002.SZ", TotalMarketCap: decimal.NewFromInt(150), FloatMarketCap: decimal.NewFromInt(120), Source: "akshare_sector", SyncedAt: now},
+			{BoardType: "concept", BoardCode: "gn_demo", BoardName: "示例概念", Symbol: "000001.SZ", TotalMarketCap: decimal.NewFromInt(100), FloatMarketCap: decimal.NewFromInt(80), Source: "akshare_sector", SyncedAt: now},
+		},
+	}
+
+	svc := &marketDataService{
+		snapshotRepo:         mockRepo,
+		boardSnapshotRepo:    mockBoardRepo,
+		boardConstituentRepo: mockConstituentRepo,
+	}
+
+	batchNo, count, err := svc.FetchAndStoreMarketBoardSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAndStoreMarketBoardSnapshots() error = %v", err)
+	}
+	if batchNo == "" {
+		t.Fatal("FetchAndStoreMarketBoardSnapshots() should return non-empty batch number")
+	}
+	if count != 2 {
+		t.Fatalf("FetchAndStoreMarketBoardSnapshots() count = %d, want 2", count)
+	}
+	if len(mockBoardRepo.Boards) != 2 {
+		t.Fatalf("BatchCreate() stored %d boards, want 2", len(mockBoardRepo.Boards))
+	}
+
+	var industry model.MarketBoardSnapshot
+	foundIndustry := false
+	for _, item := range mockBoardRepo.Boards {
+		if item.BoardType == "industry" && item.Code == "hangye_ZA01" {
+			industry = item
+			foundIndustry = true
+			break
+		}
+	}
+	if !foundIndustry {
+		t.Fatalf("industry board was not generated: %+v", mockBoardRepo.Boards)
+	}
+	if industry.StockCount != 2 {
+		t.Fatalf("industry stock_count = %d, want 2", industry.StockCount)
+	}
+	if industry.RiseCount != 1 || industry.FallCount != 1 {
+		t.Fatalf("industry breadth = %d/%d, want 1/1", industry.RiseCount, industry.FallCount)
+	}
+	if !industry.ChangePercent.Equal(decimal.NewFromFloat(2.5)) {
+		t.Fatalf("industry change_percent = %s, want 2.5", industry.ChangePercent)
+	}
+	if !industry.TotalMarketCap.Equal(decimal.NewFromInt(250)) {
+		t.Fatalf("industry total_market_cap = %s, want 250", industry.TotalMarketCap)
+	}
+	if industry.Source != "akshare" {
+		t.Fatalf("industry source = %s, want akshare", industry.Source)
+	}
+}
+
+func TestMarketDataService_FetchAndStoreFullMarketSnapshots_BatchesQuotesFromSingleSource(t *testing.T) {
+	buildRankItems := func(start, count int) []marketdata.MarketRankItem {
+		items := make([]marketdata.MarketRankItem, 0, count)
+		for i := 0; i < count; i++ {
+			code := fmt.Sprintf("%06d", start+i)
+			items = append(items, marketdata.MarketRankItem{
+				Symbol: code + ".SZ",
+				Code:   code,
+				Name:   "样本" + code,
+				Source: "eastmoney",
+			})
+		}
+		return items
+	}
+	buildQuotes := func(items []marketdata.MarketRankItem) []marketdata.Quote {
+		quotes := make([]marketdata.Quote, 0, len(items))
+		now := time.Now().Truncate(time.Minute)
+		for _, item := range items {
+			quotes = append(quotes, marketdata.Quote{
+				Symbol:       item.Symbol,
+				Name:         item.Name,
+				Market:       "cn_stock",
+				SnapshotTime: now,
+				LastPrice:    10,
+				Source:       "eastmoney",
+			})
+		}
+		return quotes
+	}
+
+	rankingPages := map[string][]marketdata.MarketRankItem{}
+	allItems := make([]marketdata.MarketRankItem, 0, 5100)
+	for page := 1; page <= 51; page++ {
+		items := buildRankItems((page-1)*100+1, 100)
+		rankingPages[fmt.Sprintf("symbol|%t|%d|%d", false, page, 100)] = items
+		allItems = append(allItems, items...)
+	}
+	rankingPages[fmt.Sprintf("symbol|%t|%d|%d", false, 52, 100)] = []marketdata.MarketRankItem{}
+
+	mockProvider := &MockMarketDataProvider{Quotes: buildQuotes(allItems[:200])}
+	mockRanking := &MockMarketRankingProvider{Rankings: rankingPages}
+	mockRepo := &MockMarketDataSnapshotRepo{}
+
+	svc := &marketDataService{
+		marketConfig:    config.MarketConfig{SinaRequestDelayMS: 1},
+		provider:        mockProvider,
+		rankingProvider: mockRanking,
+		snapshotRepo:    mockRepo,
+	}
+
+	_, count, err := svc.FetchAndStoreFullMarketSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAndStoreFullMarketSnapshots() error = %v", err)
+	}
+	if count != 5200 {
+		t.Fatalf("FetchAndStoreFullMarketSnapshots() count = %d, want 5200", count)
+	}
+	if len(mockRepo.Snapshots) != 5200 {
+		t.Fatalf("BatchCreate() stored %d snapshots, want 5200", len(mockRepo.Snapshots))
+	}
+}
+
+func TestMarketDataService_FetchAndStoreFullMarketSnapshots_UsesAKShareSource(t *testing.T) {
+	mockRepo := &MockMarketDataSnapshotRepo{}
+	svc := &marketDataService{
+		marketConfig: config.MarketConfig{
+			FullSnapshotSource: "akshare",
+		},
+		snapshotRepo: mockRepo,
+		akshareFetcher: func(ctx context.Context, pythonPath, scriptPath string) ([]marketdata.Quote, error) {
+			quotes := make([]marketdata.Quote, 0, 5100)
+			now := time.Now().Truncate(time.Minute)
+			for i := 0; i < 5100; i++ {
+				quotes = append(quotes, marketdata.Quote{
+					Symbol:       fmt.Sprintf("%06d.SZ", i),
+					Name:         "样本",
+					Market:       "cn_stock",
+					SnapshotTime: now,
+					LastPrice:    10,
+					Source:       "akshare_sina",
+				})
+			}
+			return quotes, nil
+		},
+	}
+
+	_, count, err := svc.FetchAndStoreFullMarketSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAndStoreFullMarketSnapshots() error = %v", err)
+	}
+	if count != 5100 {
+		t.Fatalf("FetchAndStoreFullMarketSnapshots() count = %d, want 5100", count)
+	}
+	if len(mockRepo.Snapshots) != 5100 {
+		t.Fatalf("BatchCreate() stored %d snapshots, want 5100", len(mockRepo.Snapshots))
+	}
+}
+
 func TestMarketDataService_BatchNo(t *testing.T) {
 	now := time.Now()
 	mockProvider := &MockMarketDataProvider{
@@ -667,7 +999,10 @@ func TestMarketDataService_FetchAndStoreMarketSnapshotsWithTencentStyleQuotes(t 
 	svc := NewMarketDataService(
 		config.MarketConfig{Symbols: "000001.SH,399001.SZ"},
 		mockProvider,
+		nil,
 		mockRepo,
+		nil,
+		nil,
 		nil,
 	)
 

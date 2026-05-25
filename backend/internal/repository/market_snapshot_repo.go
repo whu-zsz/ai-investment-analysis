@@ -12,6 +12,8 @@ import (
 type MarketSnapshotRepository interface {
 	BatchCreate(snapshots []model.MarketSnapshot) error
 	FindLatestBatchNo() (string, error)
+	FindLatestBatchNoBySource(source string) (string, error)
+	FindRecentBatchNos(limit int) ([]string, error)
 	FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error)
 	FindLatestBySymbol(symbol string) (*model.MarketSnapshot, error)
 	FindHistory(limit int, startTime, endTime *time.Time) ([]model.MarketSnapshot, error)
@@ -41,6 +43,29 @@ func (r *marketSnapshotRepository) FindLatestBatchNo() (string, error) {
 		return "", err
 	}
 	return snapshot.BatchNo, nil
+}
+
+func (r *marketSnapshotRepository) FindLatestBatchNoBySource(source string) (string, error) {
+	var snapshot model.MarketSnapshot
+	err := r.db.Where("source = ?", source).Order("created_at DESC, id DESC").First(&snapshot).Error
+	if err != nil {
+		return "", err
+	}
+	return snapshot.BatchNo, nil
+}
+
+func (r *marketSnapshotRepository) FindRecentBatchNos(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	var batchNos []string
+	err := r.db.Model(&model.MarketSnapshot{}).
+		Select("batch_no").
+		Group("batch_no").
+		Order("MAX(created_at) DESC").
+		Limit(limit).
+		Pluck("batch_no", &batchNos).Error
+	return batchNos, err
 }
 
 func (r *marketSnapshotRepository) FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error) {

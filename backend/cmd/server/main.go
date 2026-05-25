@@ -61,6 +61,8 @@ func main() {
 	analysisReportItemRepo := repository.NewAnalysisReportItemRepository(db)
 	uploadedFileRepo := repository.NewUploadedFileRepository(db)
 	marketSnapshotRepo := repository.NewMarketSnapshotRepository(db)
+	marketBoardSnapshotRepo := repository.NewMarketBoardSnapshotRepository(db)
+	marketBoardConstituentRepo := repository.NewMarketBoardConstituentRepository(db)
 	stockQuoteDetailRepo := repository.NewStockQuoteDetailRepository(db)
 	stockKlineRepo := repository.NewStockKlineRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
@@ -71,6 +73,7 @@ func main() {
 		log.Fatal("Failed to initialize llm provider", zap.Error(err), zap.String("provider", cfg.LLM.Provider))
 	}
 	var marketProvider marketdata.Provider
+	var marketRankingProvider marketdata.MarketRankingProvider
 	if cfg.Market.Enabled {
 		marketProvider, err = marketdata.NewProvider(cfg.Market)
 		if err != nil {
@@ -87,13 +90,15 @@ func main() {
 	} else {
 		log.Info("Market data integration disabled")
 	}
+	marketRankingProvider = marketdata.NewRankingProvider(cfg.Market)
 
 	userService := service.NewUserService(userRepo, revokedTokenRepo, cfg.JWT)
 	fileParserService := service.NewFileParserService()
-	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo)
+	marketStockService := service.NewMarketStockService(cfg.Market, marketProvider, marketRankingProvider, stockQuoteDetailRepo, stockKlineRepo, marketBoardConstituentRepo)
+	portfolioService := service.NewPortfolioService(portfolioRepo, transactionRepo, marketStockService)
 	uploadService := service.NewUploadService(uploadedFileRepo, transactionRepo, portfolioService, fileParserService, cfg.Upload)
 	transactionService := service.NewTransactionService(transactionRepo, portfolioService)
-	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketSnapshotRepo, stockKlineRepo)
+	marketDataService := service.NewMarketDataService(cfg.Market, marketProvider, marketRankingProvider, marketSnapshotRepo, marketBoardSnapshotRepo, marketBoardConstituentRepo, stockKlineRepo)
 	stockMetricService := service.NewStockAnalysisMetricService(stockMetricRepo, transactionRepo, marketSnapshotRepo, marketDataService)
 	aiService := service.NewAIService(
 		analysisTaskRepo,
@@ -112,8 +117,7 @@ func main() {
 		marketDataService,
 		llmProvider,
 	)
-	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo)
-	marketStockService := service.NewMarketStockService(marketProvider, stockQuoteDetailRepo, stockKlineRepo)
+	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo, marketBoardSnapshotRepo, marketBoardConstituentRepo, stockQuoteDetailRepo, marketDataService)
 	newsHTTPClient := &http.Client{Timeout: 12 * time.Second}
 	newsService := service.NewNewsService(
 		news.NewEastmoneyProvider(newsHTTPClient),
@@ -121,14 +125,15 @@ func main() {
 		news.NewSinaProvider(newsHTTPClient),
 	)
 	stockChatService := service.NewStockChatService(marketStockService, newsService, llmProvider, log)
+	boardChatService := service.NewBoardChatService(marketSnapshotService, newsService, llmProvider, log)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	userHandler := handler.NewUserHandler(userService)
 	uploadHandler := handler.NewUploadHandler(uploadService, cfg.Upload)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
-	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService, stockChatService)
-	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService)
+	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService, stockChatService, boardChatService)
+	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService, newsService)
 
 	router := router.SetupRouter(
 		userHandler,

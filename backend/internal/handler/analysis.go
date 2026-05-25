@@ -19,17 +19,27 @@ type AnalysisHandler struct {
 	aiService             service.AIService
 	recommendationService service.RecommendationService
 	stockChatService      service.StockChatService
+	boardChatService      service.BoardChatService
 }
 
-func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService, stockChatService ...service.StockChatService) *AnalysisHandler {
+func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService, chatServices ...interface{}) *AnalysisHandler {
 	var chatService service.StockChatService
-	if len(stockChatService) > 0 {
-		chatService = stockChatService[0]
+	var boardService service.BoardChatService
+	if len(chatServices) > 0 {
+		if typed, ok := chatServices[0].(service.StockChatService); ok {
+			chatService = typed
+		}
+	}
+	if len(chatServices) > 1 {
+		if typed, ok := chatServices[1].(service.BoardChatService); ok {
+			boardService = typed
+		}
 	}
 	return &AnalysisHandler{
 		aiService:             aiService,
 		recommendationService: recommendationService,
 		stockChatService:      chatService,
+		boardChatService:      boardService,
 	}
 }
 
@@ -306,6 +316,69 @@ func (h *AnalysisHandler) StockChatStream(c *gin.Context) {
 	}
 
 	if err := h.stockChatService.ChatStream(c.Request.Context(), userID, &req, emit); err != nil {
+		return
+	}
+}
+
+func (h *AnalysisHandler) BoardChat(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.boardChatService == nil {
+		response.InternalServerError(c, "board chat service is unavailable")
+		return
+	}
+
+	var req request.BoardChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	result, err := h.boardChatService.Chat(c.Request.Context(), userID, &req)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) BoardChatStream(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.boardChatService == nil {
+		response.InternalServerError(c, "board chat service is unavailable")
+		return
+	}
+
+	var req request.BoardChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		response.InternalServerError(c, "streaming is unsupported")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	emit := func(event responsedto.StockChatStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	if err := h.boardChatService.ChatStream(c.Request.Context(), userID, &req, emit); err != nil {
 		return
 	}
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, AutoComplete, Button, Card, Col, Empty, Input, List, Row, Segmented, Space, Spin, Statistic, Tag, Typography, message } from 'antd';
-import { ArrowLeftOutlined, BarChartOutlined, DeleteOutlined, ReloadOutlined, RiseOutlined, RobotOutlined, StarOutlined, StockOutlined } from '@ant-design/icons';
+import { Alert, AutoComplete, Button, Card, Col, Empty, Input, List, Progress, Row, Segmented, Space, Spin, Statistic, Tag, Typography, message } from 'antd';
+import { ArrowLeftOutlined, BarChartOutlined, DeleteOutlined, FundProjectionScreenOutlined, ReloadOutlined, RiseOutlined, RobotOutlined, StarOutlined, StockOutlined, ThunderboltOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
@@ -11,6 +11,8 @@ import type {
   MarketSnapshotResponse,
   MarketStockDetailResponse,
   MarketStockKlineResponse,
+  StockNewsResponse,
+  StockProfileResponse,
 } from '../api/types';
 
 const { Title, Text } = Typography;
@@ -20,8 +22,10 @@ const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)
 type ChartView = 'kline' | 'snapshot';
 type KlinePeriod = 'day' | 'week' | 'month' | '5m' | '15m' | '60m';
 type FavoriteSymbol = { symbol: string; asset_name: string; market: string };
+type KlineItem = MarketStockKlineResponse['items'][number];
 
 const FAVORITE_SYMBOLS_KEY = 'marketTrendFavoriteSymbols';
+const ACTIVE_STOCK_REFRESH_MS = 15 * 1000;
 
 const klinePeriodOptions: Array<{ label: string; value: KlinePeriod }> = [
   { label: '日线', value: 'day' },
@@ -39,6 +43,10 @@ function toNumber(value?: string) {
 
 function normalizeSymbolInput(value: string) {
   return value.trim().toUpperCase();
+}
+
+function stripMarketSuffix(symbol: string) {
+  return normalizeSymbolInput(symbol).split('.')[0] || '';
 }
 
 function readFavoriteSymbols() {
@@ -76,6 +84,30 @@ function formatPercent(value?: string) {
 
 function formatPrice(value?: string) {
   return `¥${toNumber(value).toFixed(2)}`;
+}
+
+function formatSignedPercent(value: number) {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+function average(values: number[]) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function standardDeviation(values: number[]) {
+  if (values.length < 2) return 0;
+  const avg = average(values);
+  const variance = average(values.map((value) => (value - avg) ** 2));
+  return Math.sqrt(variance);
+}
+
+function movingAverage(values: number[], windowSize: number) {
+  return values.map((_, index) => {
+    if (index + 1 < windowSize) return null;
+    return Number(average(values.slice(index + 1 - windowSize, index + 1)).toFixed(3));
+  });
 }
 
 function getChangeColor(value?: string) {
@@ -116,6 +148,18 @@ function marketLabel(market?: string) {
 
 function getKlinePeriodLabel(period: KlinePeriod) {
   return klinePeriodOptions.find((item) => item.value === period)?.label ?? '日线';
+}
+
+function resolveMarketSymbol(symbol: string, candidates: AnalysisCandidateResponse[], favorites: FavoriteSymbol[]) {
+  const normalized = normalizeSymbolInput(symbol);
+  if (!normalized) return '';
+  const availableSymbols = [
+    ...candidates.map((item) => item.symbol),
+    ...favorites.map((item) => item.symbol),
+  ].map(normalizeSymbolInput).filter(Boolean);
+  return availableSymbols.find((item) => item === normalized)
+    || availableSymbols.find((item) => stripMarketSuffix(item) === normalized)
+    || normalized;
 }
 
 function formatKlineAxisTime(value: string, period: KlinePeriod) {
@@ -179,6 +223,137 @@ function buildSnapshotOption(history: MarketSnapshotResponse[]): EChartsOption {
   };
 }
 
+function buildPriceMomentumOption(kline: MarketStockKlineResponse | null, period: KlinePeriod): EChartsOption {
+  const items = kline?.items ?? [];
+  const fullCloses = items.map((item) => toNumber(item.close_price));
+  const fullMa5 = movingAverage(fullCloses, 5);
+  const fullMa20 = movingAverage(fullCloses, 20);
+  const displayCount = period === '5m' || period === '15m' ? 20 : 18;
+  const startIndex = Math.max(items.length - displayCount, 0);
+  const displayItems = items.slice(startIndex);
+  const closes = fullCloses.slice(startIndex);
+  const ma5 = fullMa5.slice(startIndex);
+  const ma20 = fullMa20.slice(startIndex);
+  const axisRange = computeNumericAxisRange([...closes, ...ma5.filter((value): value is number => value !== null), ...ma20.filter((value): value is number => value !== null)], {
+    minPaddingRatio: 0.04,
+    maxPaddingRatio: 0.04,
+    minPaddingAbs: period === '5m' || period === '15m' || period === '60m' ? 0.02 : 0.1,
+    roundMode: 'magnitude',
+    splitNumber: 4,
+  });
+
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, right: 8, itemWidth: 10, itemHeight: 10 },
+    grid: { top: 34, left: 36, right: 18, bottom: 28, containLabel: true },
+    xAxis: { type: 'category', boundaryGap: false, data: displayItems.map((item) => formatKlineAxisTime(item.bar_time, period)), axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    yAxis: { type: 'value', min: axisRange?.min, max: axisRange?.max, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }, axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    series: [
+      { name: '收盘', type: 'line', smooth: false, showSymbol: false, symbol: 'circle', emphasis: { focus: 'series' }, data: closes, lineStyle: { width: 3, color: '#1677ff' } },
+      { name: 'MA5', type: 'line', smooth: false, showSymbol: false, symbol: 'circle', emphasis: { focus: 'series' }, data: ma5, lineStyle: { width: 2, color: '#fa8c16' } },
+      { name: 'MA20', type: 'line', smooth: false, showSymbol: false, symbol: 'circle', emphasis: { focus: 'series' }, data: ma20, lineStyle: { width: 2, color: '#722ed1' } },
+    ],
+  };
+}
+
+function buildVolumeTrendOption(kline: MarketStockKlineResponse | null, period: KlinePeriod): EChartsOption {
+  const items = kline?.items ?? [];
+  const volumes = items.map((item) => toNumber(item.volume));
+  const volumeAxisRange = computeNumericAxisRange(volumes, {
+    minPaddingRatio: 0,
+    maxPaddingRatio: 0.12,
+    minPaddingAbs: 1,
+    includeZero: true,
+  });
+
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { top: 24, left: 36, right: 18, bottom: 28, containLabel: true },
+    xAxis: { type: 'category', data: items.map((item) => formatKlineAxisTime(item.bar_time, period)), axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    yAxis: { type: 'value', min: 0, max: volumeAxisRange?.max, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }, axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    series: [{
+      name: '成交量',
+      type: 'bar',
+      data: volumes,
+      itemStyle: {
+        color: (params: any) => {
+          const item = items[params.dataIndex];
+          return toNumber(item?.close_price) >= toNumber(item?.open_price) ? '#ff7875' : '#73d13d';
+        },
+      },
+    }],
+  };
+}
+
+function buildReturnDistributionOption(kline: MarketStockKlineResponse | null): EChartsOption {
+  const items = kline?.items ?? [];
+  const buckets = [
+    { label: '<-3%', min: -Infinity, max: -3, count: 0 },
+    { label: '-3~-1%', min: -3, max: -1, count: 0 },
+    { label: '-1~0%', min: -1, max: 0, count: 0 },
+    { label: '0~1%', min: 0, max: 1, count: 0 },
+    { label: '1~3%', min: 1, max: 3, count: 0 },
+    { label: '>3%', min: 3, max: Infinity, count: 0 },
+  ];
+  items.forEach((item, index) => {
+    if (index === 0) return;
+    const previousClose = toNumber(items[index - 1].close_price);
+    const close = toNumber(item.close_price);
+    if (previousClose <= 0 || close <= 0) return;
+    const dailyReturn = ((close - previousClose) / previousClose) * 100;
+    const bucket = buckets.find((candidate) => dailyReturn >= candidate.min && dailyReturn < candidate.max);
+    if (bucket) bucket.count += 1;
+  });
+
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { top: 24, left: 34, right: 16, bottom: 28, containLabel: true },
+    xAxis: { type: 'category', data: buckets.map((item) => item.label), axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }, axisLabel: { color: '#8c8c8c', fontSize: 10 } },
+    series: [{ name: '天数', type: 'bar', data: buckets.map((item) => item.count), itemStyle: { color: '#1677ff', borderRadius: [6, 6, 0, 0] } }],
+  };
+}
+
+function buildTrendMetrics(items: KlineItem[]) {
+  const closes = items.map((item) => toNumber(item.close_price)).filter((value) => value > 0);
+  const highs = items.map((item) => toNumber(item.high_price)).filter((value) => value > 0);
+  const lows = items.map((item) => toNumber(item.low_price)).filter((value) => value > 0);
+  const volumes = items.map((item) => toNumber(item.volume)).filter((value) => value >= 0);
+  const latestClose = closes.at(-1) ?? 0;
+  const previousClose = closes.at(-2) ?? 0;
+  const high = highs.length ? Math.max(...highs) : 0;
+  const low = lows.length ? Math.min(...lows) : 0;
+  const ma5 = closes.length >= 5 ? average(closes.slice(-5)) : 0;
+  const ma20 = closes.length >= 20 ? average(closes.slice(-20)) : 0;
+  const recentVolume = volumes.length ? average(volumes.slice(-5)) : 0;
+  const baseVolume = volumes.length >= 20 ? average(volumes.slice(-20, -5)) : average(volumes.slice(0, -5));
+  const returns = closes.slice(1).map((close, index) => {
+    const previous = closes[index];
+    return previous > 0 ? ((close - previous) / previous) * 100 : 0;
+  });
+  const rangePosition = high > low && latestClose > 0 ? ((latestClose - low) / (high - low)) * 100 : 0;
+  const maxDrawdown = closes.reduce((state, close) => {
+    const peak = Math.max(state.peak, close);
+    const drawdown = peak > 0 ? ((close - peak) / peak) * 100 : 0;
+    return { peak, maxDrawdown: Math.min(state.maxDrawdown, drawdown) };
+  }, { peak: 0, maxDrawdown: 0 });
+
+  return {
+    sampleSize: closes.length,
+    latestClose,
+    dayReturn: previousClose > 0 ? ((latestClose - previousClose) / previousClose) * 100 : 0,
+    rangeHigh: high,
+    rangeLow: low,
+    rangePosition,
+    ma5,
+    ma20,
+    maBias: ma20 > 0 ? ((latestClose - ma20) / ma20) * 100 : 0,
+    volumeRatio: baseVolume > 0 ? recentVolume / baseVolume : 0,
+    volatility: standardDeviation(returns.slice(-20)),
+    maxDrawdown: maxDrawdown.maxDrawdown,
+  };
+}
+
 export default function MarketTrendPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -193,6 +368,8 @@ export default function MarketTrendPage() {
   const [marketSearchResults, setMarketSearchResults] = useState<MarketSnapshotResponse[]>([]);
   const [history, setHistory] = useState<MarketSnapshotResponse[]>([]);
   const [detail, setDetail] = useState<MarketStockDetailResponse | null>(null);
+  const [profile, setProfile] = useState<StockProfileResponse | null>(null);
+  const [stockNews, setStockNews] = useState<StockNewsResponse | null>(null);
   const [kline, setKline] = useState<MarketStockKlineResponse | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [chartView, setChartView] = useState<ChartView>('kline');
@@ -228,7 +405,8 @@ export default function MarketTrendPage() {
       const favorites = readFavoriteSymbols();
       setCandidates(candidateList);
       setFavoriteSymbols(favorites);
-      const nextSymbol = preferSymbol || searchParams.get('symbol') || candidateRes.default_symbol || candidateList[0]?.symbol || favorites[0]?.symbol || '';
+      const requestedSymbol = preferSymbol || searchParams.get('symbol') || candidateRes.default_symbol || candidateList[0]?.symbol || favorites[0]?.symbol || '';
+      const nextSymbol = resolveMarketSymbol(requestedSymbol, candidateList, favorites);
       setSelectedSymbol(nextSymbol);
       setShowAllConcepts(false);
       if (!nextSymbol) {
@@ -243,8 +421,14 @@ export default function MarketTrendPage() {
         marketApi.getStockDetail(nextSymbol, forceRefresh ? { refresh: true } : undefined),
         marketApi.getStockKlines(nextSymbol, { period, adjust: 'qfq', limit: 60, refresh: forceRefresh }),
       ]);
+      const [profileRes, newsRes] = await Promise.allSettled([
+        marketApi.getStockProfile(nextSymbol),
+        marketApi.getStockNews(nextSymbol, { limit: 10 }),
+      ]);
 
       setHistory(historyRes.status === 'fulfilled' ? [...historyRes.value].reverse() : []);
+      setProfile(profileRes.status === 'fulfilled' ? profileRes.value : null);
+      setStockNews(newsRes.status === 'fulfilled' ? newsRes.value : null);
       if (detailRes.status === 'fulfilled') {
         setDetail(detailRes.value);
       } else {
@@ -265,6 +449,8 @@ export default function MarketTrendPage() {
       setCandidates([]);
       setHistory([]);
       setDetail(null);
+      setProfile(null);
+      setStockNews(null);
       setKline(null);
       setError(err?.message ?? err?.data?.message ?? '市场趋势加载失败');
     } finally {
@@ -289,6 +475,64 @@ export default function MarketTrendPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [favoriteQuery]);
+
+  useEffect(() => {
+    if (!selectedSymbol) {
+      return;
+    }
+
+    const refreshViewedSymbol = async () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      const [historyRes, detailRes, klineRes] = await Promise.allSettled([
+        marketApi.getSnapshotHistory({ symbol: selectedSymbol, limit: 30 }),
+        marketApi.getStockDetail(selectedSymbol, { refresh: true }),
+        marketApi.getStockKlines(selectedSymbol, { period: klinePeriod, adjust: 'qfq', limit: 60, refresh: true }),
+      ]);
+
+      if (historyRes.status === 'fulfilled') {
+        setHistory([...historyRes.value].reverse());
+      }
+
+      if (detailRes.status === 'fulfilled') {
+        setDetail(detailRes.value);
+        setDetailError('');
+        try {
+          const nextProfile = await marketApi.getStockProfile(selectedSymbol);
+          setProfile(nextProfile);
+        } catch {
+          // Keep the last profile snapshot when the lightweight refresh cannot update it.
+        }
+      } else {
+        setDetailError(detailRes.reason?.message ?? detailRes.reason?.data?.message ?? '详细行情暂时不可用');
+      }
+
+      if (klineRes.status === 'fulfilled') {
+        setKline(klineRes.value);
+        setKlineError('');
+      } else {
+        setKlineError(klineRes.reason?.message ?? klineRes.reason?.data?.message ?? 'K线数据暂时不可用');
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshViewedSymbol();
+    }, ACTIVE_STOCK_REFRESH_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshViewedSymbol();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [klinePeriod, selectedSymbol]);
 
   const candidateList = useMemo(() => {
     const bySymbol = new Map<string, AnalysisCandidateResponse>();
@@ -363,22 +607,44 @@ export default function MarketTrendPage() {
     return Array.from(optionMap.values()).slice(0, 12);
   }, [candidateList, favoriteQuery, marketSearchResults]);
   const latestPoint = history[history.length - 1] ?? null;
-  const latestPrice = detail?.last_price ?? latestPoint?.last_price;
-  const latestChangePercent = detail?.change_percent ?? latestPoint?.change_percent;
-  const latestChangeAmount = detail?.change_amount ?? latestPoint?.change_amount;
-  const industryLabel = normalizeDetailLabel(detail?.industry);
-  const regionLabel = normalizeDetailLabel(detail?.region);
+  const latestPrice = profile?.last_price || detail?.last_price || latestPoint?.last_price;
+  const latestChangePercent = profile?.change_percent || detail?.change_percent || latestPoint?.change_percent;
+  const latestChangeAmount = profile?.change_amount || detail?.change_amount || latestPoint?.change_amount;
+  const industryLabel = normalizeDetailLabel(profile?.industry || detail?.industry);
+  const regionLabel = normalizeDetailLabel(profile?.region || detail?.region);
   const metaSummary = [industryLabel, regionLabel].filter(Boolean).join(' · ');
-  const conceptList = normalizeConcepts(detail?.concepts);
+  const boardMemberships = profile?.boards ?? [];
+  const boardByName = new Map(boardMemberships.map((board) => [board.name, board]));
+  const industryBoard = industryLabel ? boardMemberships.find((board) => board.board_type === 'industry' && board.name === industryLabel) : undefined;
+  const conceptList = normalizeConcepts(profile?.concepts?.length ? profile.concepts : detail?.concepts);
   const visibleConcepts = showAllConcepts ? conceptList : conceptList.slice(0, 8);
+  const visibleBoards = boardMemberships.slice(0, 10);
+  const newsItems = stockNews?.items ?? [];
+  const recentNewsCount = newsItems.filter((item) => item.is_recent).length;
+  const newestNews = newsItems[0] ?? null;
   const chartTitle = chartView === 'kline' ? `${getKlinePeriodLabel(klinePeriod)} K 线` : '快照走势';
+  const trendMetrics = useMemo(() => buildTrendMetrics(kline?.items ?? []), [kline]);
+  const latestAboveMa20 = trendMetrics.ma20 > 0 && trendMetrics.latestClose >= trendMetrics.ma20;
+  const trendBiasLabel = latestAboveMa20 ? '站上 MA20' : trendMetrics.ma20 > 0 ? '低于 MA20' : '均线不足';
+  const rangePositionColor = trendMetrics.rangePosition >= 80 ? '#ff4d4f' : trendMetrics.rangePosition <= 20 ? '#52c41a' : '#1677ff';
+  const alertItems = [
+    trendMetrics.sampleSize < 20 ? { color: 'warning', icon: <WarningOutlined />, text: `K 线样本仅 ${trendMetrics.sampleSize} 条，均线和波动判断可信度有限。` } : null,
+    trendMetrics.rangePosition >= 85 ? { color: 'red', icon: <WarningOutlined />, text: `价格位于当前样本区间高位 ${trendMetrics.rangePosition.toFixed(0)}%，追涨需要控制仓位。` } : null,
+    trendMetrics.rangePosition <= 15 && trendMetrics.sampleSize >= 10 ? { color: 'green', icon: <ThunderboltOutlined />, text: `价格接近样本区间低位 ${trendMetrics.rangePosition.toFixed(0)}%，更适合结合基本面做低位观察。` } : null,
+    trendMetrics.volumeRatio >= 1.8 ? { color: 'orange', icon: <ThunderboltOutlined />, text: `近 5 根成交量约为前期均量 ${trendMetrics.volumeRatio.toFixed(2)} 倍，短线资金活跃度上升。` } : null,
+    trendMetrics.maxDrawdown <= -8 ? { color: 'red', icon: <WarningOutlined />, text: `样本内最大回撤 ${trendMetrics.maxDrawdown.toFixed(2)}%，波动风险偏高。` } : null,
+    detail?.is_stale ? { color: 'warning', icon: <WarningOutlined />, text: '详细行情来自缓存，建议点击强制刷新后再做判断。' } : null,
+    !newsItems.length ? { color: 'warning', icon: <WarningOutlined />, text: '当前未拉取到可追溯新闻，AI 分析时不要假设近期事件。' } : null,
+    newsItems.length && recentNewsCount === 0 ? { color: 'warning', icon: <WarningOutlined />, text: '新闻源存在但近期新闻不足，短线事件驱动判断需要降权。' } : null,
+    industryLabel ? { color: 'green', icon: <ThunderboltOutlined />, text: `已识别所属行业/板块：${industryLabel}${conceptList.length ? `，概念标签 ${conceptList.slice(0, 3).join('、')}` : ''}。` } : null,
+  ].filter(Boolean) as Array<{ color: string; icon: React.ReactNode; text: string }>;
 
   const summaryCards = [
-    { title: '成交额', value: formatLargeNumber(detail?.turnover ?? latestPoint?.turnover), color: '#1677ff' },
-    { title: '换手率', value: formatPercent(detail?.turnover_rate), color: '#722ed1' },
-    { title: '振幅', value: formatPercent(detail?.amplitude), color: '#fa8c16' },
-    { title: '量比', value: toNumber(detail?.volume_ratio).toFixed(2), color: '#13c2c2' },
-    { title: '总市值', value: formatLargeNumber(detail?.total_market_cap), color: '#2f54eb' },
+    { title: '成交额', value: formatLargeNumber(profile?.turnover || detail?.turnover || latestPoint?.turnover), color: '#1677ff' },
+    { title: '换手率', value: formatPercent(profile?.turnover_rate || detail?.turnover_rate), color: '#722ed1' },
+    { title: '振幅', value: formatPercent(profile?.amplitude || detail?.amplitude), color: '#fa8c16' },
+    { title: '量比', value: toNumber(profile?.volume_ratio || detail?.volume_ratio).toFixed(2), color: '#13c2c2' },
+    { title: '总市值', value: formatLargeNumber(profile?.total_market_cap || detail?.total_market_cap), color: '#2f54eb' },
     { title: '关注次数', value: String(selectedCandidate?.trade_count ?? 0), color: '#52c41a' },
   ];
 
@@ -436,15 +702,15 @@ export default function MarketTrendPage() {
           <Col span={24} xl={15}>
             <Space size={10} wrap style={{ marginBottom: 14 }}>
               <Tag color="processing">个股详情</Tag>
-              <Tag color="blue">{marketLabel(detail?.market || latestPoint?.market || selectedCandidate?.market)}</Tag>
-              <Tag color={selectedCandidate?.is_held ? 'success' : 'default'}>{selectedCandidate?.is_held ? '当前持仓' : '关注标的'}</Tag>
+              <Tag color="blue">{marketLabel(profile?.market || detail?.market || latestPoint?.market || selectedCandidate?.market)}</Tag>
+              <Tag color={selectedCandidate?.is_held ? 'success' : 'default'}>{selectedCandidate?.is_held ? '当前持仓' : '关注列表'}</Tag>
               {selectedCandidate?.sources.some((source) => source.type === 'favorite') ? <Tag color="gold">自选</Tag> : null}
               {detail?.is_stale ? <Tag color="warning">缓存数据</Tag> : <Tag color="success">数据较新</Tag>}
               {detail?.refresh_triggered || kline?.refresh_triggered ? <Tag color="gold">已触发刷新</Tag> : null}
             </Space>
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               <Space align="end" size={14} wrap>
-                <Title level={2} style={{ margin: 0, color: '#fff' }}>{detail?.name || selectedCandidate?.asset_name || '标的详情'}</Title>
+                <Title level={2} style={{ margin: 0, color: '#fff' }}>{profile?.name || detail?.name || selectedCandidate?.asset_name || '证券详情'}</Title>
                 <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: 16 }}>{selectedSymbol || '—'}</Text>
               </Space>
               <Space align="end" size={16} wrap>
@@ -452,16 +718,16 @@ export default function MarketTrendPage() {
                 <Text style={{ color: getChangeColor(latestChangePercent), fontSize: 18, fontWeight: 600, lineHeight: 1.3 }}>{formatChangeText(latestChangeAmount, latestChangePercent)}</Text>
               </Space>
               {metaSummary ? <Text style={{ color: 'rgba(255,255,255,0.82)' }}>{metaSummary}</Text> : null}
-              <Text style={{ color: 'rgba(255,255,255,0.72)' }}>更新时间 {detail?.fetched_at || latestPoint?.snapshot_time || '—'}</Text>
-              <Button type="primary" icon={<RobotOutlined />} onClick={() => navigate(`/app/stock-chat?symbol=${encodeURIComponent(selectedSymbol)}`)} disabled={!selectedSymbol} style={{ marginTop: 6, borderRadius: 10, boxShadow: '0 8px 24px rgba(22,119,255,0.28)' }}>AI 分析对话</Button>
+              <Text style={{ color: 'rgba(255,255,255,0.72)' }}>更新时间 {profile?.fetched_at || detail?.fetched_at || latestPoint?.snapshot_time || '—'}</Text>
+              <Button type="primary" icon={<RobotOutlined />} onClick={() => navigate(`/app/chat?kind=stock&symbol=${encodeURIComponent(selectedSymbol)}`)} disabled={!selectedSymbol} style={{ marginTop: 6, borderRadius: 10, boxShadow: '0 8px 24px rgba(22,119,255,0.28)' }}>AI 分析对话</Button>
             </Space>
           </Col>
           <Col span={24} xl={9}>
             <Row gutter={[12, 12]}>
-              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>今开</span>} value={toNumber(detail?.open_price ?? latestPoint?.open_price)} precision={2} prefix="¥" valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
-              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>昨收</span>} value={toNumber(detail?.prev_close ?? latestPoint?.prev_close)} precision={2} prefix="¥" valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
-              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>最高</span>} value={toNumber(detail?.high_price ?? latestPoint?.high_price)} precision={2} prefix="¥" valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
-              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>最低</span>} value={toNumber(detail?.low_price ?? latestPoint?.low_price)} precision={2} prefix="¥" valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
+              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>成交额</span>} value={formatLargeNumber(profile?.turnover || detail?.turnover || latestPoint?.turnover)} valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
+              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>换手率</span>} value={toNumber(profile?.turnover_rate || detail?.turnover_rate)} precision={2} suffix="%" valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
+              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>总市值</span>} value={formatLargeNumber(profile?.total_market_cap || detail?.total_market_cap)} valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
+              <Col span={12}><Card bordered={false} bodyStyle={{ padding: 16 }} style={{ borderRadius: 14, background: 'rgba(255,255,255,0.14)' }}><Statistic title={<span style={{ color: 'rgba(255,255,255,0.75)' }}>近期新闻</span>} value={`${recentNewsCount}/${newsItems.length}`} valueStyle={{ color: '#fff', fontSize: 20 }} /></Card></Col>
             </Row>
           </Col>
         </Row>
@@ -482,13 +748,13 @@ export default function MarketTrendPage() {
               >
                 <Search enterButton="加入自选" placeholder="输入股票代码 / 名称，例如 000858 或 五粮液" onSearch={(value) => void addFavoriteSymbol(value)} />
               </AutoComplete>
-              <Empty description="暂无候选标的，请先加入自选，或导入交易记录 / 生成持仓" />
+              <Empty description="暂无候选证券，请先加入自选，或导入交易记录 / 生成持仓" />
             </Space>
           </Card>
         ) : (
           <Row gutter={[16, 16]}>
             <Col span={24} lg={7}>
-              <Card bordered={false} style={cardStyle} title={<span><StockOutlined style={{ color: '#1677ff', marginRight: 8 }} />关注标的</span>} extra={<Text type="secondary">持仓 / 自选</Text>}>
+              <Card bordered={false} style={cardStyle} title={<span><StockOutlined style={{ color: '#1677ff', marginRight: 8 }} />关注证券</span>} extra={<Text type="secondary">持仓 / 自选</Text>}>
                 <AutoComplete
                   value={favoriteQuery}
                   options={favoriteOptions}
@@ -532,8 +798,177 @@ export default function MarketTrendPage() {
                   {summaryCards.map((item) => <Col key={item.title} xs={12} xl={8}><Card bordered={false} style={cardStyle}><Statistic title={item.title} value={item.value} valueStyle={{ color: item.color, fontSize: 24 }} prefix={item.title === '关注次数' ? <RiseOutlined /> : undefined} /></Card></Col>)}
                 </Row>
 
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={10}>
+                    <Card bordered={false} style={cardStyle} title="证券介绍" extra={<Text type="secondary">来源 {profile?.company_profile?.source || profile?.source || detail?.source || '—'}</Text>}>
+                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <Space wrap>
+                          {profile?.company_profile?.market_label ? <Tag color="geekblue">{profile.company_profile.market_label}</Tag> : null}
+                          {profile?.company_profile?.industry_label ? <Tag color="blue">{profile.company_profile.industry_label}</Tag> : industryLabel ? (
+                            <Tag
+                              color="blue"
+                              style={industryBoard ? { cursor: 'pointer' } : undefined}
+                              onClick={industryBoard ? () => navigate(`/app/board?type=${encodeURIComponent(industryBoard.board_type)}&code=${encodeURIComponent(industryBoard.code)}`) : undefined}
+                            >
+                              行业 {industryLabel}
+                            </Tag>
+                          ) : null}
+                          {regionLabel ? <Tag color="cyan">地区 {regionLabel}</Tag> : null}
+                          <Tag color={profile?.is_stale || detail?.is_stale ? 'warning' : 'success'}>{profile?.is_stale || detail?.is_stale ? '缓存行情' : '行情较新'}</Tag>
+                        </Space>
+                        <Text strong>{profile?.company_profile?.company_name || profile?.name || detail?.name || selectedCandidate?.asset_name || selectedSymbol}</Text>
+                        <Text style={{ lineHeight: 1.8 }}>
+                          {profile?.company_profile?.introduction || profile?.company_profile?.business || profile?.description || `${profile?.name || detail?.name || selectedCandidate?.asset_name || selectedSymbol} 当前暂无完整公司简介，页面已优先展示可信行情、板块标签、K线趋势和可追溯新闻。`}
+                        </Text>
+                        {profile?.company_profile?.business ? <Text type="secondary">主营业务：{profile.company_profile.business}</Text> : null}
+                        <Row gutter={[12, 12]}>
+                          <Col span={12}><Statistic title="成立日期" value={profile?.company_profile?.founded_at || '—'} /></Col>
+                          <Col span={12}><Statistic title="上市日期" value={profile?.company_profile?.listed_at || '—'} /></Col>
+                          <Col span={12}><Statistic title="流通市值" value={formatLargeNumber(profile?.float_market_cap || detail?.float_market_cap)} /></Col>
+                          <Col span={12}><Statistic title="振幅" value={toNumber(profile?.amplitude || detail?.amplitude)} precision={2} suffix="%" /></Col>
+                          <Col span={12}><Statistic title="涨停价" value={toNumber(profile?.limit_up || detail?.limit_up)} precision={2} prefix="¥" /></Col>
+                          <Col span={12}><Statistic title="跌停价" value={toNumber(profile?.limit_down || detail?.limit_down)} precision={2} prefix="¥" /></Col>
+                        </Row>
+                        {profile?.company_profile?.website ? <Text type="secondary">官网：{profile.company_profile.website}</Text> : null}
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col span={24} xl={14}>
+                    <Card bordered={false} style={cardStyle} title="板块与概念" extra={<Text type="secondary">用于辅助判断，不替代财报分析</Text>}>
+                      <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                        <Alert
+                          type={industryLabel ? 'info' : 'warning'}
+                          showIcon
+                          message={industryLabel ? `所属行业：${industryLabel}` : '暂未识别可靠行业信息'}
+                          description={conceptList.length ? `概念覆盖：${conceptList.slice(0, 6).join('、')}` : '当前数据源暂未返回概念标签。'}
+                        />
+                        <Space wrap size={[8, 8]}>
+                          {visibleConcepts.length ? visibleConcepts.map((concept) => {
+                            const conceptBoard = boardByName.get(concept);
+                            return (
+                              <Tag
+                                key={concept}
+                                color="processing"
+                                style={conceptBoard ? { cursor: 'pointer' } : undefined}
+                                onClick={conceptBoard ? () => navigate(`/app/board?type=${encodeURIComponent(conceptBoard.board_type)}&code=${encodeURIComponent(conceptBoard.code)}`) : undefined}
+                              >
+                                {concept}
+                              </Tag>
+                            );
+                          }) : <Text type="secondary">暂无可靠概念标签</Text>}
+                          {conceptList.length > 8 ? <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={() => setShowAllConcepts((value) => !value)}>{showAllConcepts ? '收起' : `展开全部 (${conceptList.length})`}</Button> : null}
+                        </Space>
+                        <Space wrap size={[8, 8]}>
+                          <Text type="secondary">所属板块</Text>
+                          {visibleBoards.length ? visibleBoards.map((board) => (
+                            <Tag
+                              key={`${board.board_type}-${board.code}`}
+                              color={board.board_type === 'industry' ? 'blue' : 'purple'}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => navigate(`/app/board?type=${encodeURIComponent(board.board_type)}&code=${encodeURIComponent(board.code)}`)}
+                            >
+                              {board.name}
+                            </Tag>
+                          )) : <Text type="secondary">暂无可映射板块</Text>}
+                        </Space>
+                        <Row gutter={[12, 12]}>
+                          <Col span={8}><Statistic title="成交额" value={formatLargeNumber(profile?.turnover || detail?.turnover)} /></Col>
+                          <Col span={8}><Statistic title="换手率" value={toNumber(profile?.turnover_rate || detail?.turnover_rate)} precision={2} suffix="%" /></Col>
+                          <Col span={8}><Statistic title="量比" value={toNumber(profile?.volume_ratio || detail?.volume_ratio)} precision={2} /></Col>
+                        </Row>
+                      </Space>
+                    </Card>
+                  </Col>
+                </Row>
+
+                <Card bordered={false} style={cardStyle} title={<span><FundProjectionScreenOutlined style={{ color: '#1677ff', marginRight: 8 }} />趋势体检</span>} extra={<Text type="secondary">基于当前 {getKlinePeriodLabel(klinePeriod)} 样本计算</Text>}>
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} md={12} xl={6}>
+                      <Statistic title="区间位置" value={Math.max(0, Math.min(100, trendMetrics.rangePosition))} precision={0} suffix="%" valueStyle={{ color: rangePositionColor }} />
+                      <Progress percent={Math.max(0, Math.min(100, Number(trendMetrics.rangePosition.toFixed(0))))} strokeColor={rangePositionColor} showInfo={false} />
+                      <Text type="secondary">低点 {formatPrice(String(trendMetrics.rangeLow))} / 高点 {formatPrice(String(trendMetrics.rangeHigh))}</Text>
+                    </Col>
+                    <Col xs={24} md={12} xl={6}>
+                      <Statistic title="短线涨跌" value={formatSignedPercent(trendMetrics.dayReturn)} valueStyle={{ color: getChangeColor(String(trendMetrics.dayReturn)) }} />
+                      <Text type="secondary">最近两根 K 线收盘价变化</Text>
+                    </Col>
+                    <Col xs={24} md={12} xl={6}>
+                      <Statistic title={trendBiasLabel} value={formatSignedPercent(trendMetrics.maBias)} valueStyle={{ color: latestAboveMa20 ? '#ff4d4f' : '#52c41a' }} />
+                      <Text type="secondary">MA5 {formatPrice(String(trendMetrics.ma5))} / MA20 {formatPrice(String(trendMetrics.ma20))}</Text>
+                    </Col>
+                    <Col xs={24} md={12} xl={6}>
+                      <Statistic title="波动 / 量能" value={`${trendMetrics.volatility.toFixed(2)}% / ${trendMetrics.volumeRatio.toFixed(2)}x`} valueStyle={{ color: trendMetrics.volumeRatio >= 1.5 ? '#fa8c16' : '#1677ff' }} />
+                      <Text type="secondary">近 20 根收益波动，近 5 根量能相对前期</Text>
+                    </Col>
+                  </Row>
+                </Card>
+
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={10}>
+                    <Card bordered={false} style={cardStyle} title="重点提示">
+                      {alertItems.length ? (
+                        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                          {alertItems.map((item) => (
+                            <Alert key={item.text} type={item.color === 'red' ? 'error' : item.color === 'green' ? 'success' : 'warning'} showIcon icon={item.icon} message={item.text} />
+                          ))}
+                        </Space>
+                      ) : (
+                        <Alert type="info" showIcon message="当前样本没有明显异常信号，建议结合新闻、财报和持仓成本继续判断。" />
+                      )}
+                    </Card>
+                  </Col>
+                  <Col span={24} xl={14}>
+                    <Card bordered={false} style={cardStyle} title="量价关系">
+                      {kline?.items?.length ? <ReactECharts option={buildVolumeTrendOption(kline, klinePeriod)} style={{ height: 260 }} /> : <Empty description="暂无成交量数据" />}
+                    </Card>
+                  </Col>
+                </Row>
+
                 <Card bordered={false} style={cardStyle} title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />{chartTitle}</span>} extra={<Space wrap size={12}><Segmented options={[{ label: 'K线', value: 'kline' }, { label: '快照走势', value: 'snapshot' }]} value={chartView} onChange={(value) => setChartView(value as ChartView)} />{chartView === 'kline' ? <Segmented options={klinePeriodOptions} value={klinePeriod} onChange={(value) => onSelectPeriod(value as KlinePeriod)} /> : null}<Button icon={<ReloadOutlined />} onClick={() => void load(selectedSymbol, true, klinePeriod)} loading={loading || klineLoading}>强制刷新</Button></Space>}>
                   {chartView === 'kline' ? <Spin spinning={klineLoading}>{klineError ? <Alert type="warning" showIcon message={klineError} style={{ marginBottom: 16 }} /> : null}{kline?.items?.length ? <ReactECharts option={buildKlineOption(kline, klinePeriod)} style={{ height: 380 }} /> : <Empty description="暂无该标的的 K 线数据" />}</Spin> : history.length ? <ReactECharts option={buildSnapshotOption(history)} style={{ height: 380 }} /> : <Empty description="暂无该标的的历史快照" />}
+                </Card>
+
+                <Row gutter={[16, 16]}>
+                  <Col span={24} xl={14}>
+                    <Card bordered={false} style={cardStyle} title="均线动量">
+                      {kline?.items?.length ? <ReactECharts option={buildPriceMomentumOption(kline, klinePeriod)} style={{ height: 300 }} /> : <Empty description="暂无均线数据" />}
+                    </Card>
+                  </Col>
+                  <Col span={24} xl={10}>
+                    <Card bordered={false} style={cardStyle} title="涨跌分布">
+                      {kline?.items?.length ? <ReactECharts option={buildReturnDistributionOption(kline)} style={{ height: 300 }} /> : <Empty description="暂无涨跌分布数据" />}
+                    </Card>
+                  </Col>
+                </Row>
+
+                <Card
+                  bordered={false}
+                  style={cardStyle}
+                  title="新闻与公告"
+                  extra={<Text type="secondary">覆盖 {stockNews?.coverage || '—'} · 最新 {newestNews?.published_at || '—'}</Text>}
+                >
+                  {newsItems.length ? (
+                    <List
+                      dataSource={newsItems}
+                      renderItem={(item) => (
+                        <List.Item style={{ paddingInline: 0 }}>
+                          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                            <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
+                              <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>{item.title}</a>
+                              <Space wrap>
+                                <Tag color={item.is_recent ? 'green' : 'default'}>{item.is_recent ? '近期' : '较早'}</Tag>
+                                <Tag>{item.source || item.provider || '来源未知'}</Tag>
+                              </Space>
+                            </Space>
+                            {item.summary ? <Text type="secondary">{item.summary}</Text> : null}
+                            <Text type="secondary">{item.published_at || '发布时间未知'}</Text>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  ) : (
+                    <Empty description="暂无可追溯新闻；AI 分析时将不会编造资讯。" />
+                  )}
                 </Card>
 
                 <Card bordered={false} style={cardStyle} title="详细行情" extra={<Text type="secondary">数据源 {detail?.source || latestPoint?.source || '—'}</Text>}>

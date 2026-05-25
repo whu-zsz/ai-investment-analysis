@@ -1,4 +1,25 @@
 services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-Only@a0Franky}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-stock_analysis}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - stock-network
+
   frontend:
     image: ${FRONTEND_IMAGE:-myrt1egu/stock-frontend}:${APP_TAG:-latest}
     restart: unless-stopped
@@ -20,20 +41,32 @@ services:
     image: ${BACKEND_IMAGE:-myrt1egu/stock-backend}:${APP_TAG:-latest}
     restart: unless-stopped
     env_file:
-      - ${BACKEND_ENV_FILE:-./.env}
+      - path: ${BACKEND_ENV_FILE:-./.env}
+        required: false
     environment:
       SERVER_PORT: 8080
       UPLOAD_PATH: /app/uploads
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: Only@a0Franky
+      DB_NAME: stock_analysis
+      MARKET_SNAPSHOT_INTERVAL: 1800
     expose:
       - "8080"
     volumes:
       - backend_uploads:/app/uploads
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - stock-network
 
@@ -47,6 +80,7 @@ services:
       - stock-network
 
 volumes:
+  mysql_data:
   backend_uploads:
   redis_data:
 

@@ -54,7 +54,7 @@ func (s *stockChatService) Chat(ctx context.Context, userID uint64, req *request
 	if err != nil {
 		return nil, err
 	}
-	reply = normalizeNarrativeText(reply)
+	reply = normalizeMarkdownNarrative(reply)
 	if reply == "" {
 		return nil, fmt.Errorf("llm returned empty reply")
 	}
@@ -82,7 +82,7 @@ func (s *stockChatService) ChatStream(ctx context.Context, userID uint64, req *r
 		return err
 	}
 
-	reply = normalizeNarrativeText(reply)
+	reply = normalizeMarkdownNarrative(reply)
 	if reply == "" {
 		err := fmt.Errorf("llm returned empty reply")
 		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "ai", Message: err.Error()})
@@ -167,14 +167,15 @@ func (s *stockChatService) prepareChatContext(ctx context.Context, userID uint64
 
 var stockChatSystemPrompt = `你是一位专业、克制的 A 股个股分析助手。
 必须只依据输入中提供的真实行情、趋势数据和新闻上下文回答，不得编造新闻、公告、研报、价格或财务数据。
-回答必须使用简体中文，并优先回应用户本轮问题。请固定使用以下结构：
-1. 结论：用 1-2 句话直接回答。
-2. 重点提示：列出 2-4 条最重要信号，每条以“重点：”开头。
-3. 新闻面：说明近期新闻带来的正面/负面/不确定影响。
-4. 走势面：说明价格、涨跌幅和近 20 个交易日趋势。
-5. 风险：列出需要警惕的冲突或失效条件。
-6. 建议：给出可执行动作，例如观察位、风控点、继续跟踪信号。
-如果新闻覆盖不完整，必须明确说明信息可能不足。不要输出 JSON。`
+回答必须使用简体中文，优先回应用户本轮问题，语气自然、明确，不要写成制式模板。
+请使用 Markdown 输出，并尽量遵循下面的表达方式：
+- 开头先直接回答用户问题，用 1-2 句话给出判断。
+- 然后给出一个“## 重点提示”小节，列出 2-4 条最关键的观察，不要重复。
+- 如有必要，再补充“## 新闻影响”、“## 走势观察”、“## 风险”、“## 操作建议”等小节。
+- 不是每次都必须把所有小节写满；重点是先回答问题，再补充依据。
+- 如果新闻覆盖不完整，必须明确说明信息可能不足。
+- 不要输出 JSON，不要写“1. 2. 3.”式模板，不要堆砌空话。
+- 如果提到走势判断，尽量结合输入里的价格、涨跌幅、区间趋势和量价信息来支撑。`
 
 type stockChatMessage struct {
 	Role    string

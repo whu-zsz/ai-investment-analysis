@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 type MockMarketSnapshotService struct {
 	Snapshots         []response.MarketSnapshotResponse
 	DashboardSnapshot *response.DashboardMarketSnapshotResponse
+	BoardDetail       *response.MarketBoardDetailResponse
 	Err               error
 }
 
@@ -42,6 +44,23 @@ func (m *MockMarketSnapshotService) GetDashboardSnapshot() (*response.DashboardM
 	return m.DashboardSnapshot, nil
 }
 
+func (m *MockMarketSnapshotService) GetDashboardMarketBreadth(ctx context.Context, limit int) (*response.DashboardMarketBreadthResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return &response.DashboardMarketBreadthResponse{Source: "test"}, nil
+}
+
+func (m *MockMarketSnapshotService) GetBoardDetail(ctx context.Context, boardType, code string, limit int) (*response.MarketBoardDetailResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	if m.BoardDetail != nil {
+		return m.BoardDetail, nil
+	}
+	return &response.MarketBoardDetailResponse{}, nil
+}
+
 func (m *MockMarketSnapshotService) SearchStocks(query string, limit int) ([]response.MarketSnapshotResponse, error) {
 	if m.Err != nil {
 		return nil, m.Err
@@ -50,9 +69,10 @@ func (m *MockMarketSnapshotService) SearchStocks(query string, limit int) ([]res
 }
 
 type MockMarketStockService struct {
-	Detail *response.MarketStockDetailResponse
-	Kline  *response.MarketStockKlineResponse
-	Err    error
+	Detail  *response.MarketStockDetailResponse
+	Profile *response.StockProfileResponse
+	Kline   *response.MarketStockKlineResponse
+	Err     error
 }
 
 func (m *MockMarketStockService) GetStockDetail(symbol string, forceRefresh bool) (*response.MarketStockDetailResponse, error) {
@@ -60,6 +80,43 @@ func (m *MockMarketStockService) GetStockDetail(symbol string, forceRefresh bool
 		return nil, m.Err
 	}
 	return m.Detail, nil
+}
+
+func (m *MockMarketStockService) GetStockProfile(symbol string) (*response.StockProfileResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	if m.Profile != nil {
+		return m.Profile, nil
+	}
+	if m.Detail == nil {
+		return nil, nil
+	}
+	return &response.StockProfileResponse{
+		Symbol:         m.Detail.Symbol,
+		Name:           m.Detail.Name,
+		Market:         m.Detail.Market,
+		Description:    m.Detail.Name,
+		Industry:       m.Detail.Industry,
+		Region:         m.Detail.Region,
+		Concepts:       m.Detail.Concepts,
+		CompanyProfile: nil,
+		LastPrice:      m.Detail.LastPrice,
+		ChangeAmount:   m.Detail.ChangeAmount,
+		ChangePercent:  m.Detail.ChangePercent,
+		Volume:         m.Detail.Volume,
+		Turnover:       m.Detail.Turnover,
+		VolumeRatio:    m.Detail.VolumeRatio,
+		TurnoverRate:   m.Detail.TurnoverRate,
+		Amplitude:      m.Detail.Amplitude,
+		LimitUp:        m.Detail.LimitUp,
+		LimitDown:      m.Detail.LimitDown,
+		TotalMarketCap: m.Detail.TotalMarketCap,
+		FloatMarketCap: m.Detail.FloatMarketCap,
+		Source:         m.Detail.Source,
+		FetchedAt:      m.Detail.FetchedAt,
+		IsStale:        m.Detail.IsStale,
+	}, nil
 }
 
 func (m *MockMarketStockService) GetStockKlines(symbol, period, adjust string, limit int, forceRefresh bool) (*response.MarketStockKlineResponse, error) {
@@ -78,7 +135,7 @@ func TestMarketHandler_GetLatestSnapshots(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -106,7 +163,7 @@ func TestMarketHandler_GetLatestSnapshots_Empty(t *testing.T) {
 		Snapshots: []response.MarketSnapshotResponse{},
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -126,7 +183,7 @@ func TestMarketHandler_GetLatestSnapshots_Error(t *testing.T) {
 		Err: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/snapshots", h.GetLatestSnapshots)
 
@@ -148,7 +205,7 @@ func TestMarketHandler_GetSnapshotHistory(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -170,7 +227,7 @@ func TestMarketHandler_GetSnapshotHistory_WithTimeRange(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -188,7 +245,7 @@ func TestMarketHandler_GetSnapshotHistory_WithTimeRange(t *testing.T) {
 func TestMarketHandler_GetSnapshotHistory_InvalidStartTime(t *testing.T) {
 	mockService := &MockMarketSnapshotService{}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -206,7 +263,7 @@ func TestMarketHandler_GetSnapshotHistory_InvalidStartTime(t *testing.T) {
 func TestMarketHandler_GetSnapshotHistory_InvalidEndTime(t *testing.T) {
 	mockService := &MockMarketSnapshotService{}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/history", h.GetSnapshotHistory)
 
@@ -230,7 +287,7 @@ func TestMarketHandler_GetDashboardSnapshot(t *testing.T) {
 		},
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/dashboard", h.GetDashboardSnapshot)
 
@@ -258,7 +315,7 @@ func TestMarketHandler_GetDashboardSnapshot_Error(t *testing.T) {
 		Err: service.ErrTransactionNotFound,
 	}
 
-	h := handler.NewMarketHandler(mockService, &MockMarketStockService{})
+	h := handler.NewMarketHandler(mockService, &MockMarketStockService{}, nil)
 	router := gin.New()
 	router.GET("/market/dashboard", h.GetDashboardSnapshot)
 

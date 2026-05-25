@@ -19,11 +19,13 @@ func validConfig() *Config {
 			ExpireHours: 24,
 		},
 		Market: MarketConfig{
-			Provider:         "mock",
-			Symbols:          "000001.SH",
-			SnapshotInterval: 60,
-			Enabled:          true,
-			TimeoutSeconds:   5,
+			Provider:           "mock",
+			Symbols:            "000001.SH",
+			SnapshotInterval:   60,
+			Enabled:            true,
+			TimeoutSeconds:     5,
+			SinaRequestDelayMS: 350,
+			FullSnapshotSource: "akshare",
 		},
 	}
 }

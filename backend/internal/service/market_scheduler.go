@@ -58,9 +58,23 @@ func (s *marketScheduler) warmup(ctx context.Context) {
 func (s *marketScheduler) runOnce(ctx context.Context) {
 	batchNo, count, err := s.marketDataService.FetchAndStoreMarketSnapshots(ctx)
 	if err != nil {
-		s.logger.Warn("market snapshot fetch failed", zap.Error(err))
+		s.logger.Warn("tracked market snapshot fetch failed", zap.Error(err))
+	} else {
+		s.logger.Info("tracked market snapshot fetch succeeded", zap.String("batch_no", batchNo), zap.Int("count", count))
+	}
+
+	fullBatchNo, fullCount, fullErr := s.marketDataService.FetchAndStoreFullMarketSnapshots(ctx)
+	if fullErr != nil {
+		s.logger.Warn("full market snapshot fetch failed", zap.Error(fullErr))
+	} else {
+		s.logger.Info("full market snapshot fetch succeeded", zap.String("batch_no", fullBatchNo), zap.Int("count", fullCount))
+	}
+
+	boardBatchNo, boardCount, boardErr := s.marketDataService.FetchAndStoreMarketBoardSnapshots(ctx)
+	if boardErr != nil {
+		s.logger.Warn("market board snapshot fetch failed", zap.Error(boardErr))
 		return
 	}
 
-	s.logger.Info("market snapshot fetch succeeded", zap.String("batch_no", batchNo), zap.Int("count", count))
+	s.logger.Info("market board snapshot fetch succeeded", zap.String("batch_no", boardBatchNo), zap.Int("count", boardCount))
 }

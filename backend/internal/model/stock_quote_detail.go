@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -57,6 +58,9 @@ func NormalizeIndustryLabel(value string) string {
 	if looksLikeMarketCode(trimmed) {
 		return ""
 	}
+	if looksLikeNumericLabel(trimmed) {
+		return ""
+	}
 	return trimmed
 }
 
@@ -76,7 +80,13 @@ func NormalizeConceptList(values []string) []string {
 		if trimmed == "" {
 			continue
 		}
+		if trimmed == "-" || trimmed == "—" {
+			continue
+		}
 		if trimmed == "腾讯行情" {
+			continue
+		}
+		if looksLikeNumericLabel(trimmed) {
 			continue
 		}
 		if _, ok := seen[trimmed]; ok {
@@ -104,4 +114,18 @@ func looksLikeMarketCode(value string) bool {
 		return false
 	}
 	return hasLetter
+}
+
+func looksLikeNumericLabel(value string) bool {
+	if value == "" {
+		return false
+	}
+	normalized := strings.ReplaceAll(value, ",", "")
+	normalized = strings.TrimSuffix(normalized, "%")
+	normalized = strings.TrimSpace(normalized)
+	if normalized == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(normalized, 64)
+	return err == nil
 }

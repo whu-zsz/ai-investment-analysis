@@ -1,0 +1,13 @@
+services:
+  frontend:
+    container_name: stock-frontend-test
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "18182:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - stock-network
