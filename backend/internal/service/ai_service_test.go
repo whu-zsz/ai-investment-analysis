@@ -800,6 +800,78 @@ func TestAIService_GetAnalysisReportDetail_BuildsStructuredRiskInsights(t *testi
 	}
 }
 
+func TestAIService_GetAnalysisReportDetail_FetchedLiveDoesNotTriggerMarketDataAlert(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "实时补全报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		SymbolsCount:        1,
+		WinningTrades:       1,
+		LosingTrades:        0,
+		TotalInvestment:     decimal.NewFromInt(20000),
+		TotalProfit:         decimal.NewFromInt(1500),
+		ProfitRate:          decimal.NewFromFloat(7.5),
+		RiskLevel:           "low",
+		MarketDataStatus:    "fetched_live",
+		SummaryText:         "测试总结",
+		AIModel:             "test-model",
+	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{{
+		ID:                   1,
+		ReportID:             1,
+		UserID:               1,
+		Symbol:               "600519.SH",
+		AssetName:            "贵州茅台",
+		TradeCount:           2,
+		BuyCount:             1,
+		SellCount:            1,
+		BuyAmount:            decimal.NewFromInt(20000),
+		SellAmount:           decimal.NewFromInt(21500),
+		NetQuantity:          decimal.Zero,
+		RealizedProfit:       decimal.NewFromInt(1500),
+		RealizedProfitRate:   decimal.NewFromFloat(7.5),
+		EndingPositionQty:    decimal.Zero,
+		EndingAvgCost:        decimal.Zero,
+		LatestPrice:          decimal.Zero,
+		LatestMarketValue:    decimal.Zero,
+		UnrealizedProfit:     decimal.Zero,
+		TotalProfit:          decimal.NewFromInt(1500),
+		ChangePercent7D:      decimal.NewFromInt(1),
+		PeriodPriceChangePct: decimal.NewFromInt(1),
+		MarketDataStatus:     "fetched_live",
+		RiskLevel:            "low",
+		AnalysisText:         "测试个股分析",
+		Recommendation:       "hold",
+	}}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		itemRepo,
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+
+	if len(detail.RiskAlerts) != 0 {
+		t.Fatalf("expected 0 risk alerts for fetched_live, got %d", len(detail.RiskAlerts))
+	}
+	if len(detail.TopRiskSymbols) != 0 {
+		t.Fatalf("expected 0 top risk symbols for fetched_live, got %d", len(detail.TopRiskSymbols))
+	}
+}
+
 func TestAIService_GetAnalysisReportDetail_EmptyRiskInsights(t *testing.T) {
 	reportRepo := NewMockAnalysisReportRepository()
 	reportRepo.Create(&model.AnalysisReport{

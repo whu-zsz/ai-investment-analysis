@@ -3,7 +3,7 @@ import type { MarketDataStatus } from '../api/types';
 
 export const marketStatusMap: Record<MarketDataStatus, { color: TagProps['color']; text: string }> = {
   complete: { color: 'success', text: '市场数据完整' },
-  fetched_live: { color: 'processing', text: '市场数据实时拉取' },
+  fetched_live: { color: 'success', text: '市场数据已实时补全' },
   partial: { color: 'warning', text: '市场数据部分缺失' },
   unavailable: { color: 'error', text: '市场数据不可用' },
 };

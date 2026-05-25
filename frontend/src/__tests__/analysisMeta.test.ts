@@ -12,8 +12,8 @@ describe('getMarketStatusMeta', () => {
   it('fetched_live 状态返回正确配置', () => {
     const result = getMarketStatusMeta('fetched_live');
     expect(result).toEqual(marketStatusMap.fetched_live);
-    expect(result.color).toBe('processing');
-    expect(result.text).toBe('市场数据实时拉取');
+    expect(result.color).toBe('success');
+    expect(result.text).toBe('市场数据已实时补全');
   });
 
   it('partial 状态返回正确配置', () => {

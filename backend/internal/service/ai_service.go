@@ -818,7 +818,7 @@ func buildPredictionFallback(predictionText string, items []responsedto.Analysis
 func summarizeMarketDataStatus(statuses []string) string {
 	hasComplete := false
 	hasLive := false
-	hasUnavailable := false
+	hasMissing := false
 	for _, status := range statuses {
 		switch status {
 		case marketDataStatusComplete:
@@ -826,18 +826,16 @@ func summarizeMarketDataStatus(statuses []string) string {
 		case marketDataStatusFetchedLive:
 			hasLive = true
 		case marketDataStatusPartial, marketDataStatusUnavailable:
-			hasUnavailable = true
+			hasMissing = true
 		}
 	}
 	switch {
-	case hasUnavailable && (hasComplete || hasLive):
+	case hasMissing && (hasComplete || hasLive):
 		return marketDataStatusPartial
-	case hasUnavailable:
+	case hasMissing:
 		return marketDataStatusUnavailable
-	case hasLive && !hasComplete:
+	case hasLive:
 		return marketDataStatusFetchedLive
-	case hasLive && hasComplete:
-		return marketDataStatusPartial
 	default:
 		return marketDataStatusComplete
 	}
@@ -909,10 +907,10 @@ func buildRiskInsights(items []responsedto.AnalysisReportItemResponse, reportRis
 		riskScore := 0
 		triggerReasons := make([]string, 0, 4)
 
-		if item.MarketDataStatus != marketDataStatusComplete {
+		if item.MarketDataStatus == marketDataStatusPartial || item.MarketDataStatus == marketDataStatusUnavailable {
 			riskScore += 20
-			triggerReasons = append(triggerReasons, "市场数据存在缺口或补全")
-			appendAlert("medium", "market_data", "市场数据完整性预警", "部分标的的市场数据不是完整态，分析结论需要结合数据可用性理解。", item.Symbol)
+			triggerReasons = append(triggerReasons, "市场数据存在缺口")
+			appendAlert("medium", "market_data", "市场数据完整性预警", "部分标的缺少完整历史市场数据，分析结论需要结合数据可用性理解。", item.Symbol)
 		}
 		if totalProfit.LessThan(decimal.Zero) && endingPositionQty.GreaterThan(decimal.Zero) {
 			riskScore += 30
