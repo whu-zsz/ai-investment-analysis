@@ -67,6 +67,7 @@ func main() {
 	stockKlineRepo := repository.NewStockKlineRepository(db)
 	stockMetricRepo := repository.NewStockAnalysisMetricRepository(db)
 	revokedTokenRepo := repository.NewRevokedTokenRepository(db)
+	chatContextRepo := repository.NewChatContextRepository(db)
 
 	llmProvider, err := llm.NewProvider(cfg)
 	if err != nil {
@@ -109,14 +110,6 @@ func main() {
 		llmProvider,
 		log,
 	)
-	recommendationService := service.NewRecommendationService(
-		userRepo,
-		transactionRepo,
-		portfolioRepo,
-		marketSnapshotRepo,
-		marketDataService,
-		llmProvider,
-	)
 	marketSnapshotService := service.NewMarketSnapshotService(marketSnapshotRepo, marketBoardSnapshotRepo, marketBoardConstituentRepo, stockQuoteDetailRepo, marketDataService)
 	newsHTTPClient := &http.Client{Timeout: 12 * time.Second}
 	newsService := service.NewNewsService(
@@ -124,15 +117,29 @@ func main() {
 		news.NewGoogleNewsProvider(newsHTTPClient),
 		news.NewSinaProvider(newsHTTPClient),
 	)
-	stockChatService := service.NewStockChatService(marketStockService, newsService, llmProvider, log)
-	boardChatService := service.NewBoardChatService(marketSnapshotService, newsService, llmProvider, log)
+	recommendationService := service.NewRecommendationService(
+		userRepo,
+		transactionRepo,
+		portfolioRepo,
+		marketSnapshotRepo,
+		analysisReportRepo,
+		analysisReportItemRepo,
+		marketDataService,
+		marketStockService,
+		marketSnapshotService,
+		newsService,
+		llmProvider,
+		chatContextRepo,
+	)
+	stockChatService := service.NewStockChatService(marketStockService, newsService, llmProvider, log, chatContextRepo)
+	boardChatService := service.NewBoardChatService(marketSnapshotService, newsService, llmProvider, log, chatContextRepo)
 	marketScheduler := service.NewMarketScheduler(time.Duration(cfg.Market.SnapshotInterval)*time.Second, marketDataService, log)
 
 	userHandler := handler.NewUserHandler(userService)
 	uploadHandler := handler.NewUploadHandler(uploadService, cfg.Upload)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
-	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService, stockChatService, boardChatService)
+	analysisHandler := handler.NewAnalysisHandler(aiService, recommendationService, service.NewChatContextService(chatContextRepo), stockChatService, boardChatService)
 	marketHandler := handler.NewMarketHandler(marketSnapshotService, marketStockService, newsService)
 
 	router := router.SetupRouter(

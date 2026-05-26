@@ -81,6 +81,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.MarketBoardSnapshot{},
 		&model.MarketBoardConstituent{},
 		&model.StockKlineBar{},
+		&model.ChatContext{},
 	); err != nil {
 		return err
 	}

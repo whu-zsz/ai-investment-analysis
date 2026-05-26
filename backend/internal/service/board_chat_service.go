@@ -9,6 +9,7 @@ import (
 
 	requestdto "stock-analysis-backend/internal/dto/request"
 	responsedto "stock-analysis-backend/internal/dto/response"
+	"stock-analysis-backend/internal/repository"
 	"stock-analysis-backend/pkg/llm"
 
 	gozap "go.uber.org/zap"
@@ -24,9 +25,11 @@ type boardChatService struct {
 	newsService           NewsService
 	llmProvider           llm.Provider
 	logger                *gozap.Logger
+	contextService        *chatContextService
 }
 
 type boardChatContext struct {
+	contextID   uint64
 	boardType   string
 	code        string
 	question    string
@@ -36,12 +39,13 @@ type boardChatContext struct {
 	prompt      string
 }
 
-func NewBoardChatService(marketSnapshotService MarketSnapshotService, newsService NewsService, llmProvider llm.Provider, logger *gozap.Logger) BoardChatService {
+func NewBoardChatService(marketSnapshotService MarketSnapshotService, newsService NewsService, llmProvider llm.Provider, logger *gozap.Logger, contextRepo repository.ChatContextRepository) BoardChatService {
 	return &boardChatService{
 		marketSnapshotService: marketSnapshotService,
 		newsService:           newsService,
 		llmProvider:           llmProvider,
 		logger:                logger,
+		contextService:        newChatContextService(contextRepo),
 	}
 }
 
@@ -58,52 +62,57 @@ var boardChatSystemPrompt = `你是一位专业、克制的 A 股板块分析助
 - 如果提到数据结论，尽量结合输入里的涨跌幅、上涨家数、成交额、领涨/拖累成分来支撑。`
 
 func (s *boardChatService) Chat(ctx context.Context, userID uint64, req *requestdto.BoardChatRequest) (*responsedto.BoardChatResponse, error) {
-	chatCtx, err := s.prepareChatContext(ctx, userID, req, nil)
+	req = s.hydrateBoardChatRequest(userID, req)
+	executor, err := newBoardChatExecutor(s, req)
 	if err != nil {
 		return nil, err
 	}
-	reply, err := s.llmProvider.GetContent(ctx, boardChatSystemPrompt, chatCtx.prompt)
+	orchestrator := newChatOrchestrator(s.llmProvider)
+	reply, results, trace, err := orchestrator.Run(ctx, executor, nil)
 	if err != nil {
 		return nil, err
 	}
-	reply = normalizeMarkdownNarrative(reply)
-	if reply == "" {
-		return nil, fmt.Errorf("llm returned empty reply")
+	result, err := executor.BuildDoneResponse(reply, trace, results)
+	if err != nil {
+		return nil, err
 	}
-	return s.buildResponse(chatCtx, reply), nil
+	response, ok := result.(*responsedto.BoardChatResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected board chat response type")
+	}
+	if err := s.persistResponse(userID, response, req); err != nil && s.logger != nil {
+		s.logger.Warn("failed to persist board chat context", gozap.Error(err))
+	}
+	return response, nil
 }
 
 func (s *boardChatService) ChatStream(ctx context.Context, userID uint64, req *requestdto.BoardChatRequest, emit func(responsedto.StockChatStreamEvent) error) error {
+	req = s.hydrateBoardChatRequest(userID, req)
 	if emit == nil {
 		return fmt.Errorf("stream emitter is required")
 	}
-	chatCtx, err := s.prepareChatContext(ctx, userID, req, emit)
+	executor, err := newBoardChatExecutor(s, req)
 	if err != nil {
 		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Message: err.Error()})
 		return err
 	}
-	if err := emit(responsedto.StockChatStreamEvent{Type: "step", Stage: "ai", Message: "AI 正在结合板块数据生成回答"}); err != nil {
-		return err
-	}
-	reply, err := s.llmProvider.GetContentStream(ctx, boardChatSystemPrompt, chatCtx.prompt, func(token string) error {
-		return emit(responsedto.StockChatStreamEvent{Type: "token", Token: token})
-	})
+	orchestrator := newChatOrchestrator(s.llmProvider)
+	reply, results, trace, err := orchestrator.Run(ctx, executor, emit)
 	if err != nil {
-		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "ai", Message: err.Error()})
+		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "report", Message: err.Error()})
 		return err
 	}
-	reply = normalizeMarkdownNarrative(reply)
-	if reply == "" {
-		err := fmt.Errorf("llm returned empty reply")
-		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "ai", Message: err.Error()})
+	result, err := executor.BuildDoneResponse(reply, trace, results)
+	if err != nil {
+		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "done", Message: err.Error()})
 		return err
 	}
-	return emit(responsedto.StockChatStreamEvent{
-		Type:    "done",
-		Stage:   "done",
-		Message: "回答生成完成",
-		Data:    s.buildResponse(chatCtx, reply),
-	})
+	if response, ok := result.(*responsedto.BoardChatResponse); ok {
+		if persistErr := s.persistResponse(userID, response, req); persistErr != nil && s.logger != nil {
+			s.logger.Warn("failed to persist board chat context", gozap.Error(persistErr))
+		}
+	}
+	return emit(responsedto.StockChatStreamEvent{Type: "done", Stage: "done", Message: "回答生成完成", Data: result})
 }
 
 func (s *boardChatService) prepareChatContext(ctx context.Context, userID uint64, req *requestdto.BoardChatRequest, emit func(responsedto.StockChatStreamEvent) error) (*boardChatContext, error) {
@@ -160,6 +169,7 @@ func (s *boardChatService) prepareChatContext(ctx context.Context, userID uint64
 
 	messages := normalizeStockChatMessages(req.Messages)
 	return &boardChatContext{
+		contextID:   req.ContextID,
 		boardType:   boardType,
 		code:        code,
 		question:    question,
@@ -240,6 +250,7 @@ func (s *boardChatService) buildResponse(chatCtx *boardChatContext, reply string
 	)
 
 	return &responsedto.BoardChatResponse{
+		ContextID:    chatCtx.contextID,
 		BoardType:    chatCtx.boardType,
 		Code:         chatCtx.code,
 		AssetName:    chatCtx.boardDetail.Board.Name,
@@ -265,6 +276,61 @@ func (s *boardChatService) buildResponse(chatCtx *boardChatContext, reply string
 		},
 		Messages: responseMessages,
 	}
+}
+
+func (s *boardChatService) hydrateBoardChatRequest(userID uint64, req *requestdto.BoardChatRequest) *requestdto.BoardChatRequest {
+	if req == nil || req.ContextID == 0 || len(req.Messages) > 0 {
+		return req
+	}
+	if s.contextService == nil {
+		return req
+	}
+	messages, err := s.contextService.loadMessages(userID, req.ContextID)
+	if err != nil {
+		return req
+	}
+	metadata, metaErr := s.contextService.loadMetadata(userID, req.ContextID)
+	if metaErr == nil {
+		if toolMessage := buildToolResultsContextMessage(metadata); strings.TrimSpace(toolMessage) != "" {
+			messages = append(messages, requestdto.StockChatMessageRequest{Role: "system", Content: toolMessage})
+		}
+	}
+	if len(messages) == 0 {
+		return req
+	}
+	cloned := *req
+	cloned.Messages = messages
+	return &cloned
+}
+
+func (s *boardChatService) persistResponse(userID uint64, resp *responsedto.BoardChatResponse, req *requestdto.BoardChatRequest) error {
+	if s.contextService == nil || resp == nil || req == nil {
+		return nil
+	}
+	targetKey := strings.ToLower(strings.TrimSpace(req.BoardType)) + ":" + strings.TrimSpace(req.Code)
+	metadata := persistedChatContextMetadata{
+		ToolTrace:   resp.ToolTrace,
+		ToolResults: resp.ToolResults,
+		NewsItems:   resp.NewsItems,
+		GeneratedAt: resp.GeneratedAt,
+	}
+	contextID, err := s.contextService.saveContext(
+		userID,
+		"board",
+		targetKey,
+		fallbackString(resp.AssetName, targetKey),
+		req.ContextID,
+		0,
+		resp.Messages,
+		req.Question,
+		resp.Reply,
+		metadata,
+	)
+	if err != nil {
+		return err
+	}
+	resp.ContextID = contextID
+	return nil
 }
 
 func summarizeBoardConstituents(items []responsedto.BoardConstituentResponse) string {

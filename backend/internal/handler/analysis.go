@@ -10,6 +10,7 @@ import (
 	"stock-analysis-backend/internal/service"
 	"stock-analysis-backend/pkg/response"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -20,18 +21,20 @@ type AnalysisHandler struct {
 	recommendationService service.RecommendationService
 	stockChatService      service.StockChatService
 	boardChatService      service.BoardChatService
+	chatContextService    service.ChatContextService
 }
 
-func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService, chatServices ...interface{}) *AnalysisHandler {
+func NewAnalysisHandler(aiService service.AIService, recommendationService service.RecommendationService, extras ...interface{}) *AnalysisHandler {
+	var chatContextService service.ChatContextService
 	var chatService service.StockChatService
 	var boardService service.BoardChatService
-	if len(chatServices) > 0 {
-		if typed, ok := chatServices[0].(service.StockChatService); ok {
+	for _, extra := range extras {
+		switch typed := extra.(type) {
+		case service.ChatContextService:
+			chatContextService = typed
+		case service.StockChatService:
 			chatService = typed
-		}
-	}
-	if len(chatServices) > 1 {
-		if typed, ok := chatServices[1].(service.BoardChatService); ok {
+		case service.BoardChatService:
 			boardService = typed
 		}
 	}
@@ -40,6 +43,78 @@ func NewAnalysisHandler(aiService service.AIService, recommendationService servi
 		recommendationService: recommendationService,
 		stockChatService:      chatService,
 		boardChatService:      boardService,
+		chatContextService:    chatContextService,
+	}
+}
+
+const streamHeartbeatInterval = 10 * time.Second
+
+func streamWithHeartbeat(c *gin.Context, runner func(func(responsedto.StockChatStreamEvent) error) error) {
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		response.InternalServerError(c, "streaming is unsupported")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	events := make(chan responsedto.StockChatStreamEvent, 16)
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- runner(func(event responsedto.StockChatStreamEvent) error {
+			select {
+			case <-c.Request.Context().Done():
+				return c.Request.Context().Err()
+			case events <- event:
+				return nil
+			}
+		})
+		close(events)
+	}()
+
+	writeEvent := func(event responsedto.StockChatStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	ticker := time.NewTicker(streamHeartbeatInterval)
+	defer ticker.Stop()
+
+	lastStage := "planning"
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				if err := <-runErr; err != nil {
+					return
+				}
+				return
+			}
+			if event.Stage != "" {
+				lastStage = event.Stage
+			}
+			if err := writeEvent(event); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = writeEvent(responsedto.StockChatStreamEvent{
+				Type:    "heartbeat",
+				Stage:   lastStage,
+				Message: "处理中，请稍候",
+			})
+		}
 	}
 }
 
@@ -257,6 +332,103 @@ func (h *AnalysisHandler) GetRecommendations(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *AnalysisHandler) RecommendationChat(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.recommendationService == nil {
+		response.InternalServerError(c, "recommendation service is unavailable")
+		return
+	}
+
+	var req request.RecommendationChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	result, err := h.recommendationService.RecommendationChat(c.Request.Context(), userID, &req)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) RecommendationChatStream(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.recommendationService == nil {
+		response.InternalServerError(c, "recommendation service is unavailable")
+		return
+	}
+
+	var req request.RecommendationChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	streamWithHeartbeat(c, func(emit func(responsedto.StockChatStreamEvent) error) error {
+		return h.recommendationService.RecommendationChatStream(c.Request.Context(), userID, &req, emit)
+	})
+}
+
+func (h *AnalysisHandler) GetRecommendationChatContext(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.recommendationService == nil {
+		response.InternalServerError(c, "recommendation service is unavailable")
+		return
+	}
+	contextID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid context id")
+		return
+	}
+	result, err := h.recommendationService.GetRecommendationChatContext(userID, contextID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) GetRecommendationChatContextByReport(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.chatContextService == nil {
+		response.InternalServerError(c, "chat context service is unavailable")
+		return
+	}
+	reportID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid report id")
+		return
+	}
+	result, err := h.chatContextService.GetSnapshotByReport(userID, reportID, "recommendation")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AnalysisHandler) GetChatContext(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	if h.chatContextService == nil {
+		response.InternalServerError(c, "chat context service is unavailable")
+		return
+	}
+	contextID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid context id")
+		return
+	}
+	result, err := h.chatContextService.GetSnapshot(userID, contextID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *AnalysisHandler) StockChat(c *gin.Context) {
 	userID := c.GetUint64("user_id")
 	if h.stockChatService == nil {
@@ -292,32 +464,9 @@ func (h *AnalysisHandler) StockChatStream(c *gin.Context) {
 		return
 	}
 
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		response.InternalServerError(c, "streaming is unsupported")
-		return
-	}
-
-	c.Header("Content-Type", "text/event-stream; charset=utf-8")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Status(http.StatusOK)
-
-	emit := func(event responsedto.StockChatStreamEvent) error {
-		payload, err := json.Marshal(event)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
-			return err
-		}
-		flusher.Flush()
-		return nil
-	}
-
-	if err := h.stockChatService.ChatStream(c.Request.Context(), userID, &req, emit); err != nil {
-		return
-	}
+	streamWithHeartbeat(c, func(emit func(responsedto.StockChatStreamEvent) error) error {
+		return h.stockChatService.ChatStream(c.Request.Context(), userID, &req, emit)
+	})
 }
 
 func (h *AnalysisHandler) BoardChat(c *gin.Context) {
@@ -355,30 +504,7 @@ func (h *AnalysisHandler) BoardChatStream(c *gin.Context) {
 		return
 	}
 
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		response.InternalServerError(c, "streaming is unsupported")
-		return
-	}
-
-	c.Header("Content-Type", "text/event-stream; charset=utf-8")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Status(http.StatusOK)
-
-	emit := func(event responsedto.StockChatStreamEvent) error {
-		payload, err := json.Marshal(event)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
-			return err
-		}
-		flusher.Flush()
-		return nil
-	}
-
-	if err := h.boardChatService.ChatStream(c.Request.Context(), userID, &req, emit); err != nil {
-		return
-	}
+	streamWithHeartbeat(c, func(emit func(responsedto.StockChatStreamEvent) error) error {
+		return h.boardChatService.ChatStream(c.Request.Context(), userID, &req, emit)
+	})
 }

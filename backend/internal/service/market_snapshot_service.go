@@ -25,6 +25,7 @@ type MarketSnapshotService interface {
 	GetDashboardSnapshot() (*marketResponse.DashboardMarketSnapshotResponse, error)
 	GetDashboardMarketBreadth(ctx context.Context, limit int) (*marketResponse.DashboardMarketBreadthResponse, error)
 	GetBoardDetail(ctx context.Context, boardType, code string, limit int) (*marketResponse.MarketBoardDetailResponse, error)
+	SearchRelevantBoards(ctx context.Context, query string, limit int) ([]marketResponse.MarketBoardItemResponse, error)
 }
 
 const (
@@ -45,6 +46,7 @@ type marketSnapshotService struct {
 	boardConstituentRepo repository.MarketBoardConstituentRepository
 	detailRepo           repository.StockQuoteDetailRepository
 	marketDataService    MarketDataService
+	breadthRefreshActive chan struct{}
 }
 
 func NewMarketSnapshotService(snapshotRepo repository.MarketSnapshotRepository, boardSnapshotRepo repository.MarketBoardSnapshotRepository, boardConstituentRepo repository.MarketBoardConstituentRepository, detailRepo repository.StockQuoteDetailRepository, marketDataService MarketDataService) MarketSnapshotService {
@@ -54,6 +56,24 @@ func NewMarketSnapshotService(snapshotRepo repository.MarketSnapshotRepository, 
 		boardConstituentRepo: boardConstituentRepo,
 		detailRepo:           detailRepo,
 		marketDataService:    marketDataService,
+		breadthRefreshActive: make(chan struct{}, 1),
+	}
+}
+
+func (s *marketSnapshotService) triggerBreadthRefresh() {
+	if s == nil || s.marketDataService == nil || s.breadthRefreshActive == nil {
+		return
+	}
+	select {
+	case s.breadthRefreshActive <- struct{}{}:
+		go func() {
+			defer func() { <-s.breadthRefreshActive }()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			_, _, _ = s.marketDataService.FetchAndStoreFullMarketSnapshots(ctx)
+			_, _, _ = s.marketDataService.FetchAndStoreMarketBoardSnapshots(ctx)
+		}()
+	default:
 	}
 }
 
@@ -262,17 +282,9 @@ func (s *marketSnapshotService) GetDashboardMarketBreadth(ctx context.Context, l
 	}
 
 	if s.marketDataService != nil && shouldRefreshBreadthSnapshots(snapshots) {
-		refreshedBatchNo, _, refreshErr := s.marketDataService.FetchAndStoreFullMarketSnapshots(ctx)
-		if refreshErr != nil {
-			isPartial = true
-			message = fallbackMessage(message, "全市场行情暂时不可用："+refreshErr.Error())
-		} else {
-			_ = refreshedBatchNo
-			_, snapshots, usedFallbackBatch, err = s.loadPreferredBreadthSnapshots()
-			if err != nil {
-				return nil, err
-			}
-		}
+		isPartial = true
+		message = fallbackMessage(message, "全市场雷达正在后台刷新，当前先展示最近一次可用快照")
+		s.triggerBreadthRefresh()
 	}
 	if usedFallbackBatch {
 		isPartial = true
@@ -298,13 +310,9 @@ func (s *marketSnapshotService) GetDashboardMarketBreadth(ctx context.Context, l
 	sectors, _ := s.latestBoards("industry", maxInt(limit*4, 40))
 	concepts, _ := s.latestBoards("concept", maxInt(limit*2, 20))
 	if s.marketDataService != nil && shouldRefreshBoardSnapshots(sectors, concepts) {
-		if _, _, refreshErr := s.marketDataService.FetchAndStoreMarketBoardSnapshots(ctx); refreshErr != nil {
-			isPartial = true
-			message = fallbackMessage(message, "板块行情暂时不可用："+refreshErr.Error())
-		} else {
-			sectors, _ = s.latestBoards("industry", maxInt(limit*4, 40))
-			concepts, _ = s.latestBoards("concept", maxInt(limit*2, 20))
-		}
+		isPartial = true
+		message = fallbackMessage(message, "板块雷达正在后台刷新，当前先展示最近一次可用结果")
+		s.triggerBreadthRefresh()
 	}
 
 	fallbackUsed := false
@@ -545,6 +553,154 @@ func (s *marketSnapshotService) GetBoardDetail(ctx context.Context, boardType, c
 	}, nil
 }
 
+func (s *marketSnapshotService) SearchRelevantBoards(ctx context.Context, query string, limit int) ([]marketResponse.MarketBoardItemResponse, error) {
+	_ = ctx
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []marketResponse.MarketBoardItemResponse{}, nil
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 20 {
+		limit = 20
+	}
+
+	industryBoards, industryErr := s.latestBoards("industry", 500)
+	conceptBoards, conceptErr := s.latestBoards("concept", 500)
+	if industryErr != nil && conceptErr != nil {
+		return nil, industryErr
+	}
+
+	constituents := make([]model.MarketBoardConstituent, 0)
+	if s.boardConstituentRepo != nil {
+		items, err := s.boardConstituentRepo.FindAll()
+		if err == nil {
+			constituents = items
+		}
+	}
+	constituentByBoard := make(map[string][]model.MarketBoardConstituent, 512)
+	for _, item := range constituents {
+		key := strings.ToLower(strings.TrimSpace(item.BoardType)) + ":" + strings.TrimSpace(item.BoardCode)
+		constituentByBoard[key] = append(constituentByBoard[key], item)
+	}
+
+	type boardMatch struct {
+		board marketResponse.MarketBoardItemResponse
+		score int
+	}
+	terms := boardSearchTerms(query)
+	matches := make(map[string]boardMatch, 128)
+	boardLookup := make(map[string]marketResponse.MarketBoardItemResponse, 512)
+	appendMatches := func(items []model.MarketBoardSnapshot) {
+		for _, item := range items {
+			response := marketResponse.MarketBoardItemResponse{
+				BoardType:       item.BoardType,
+				Code:            item.Code,
+				Name:            item.Name,
+				LastPrice:       item.LastPrice.StringFixed(4),
+				ChangeAmount:    item.ChangeAmount.StringFixed(4),
+				ChangePercent:   item.ChangePercent.StringFixed(4),
+				Volume:          item.Volume.StringFixed(0),
+				Turnover:        item.Turnover.StringFixed(0),
+				TotalMarketCap:  item.TotalMarketCap.StringFixed(0),
+				FloatMarketCap:  item.FloatMarketCap.StringFixed(0),
+				StockCount:      item.StockCount,
+				RiseCount:       item.RiseCount,
+				FallCount:       item.FallCount,
+				FlatCount:       item.FlatCount,
+				ConstituentNode: item.ConstituentNode,
+			}
+			key := strings.ToLower(strings.TrimSpace(item.BoardType)) + ":" + strings.ToLower(strings.TrimSpace(item.Name))
+			boardLookup[key] = response
+			directScore := scoreBoardQueryMatch(response, constituentByBoard[strings.ToLower(strings.TrimSpace(item.BoardType))+":"+strings.TrimSpace(item.Code)], terms)
+			if directScore <= 0 {
+				continue
+			}
+			matches[key] = boardMatch{board: response, score: directScore}
+		}
+	}
+	appendMatches(industryBoards)
+	appendMatches(conceptBoards)
+
+	if s.detailRepo != nil && s.snapshotRepo != nil {
+		_, snapshots, _, err := s.loadPreferredBreadthSnapshots()
+		if err == nil && len(snapshots) > 0 {
+			symbols := make([]string, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				symbols = append(symbols, snapshot.Symbol)
+			}
+			details, detailErr := s.detailRepo.FindBySymbols(symbols)
+			if detailErr == nil && len(details) > 0 {
+				detailBySymbol := make(map[string]model.StockQuoteDetail, len(details))
+				for _, detail := range details {
+					detailBySymbol[detail.Symbol] = detail
+				}
+				ragScores := make(map[string]int, 128)
+				for _, snapshot := range snapshots {
+					detail, ok := detailBySymbol[snapshot.Symbol]
+					if !ok {
+						continue
+					}
+					docScore := scoreTaxonomyDocument(snapshot.Name, detail, terms)
+					if docScore <= 0 {
+						continue
+					}
+					if industry := model.NormalizeIndustryLabel(detail.Industry); industry != "" {
+						key := "industry:" + strings.ToLower(strings.TrimSpace(industry))
+						if _, ok := boardLookup[key]; ok {
+							ragScores[key] += docScore * 3
+						}
+					}
+					for _, concept := range model.NormalizeConceptList(strings.Split(detail.Concepts, ",")) {
+						key := "concept:" + strings.ToLower(strings.TrimSpace(concept))
+						if _, ok := boardLookup[key]; ok {
+							ragScores[key] += docScore * 2
+						}
+					}
+				}
+				for key, score := range ragScores {
+					board, ok := boardLookup[key]
+					if !ok || score <= 0 {
+						continue
+					}
+					if existing, exists := matches[key]; exists {
+						existing.score += score
+						matches[key] = existing
+						continue
+					}
+					matches[key] = boardMatch{board: board, score: score}
+				}
+			}
+		}
+	}
+
+	ordered := make([]boardMatch, 0, len(matches))
+	for _, item := range matches {
+		ordered = append(ordered, item)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].score != ordered[j].score {
+			return ordered[i].score > ordered[j].score
+		}
+		left := parseDecimalOrZero(ordered[i].board.ChangePercent)
+		right := parseDecimalOrZero(ordered[j].board.ChangePercent)
+		if !left.Equal(right) {
+			return left.GreaterThan(right)
+		}
+		return ordered[i].board.Name < ordered[j].board.Name
+	})
+
+	result := make([]marketResponse.MarketBoardItemResponse, 0, limit)
+	for _, item := range ordered {
+		result = append(result, item.board)
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -766,6 +922,160 @@ func convertAggregatesToBoards(aggregates map[string]*boardAggregate, boardType 
 		return left.Name < right.Name
 	})
 	return boards
+}
+
+func boardSearchTerms(query string) []string {
+	normalized := strings.ToLower(strings.TrimSpace(query))
+	if normalized == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(normalized, func(r rune) bool {
+		switch r {
+		case ' ', '\n', '\t', '，', ',', '。', '；', ';', '、', '：', ':', '（', '）', '(', ')':
+			return true
+		default:
+			return false
+		}
+	})
+	terms := make([]string, 0, len(fields)+12)
+	terms = append(terms, normalized)
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if len([]rune(field)) >= 2 {
+			terms = append(terms, field)
+		}
+	}
+	terms = append(terms, extractCJKQueryTerms(normalized)...)
+	return uniqueBoardTerms(terms)
+}
+
+func extractCJKQueryTerms(query string) []string {
+	stopwords := map[string]struct{}{
+		"股票": {}, "个股": {}, "相关": {}, "板块": {}, "概念": {}, "行业": {},
+		"我想": {}, "想买": {}, "买入": {}, "推荐": {}, "看看": {}, "一下": {}, "哪些": {},
+	}
+	sequences := make([]string, 0, 4)
+	current := make([]rune, 0, len(query))
+	flush := func() {
+		if len(current) >= 2 {
+			sequences = append(sequences, string(current))
+		}
+		current = current[:0]
+	}
+	for _, r := range query {
+		if r >= 0x4e00 && r <= 0x9fff {
+			current = append(current, r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	terms := make([]string, 0, len(sequences)*4)
+	for _, seq := range sequences {
+		runes := []rune(seq)
+		for size := 2; size <= 4; size++ {
+			if len(runes) < size {
+				continue
+			}
+			for i := 0; i+size <= len(runes); i++ {
+				term := strings.TrimSpace(string(runes[i : i+size]))
+				if _, blocked := stopwords[term]; blocked {
+					continue
+				}
+				terms = append(terms, term)
+			}
+		}
+	}
+	return uniqueBoardTerms(terms)
+}
+
+func scoreBoardQueryMatch(board marketResponse.MarketBoardItemResponse, constituents []model.MarketBoardConstituent, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	score := 0
+	name := strings.ToLower(strings.TrimSpace(board.Name))
+	code := strings.ToLower(strings.TrimSpace(board.Code))
+	for _, term := range terms {
+		switch {
+		case term == "":
+			continue
+		case strings.Contains(name, term):
+			score += 12
+		case strings.Contains(code, term):
+			score += 8
+		}
+	}
+	if score == 0 && len(constituents) > 0 {
+		for _, constituent := range constituents {
+			stockName := strings.ToLower(strings.TrimSpace(constituent.StockName))
+			symbol := strings.ToLower(strings.TrimSpace(constituent.Symbol))
+			for _, term := range terms {
+				if term == "" {
+					continue
+				}
+				if strings.Contains(stockName, term) {
+					score += 5
+					break
+				}
+				if strings.Contains(symbol, term) {
+					score += 3
+					break
+				}
+			}
+			if score >= 15 {
+				break
+			}
+		}
+	}
+	return score
+}
+
+func scoreTaxonomyDocument(snapshotName string, detail model.StockQuoteDetail, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	name := strings.ToLower(strings.TrimSpace(fallbackString(snapshotName, detail.Name)))
+	industry := strings.ToLower(strings.TrimSpace(model.NormalizeIndustryLabel(detail.Industry)))
+	concepts := model.NormalizeConceptList(strings.Split(detail.Concepts, ","))
+	score := 0
+	for _, rawTerm := range terms {
+		term := strings.ToLower(strings.TrimSpace(rawTerm))
+		if len([]rune(term)) < 2 {
+			continue
+		}
+		if name != "" && strings.Contains(name, term) {
+			score += 6
+		}
+		if industry != "" && strings.Contains(industry, term) {
+			score += 10
+		}
+		for _, concept := range concepts {
+			lowerConcept := strings.ToLower(strings.TrimSpace(concept))
+			if lowerConcept != "" && strings.Contains(lowerConcept, term) {
+				score += 8
+				break
+			}
+		}
+	}
+	return score
+}
+
+func uniqueBoardTerms(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.ToLower(strings.TrimSpace(item))
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func convertSnapshots(snapshots []model.MarketSnapshot) []marketResponse.MarketSnapshotResponse {

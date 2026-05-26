@@ -36,7 +36,8 @@ type MockMarketBoardConstituentRepositoryForService struct {
 }
 
 type MockMarketDataServiceForSnapshot struct {
-	FetchFullMarketSnapshotsFunc func(ctx context.Context) (string, int, error)
+	FetchFullMarketSnapshotsFunc  func(ctx context.Context) (string, int, error)
+	FetchMarketBoardSnapshotsFunc func(ctx context.Context) (string, int, error)
 }
 
 func (r *MockMarketBoardSnapshotRepositoryForService) BatchCreate(boards []model.MarketBoardSnapshot) error {
@@ -68,6 +69,19 @@ func (r *MockMarketBoardConstituentRepositoryForService) FindAll() ([]model.Mark
 	return append([]model.MarketBoardConstituent(nil), r.Items...), nil
 }
 
+func (r *MockMarketBoardConstituentRepositoryForService) FindBySymbol(symbol string) ([]model.MarketBoardConstituent, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	items := make([]model.MarketBoardConstituent, 0, len(r.Items))
+	for _, item := range r.Items {
+		if item.Symbol == symbol {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
 func (r *MockMarketBoardConstituentRepositoryForService) FindLatestSyncedAt() (time.Time, error) {
 	if r.Err != nil {
 		return time.Time{}, r.Err
@@ -94,6 +108,9 @@ func (m *MockMarketDataServiceForSnapshot) FetchAndStoreFullMarketSnapshots(ctx 
 }
 
 func (m *MockMarketDataServiceForSnapshot) FetchAndStoreMarketBoardSnapshots(ctx context.Context) (string, int, error) {
+	if m.FetchMarketBoardSnapshotsFunc != nil {
+		return m.FetchMarketBoardSnapshotsFunc(ctx)
+	}
 	return "", 0, nil
 }
 
@@ -810,13 +827,18 @@ func TestMarketSnapshotService_GetDashboardMarketBreadth_ClearsFallbackAfterRefr
 		),
 	}
 	boardRepo := &MockMarketBoardSnapshotRepositoryForService{Err: gorm.ErrRecordNotFound}
+	called := make(chan struct{}, 1)
 	marketDataSvc := &MockMarketDataServiceForSnapshot{
 		FetchFullMarketSnapshotsFunc: func(ctx context.Context) (string, int, error) {
+			called <- struct{}{}
 			fresh := buildBatch("batch-fresh", "akshare_sina", 5521, now)
 			mockRepo.LatestBatch = "batch-fresh"
 			mockRepo.RecentBatches = []string{"batch-fresh", "batch-stale", "batch-old"}
 			mockRepo.Snapshots = append(fresh, mockRepo.Snapshots...)
 			return "batch-fresh", len(fresh), nil
+		},
+		FetchMarketBoardSnapshotsFunc: func(ctx context.Context) (string, int, error) {
+			return "", 0, nil
 		},
 	}
 	svc := service.NewMarketSnapshotService(mockRepo, boardRepo, nil, &MockStockQuoteDetailRepositoryForService{}, marketDataSvc)
@@ -825,16 +847,18 @@ func TestMarketSnapshotService_GetDashboardMarketBreadth_ClearsFallbackAfterRefr
 	if err != nil {
 		t.Fatalf("GetDashboardMarketBreadth() error = %v", err)
 	}
-	if breadth.Source != "akshare_sina" {
-		t.Fatalf("GetDashboardMarketBreadth() source = %s, want akshare_sina", breadth.Source)
+	if breadth.Source != "eastmoney" {
+		t.Fatalf("GetDashboardMarketBreadth() source = %s, want eastmoney", breadth.Source)
 	}
-	if breadth.IsPartial {
-		t.Fatalf("expected refreshed breadth response to be non-partial")
+	if !breadth.IsPartial {
+		t.Fatalf("expected partial response while background refresh is pending")
 	}
-	if breadth.Message != "" {
-		t.Fatalf("expected refreshed breadth response to clear fallback message, got %q", breadth.Message)
+	if breadth.Message == "" {
+		t.Fatalf("expected background refresh message")
 	}
-	if len(breadth.Coverage) == 0 || breadth.Coverage[0].Value != "5521" {
-		t.Fatalf("expected refreshed coverage to reflect latest batch, got %+v", breadth.Coverage)
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected background refresh to be triggered")
 	}
 }

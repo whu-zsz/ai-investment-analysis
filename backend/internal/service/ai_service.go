@@ -750,7 +750,11 @@ func buildPredictionResponse(report *model.AnalysisReport, items []responsedto.A
 }
 
 func hasStructuredPrediction(prediction aiPredictionOutput) bool {
-	return normalizePredictionBias(prediction.Bias) != "" || normalizePredictionConfidence(prediction.Confidence) != "" || normalizePredictionHorizon(prediction.Horizon) != "" || len(normalizePredictionDrivers(prediction.Drivers)) > 0 || len(normalizePredictionScenarios(prediction.Scenarios)) > 0
+	normalized := normalizePredictionOutput(prediction)
+	if normalized.Bias == "" && normalized.Confidence == "" && normalized.Horizon == "" && len(normalized.Drivers) == 0 && len(normalized.Scenarios) == 0 {
+		return false
+	}
+	return !hasWeakPredictionContent(normalized)
 }
 
 func toPredictionResponse(prediction aiPredictionOutput, narrative string) *responsedto.PredictionResponse {
@@ -777,8 +781,23 @@ func buildPredictionFallback(predictionText string, items []responsedto.Analysis
 	bias := "neutral"
 	positiveMomentum := 0
 	negativeMomentum := 0
+	type predictionSignal struct {
+		item             responsedto.AnalysisReportItemResponse
+		totalProfit      decimal.Decimal
+		unrealizedProfit decimal.Decimal
+		changePct        decimal.Decimal
+	}
+	signals := make([]predictionSignal, 0, len(items))
 	for _, item := range items {
 		changePct := parseDecimalOrZero(item.PeriodPriceChangePct)
+		totalProfit := parseDecimalOrZero(item.TotalProfit)
+		unrealizedProfit := parseDecimalOrZero(item.UnrealizedProfit)
+		signals = append(signals, predictionSignal{
+			item:             item,
+			totalProfit:      totalProfit,
+			unrealizedProfit: unrealizedProfit,
+			changePct:        changePct,
+		})
 		if changePct.GreaterThan(decimal.Zero) {
 			positiveMomentum++
 		}
@@ -791,27 +810,141 @@ func buildPredictionFallback(predictionText string, items []responsedto.Analysis
 	} else if negativeMomentum > positiveMomentum {
 		bias = "bearish"
 	}
-	drivers := []string{}
-	for _, item := range items {
+
+	sort.Slice(signals, func(i, j int) bool {
+		leftAbs := absDecimal(signals[i].totalProfit)
+		rightAbs := absDecimal(signals[j].totalProfit)
+		if !leftAbs.Equal(rightAbs) {
+			return leftAbs.GreaterThan(rightAbs)
+		}
+		leftMove := absDecimal(signals[i].changePct)
+		rightMove := absDecimal(signals[j].changePct)
+		return leftMove.GreaterThan(rightMove)
+	})
+
+	var topWinner *predictionSignal
+	var topLoser *predictionSignal
+	for i := range signals {
+		if topWinner == nil && signals[i].totalProfit.GreaterThan(decimal.Zero) {
+			topWinner = &signals[i]
+		}
+		if topLoser == nil && signals[i].totalProfit.LessThan(decimal.Zero) {
+			topLoser = &signals[i]
+		}
+		if topWinner != nil && topLoser != nil {
+			break
+		}
+	}
+
+	drivers := make([]string, 0, 3)
+	for _, signal := range signals {
 		if len(drivers) >= 3 {
 			break
 		}
-		changePct := parseDecimalOrZero(item.PeriodPriceChangePct)
-		if !changePct.IsZero() {
-			drivers = append(drivers, fmt.Sprintf("%s 周期涨跌幅 %s%%", item.Symbol, changePct.StringFixed(2)))
+		name := fallbackString(signal.item.AssetName, signal.item.Symbol)
+		switch {
+		case signal.unrealizedProfit.GreaterThan(decimal.Zero):
+			drivers = append(drivers, fmt.Sprintf("%s 当前浮盈 %s 元，仍是组合的主要正向贡献", name, signal.unrealizedProfit.StringFixed(2)))
+		case signal.unrealizedProfit.LessThan(decimal.Zero):
+			drivers = append(drivers, fmt.Sprintf("%s 当前浮亏 %s 元，是组合需要优先处理的拖累项", name, absDecimal(signal.unrealizedProfit).StringFixed(2)))
+		case !signal.changePct.IsZero():
+			direction := "偏强"
+			if signal.changePct.LessThan(decimal.Zero) {
+				direction = "偏弱"
+			}
+			drivers = append(drivers, fmt.Sprintf("%s 近周期涨跌幅 %s%%，短线动能%s", name, signal.changePct.StringFixed(2), direction))
 		}
+	}
+
+	scenarios := make([]responsedto.PredictionScenarioResponse, 0, 2)
+	if topWinner != nil && topLoser != nil {
+		leader := fallbackString(topWinner.item.AssetName, topWinner.item.Symbol)
+		laggard := fallbackString(topLoser.item.AssetName, topLoser.item.Symbol)
+		scenarios = append(scenarios, responsedto.PredictionScenarioResponse{
+			Condition: fmt.Sprintf("若 %s 延续当前强势，且 %s 不再继续弱于成本区间", leader, laggard),
+			Outcome:   fmt.Sprintf("组合收益有机会继续修复，但 %s 仍会决定回撤上限", laggard),
+		})
+		scenarios = append(scenarios, responsedto.PredictionScenarioResponse{
+			Condition: fmt.Sprintf("若 %s 的回撤继续扩大", laggard),
+			Outcome:   fmt.Sprintf("即使 %s 维持强势，组合净值也仍会被拖累", leader),
+		})
+	} else if topWinner != nil {
+		leader := fallbackString(topWinner.item.AssetName, topWinner.item.Symbol)
+		scenarios = append(scenarios, responsedto.PredictionScenarioResponse{
+			Condition: fmt.Sprintf("若 %s 继续维持当前强势并保持正收益贡献", leader),
+			Outcome:   "组合仍有机会延续修复节奏，但要警惕高位波动放大",
+		})
+	} else if topLoser != nil {
+		laggard := fallbackString(topLoser.item.AssetName, topLoser.item.Symbol)
+		scenarios = append(scenarios, responsedto.PredictionScenarioResponse{
+			Condition: fmt.Sprintf("若 %s 继续弱于成本区间", laggard),
+			Outcome:   "组合回撤压力仍会集中在该标的，短期难以明显改善",
+		})
+	}
+	if len(scenarios) == 0 {
+		scenarios = append(scenarios, responsedto.PredictionScenarioResponse{
+			Condition: "若维持当前交易结构与持仓分布",
+			Outcome:   normalizeNarrativeText(predictionText),
+		})
 	}
 	return &responsedto.PredictionResponse{
 		Bias:       bias,
 		Confidence: "medium",
 		Horizon:    "next_7d",
 		Drivers:    drivers,
-		Scenarios: []responsedto.PredictionScenarioResponse{{
-			Condition: "若维持当前交易结构与持仓分布",
-			Outcome:   normalizeNarrativeText(predictionText),
-		}},
-		Narrative: normalizeNarrativeText(predictionText),
+		Scenarios:  scenarios,
+		Narrative:  normalizeNarrativeText(predictionText),
 	}
+}
+
+func hasWeakPredictionContent(prediction aiPredictionOutput) bool {
+	scenarios := normalizePredictionScenarios(prediction.Scenarios)
+	if len(scenarios) == 0 {
+		return false
+	}
+	for _, scenario := range scenarios {
+		if !isWeakPredictionScenario(scenario.Condition, scenario.Outcome) {
+			return false
+		}
+	}
+	return true
+}
+
+func isWeakPredictionScenario(condition, outcome string) bool {
+	combined := normalizeNarrativeText(condition + " " + outcome)
+	if combined == "" {
+		return true
+	}
+	genericTerms := []string{
+		"市场行情向好", "市场行情走弱", "市场整体稳定", "市场波动加剧", "行情向好", "行情走弱",
+		"继续上涨", "进一步下跌", "投资组合实现盈利", "投资组合亏损扩大", "组合实现盈利", "组合亏损扩大",
+	}
+	if !containsAnyFold(combined, genericTerms) {
+		return false
+	}
+	specificTerms := []string{
+		"持仓", "仓位", "成本", "浮盈", "浮亏", "回撤", "止跌", "集中度", "换手率", "振幅", "成交额",
+		"ma5", "ma10", "ma20", ".sh", ".sz", ".bj", "%", "元",
+	}
+	if containsAnyFold(combined, specificTerms) || containsPredictionDigits(combined) {
+		return false
+	}
+	return true
+}
+
+func containsPredictionDigits(text string) bool {
+	count := 0
+	for _, r := range text {
+		if r >= '0' && r <= '9' {
+			count++
+			if count >= 3 {
+				return true
+			}
+			continue
+		}
+		count = 0
+	}
+	return false
 }
 
 func summarizeMarketDataStatus(statuses []string) string {
@@ -1656,6 +1789,9 @@ func normalizeSymbol(value string) string {
 			if code == "000001" {
 				return trimmed
 			}
+			if strings.HasSuffix(trimmed, ".BJ") && inferSymbolSuffix(code) == "BJ" {
+				return trimmed
+			}
 			return code + "." + inferSymbolSuffix(code)
 		}
 		return trimmed
@@ -1672,10 +1808,14 @@ func inferSymbolSuffix(code string) string {
 		return "SH"
 	case strings.HasPrefix(code, "399"):
 		return "SZ"
-	case strings.HasPrefix(code, "5"), strings.HasPrefix(code, "6"), strings.HasPrefix(code, "9"):
-		return "SH"
-	case strings.HasPrefix(code, "8"):
+	case strings.HasPrefix(code, "8"), strings.HasPrefix(code, "4"):
 		return "BJ"
+	case strings.HasPrefix(code, "92"):
+		return "BJ"
+	case strings.HasPrefix(code, "5"), strings.HasPrefix(code, "6"):
+		return "SH"
+	case strings.HasPrefix(code, "9"):
+		return "SH"
 	default:
 		return "SZ"
 	}

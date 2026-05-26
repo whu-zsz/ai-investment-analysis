@@ -40,6 +40,10 @@ function pickPredictionReport(reports: AnalysisReportResponse[]) {
   return reports.find(isUsableSummary) ?? reports[0] ?? null;
 }
 
+function pickPreferredPredictionReport(predictionReports: AnalysisReportResponse[], summaryReports: AnalysisReportResponse[]) {
+  return pickPredictionReport(predictionReports) ?? pickPredictionReport(summaryReports);
+}
+
 function getPredictionBiasMeta(bias?: string) {
   switch (bias) {
     case 'bullish':
@@ -87,14 +91,17 @@ export default function PredictionPage() {
     setLoading(true);
     setError('');
     try {
-      const reports = await analysisApi.getReports({ report_type: 'summary', limit: 5 });
-      const summaryReport = pickPredictionReport(reports);
-      if (!summaryReport) {
+      const [predictionReports, summaryReports] = await Promise.all([
+        analysisApi.getReports({ report_type: 'prediction', limit: 5 }).catch(() => []),
+        analysisApi.getReports({ report_type: 'summary', limit: 5 }),
+      ]);
+      const selectedReport = pickPreferredPredictionReport(predictionReports, summaryReports);
+      if (!selectedReport) {
         setReport(null);
         return;
       }
 
-      const detail = await analysisApi.getReportDetail(summaryReport.id);
+      const detail = await analysisApi.getReportDetail(selectedReport.id);
       setReport(detail);
     } catch (err: unknown) {
       const apiError = err as { message?: string; data?: { message?: string } };

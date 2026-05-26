@@ -34,6 +34,7 @@ type RecommendationItemResponse struct {
 	AssetName      string `json:"asset_name"`
 	AssetType      string `json:"asset_type"`
 	Market         string `json:"market"`
+	SourceTags     []string `json:"source_tags"`
 	Action         string `json:"action"`
 	Score          string `json:"score"`
 	LatestPrice    string `json:"latest_price"`
@@ -47,6 +48,7 @@ type RecommendationItemResponse struct {
 
 type AnalysisRecommendationsResponse struct {
 	GeneratedAt    string                        `json:"generated_at"`
+	ReportID       uint64                        `json:"report_id"`
 	ProfileSummary RecommendationProfileSummary  `json:"profile_summary"`
 	SummaryText    string                        `json:"summary_text"`
 	Candidates     []RecommendationItemResponse  `json:"candidates"`

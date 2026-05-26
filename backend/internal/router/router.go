@@ -105,6 +105,11 @@ func SetupRouter(
 				analysis.POST("/stock-chat/stream", analysisHandler.StockChatStream)
 				analysis.POST("/board-chat", analysisHandler.BoardChat)
 				analysis.POST("/board-chat/stream", analysisHandler.BoardChatStream)
+				analysis.GET("/chat-contexts/:id", analysisHandler.GetChatContext)
+				analysis.POST("/recommendation-chat", analysisHandler.RecommendationChat)
+				analysis.POST("/recommendation-chat/stream", analysisHandler.RecommendationChatStream)
+				analysis.GET("/recommendation-chat/contexts/:id", analysisHandler.GetRecommendationChatContext)
+				analysis.GET("/recommendation-chat/reports/:id/context", analysisHandler.GetRecommendationChatContextByReport)
 				analysis.GET("/candidates", analysisHandler.GetCandidates)
 				analysis.GET("/recommendations", analysisHandler.GetRecommendations)
 			}

@@ -97,7 +97,7 @@ export interface UpdateTransactionRequest {
 }
 
 export type MarketDataStatus = 'complete' | 'fetched_live' | 'partial' | 'unavailable';
-export type AnalysisReportType = 'summary' | 'risk' | 'prediction' | 'pattern';
+export type AnalysisReportType = 'summary' | 'risk' | 'prediction' | 'pattern' | 'recommendation';
 
 export interface AnalysisTaskResponse {
   id: number;
@@ -566,6 +566,7 @@ export interface RecommendationItemResponse {
   asset_name: string;
   asset_type: string;
   market: string;
+  source_tags: string[];
   action: 'buy' | 'hold' | 'reduce' | 'sell' | 'observe' | string;
   score: string;
   latest_price: string;
@@ -579,9 +580,20 @@ export interface RecommendationItemResponse {
 
 export interface AnalysisRecommendationsResponse {
   generated_at: string;
+  report_id: number;
   profile_summary: RecommendationProfileSummary;
   summary_text: string;
   candidates: RecommendationItemResponse[];
+}
+
+export interface RecommendationChatContextResponse {
+  step_key: string;
+  step_label: string;
+  profile_summary: RecommendationProfileSummary;
+  candidate_count: number;
+  discovery_count: number;
+  held_count: number;
+  focus_summary: string;
 }
 
 export interface StockChatMessageRequest {
@@ -616,7 +628,33 @@ export interface StockChatSnapshotResponse {
   trend_summary: string;
 }
 
+export interface ChatToolTraceStepResponse {
+  stage: string;
+  label: string;
+  status: string;
+  summary?: string;
+  tool_name?: string;
+  started_at?: string;
+  finished_at?: string;
+}
+
+export interface ChatStepContextResponse {
+  stage: string;
+  label: string;
+  summary?: string;
+  tool_name?: string;
+  news_items?: StockChatNewsItemResponse[];
+  profile_summary?: RecommendationProfileSummary;
+  candidate_count?: number;
+  held_count?: number;
+  discovery_count?: number;
+  focus_summary?: string;
+  reference_symbols?: string[];
+  reference_boards?: string[];
+}
+
 export interface StockChatResponse {
+  context_id: number;
   symbol: string;
   asset_name: string;
   market: string;
@@ -629,9 +667,11 @@ export interface StockChatResponse {
   news_items: StockChatNewsItemResponse[];
   snapshot: StockChatSnapshotResponse;
   messages: StockChatMessageResponse[];
+  tool_trace?: ChatToolTraceStepResponse[];
 }
 
 export interface BoardChatResponse {
+  context_id: number;
   board_type: string;
   code: string;
   asset_name: string;
@@ -645,16 +685,64 @@ export interface BoardChatResponse {
   news_items: StockChatNewsItemResponse[];
   snapshot: StockChatSnapshotResponse;
   messages: StockChatMessageResponse[];
+  tool_trace?: ChatToolTraceStepResponse[];
 }
 
-export type StockChatStreamEventType = 'step' | 'context' | 'token' | 'done' | 'error';
+export interface RecommendationChatResponse {
+  context_id: number;
+  asset_name: string;
+  market: string;
+  reply: string;
+  ai_model: string;
+  generated_at: string;
+  news_status: string;
+  news_summary: string;
+  news_coverage: string;
+  news_items: StockChatNewsItemResponse[];
+  snapshot: StockChatSnapshotResponse;
+  messages: StockChatMessageResponse[];
+  context: RecommendationChatContextResponse;
+  report_id: number;
+  report_title: string;
+  candidates: RecommendationItemResponse[];
+  tool_trace?: ChatToolTraceStepResponse[];
+  step_context?: ChatStepContextResponse;
+}
+
+export interface RecommendationChatContextSnapshotResponse {
+  messages: StockChatMessageResponse[];
+  tool_trace?: ChatToolTraceStepResponse[];
+  step_context?: ChatStepContextResponse;
+  news_items?: StockChatNewsItemResponse[];
+  reply: string;
+  generated_at: string;
+  report_id: number;
+  report_title: string;
+}
+
+export interface ChatContextSnapshotResponse {
+  context_id: number;
+  context_type: string;
+  target_key: string;
+  title: string;
+  report_id: number;
+  messages: StockChatMessageResponse[];
+  tool_trace?: ChatToolTraceStepResponse[];
+  step_context?: ChatStepContextResponse;
+  news_items?: StockChatNewsItemResponse[];
+  reply: string;
+  generated_at: string;
+  report_title?: string;
+}
+
+export type StockChatStreamEventType = 'step' | 'context' | 'token' | 'done' | 'error' | 'heartbeat';
 
 export interface StockChatStreamEvent {
   type: StockChatStreamEventType;
   stage?: string;
   message?: string;
   token?: string;
-  data?: StockChatResponse | BoardChatResponse | StockChatNewsItemResponse[];
+  data?: StockChatResponse | BoardChatResponse | RecommendationChatResponse | StockChatNewsItemResponse[] | ChatStepContextResponse;
 }
 
 // ─────────────────────────────────────────

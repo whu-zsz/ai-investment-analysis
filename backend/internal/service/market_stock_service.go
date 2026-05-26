@@ -31,16 +31,18 @@ type MarketStockService interface {
 type stockProfileFetcher func(ctx context.Context, pythonPath, scriptPath string, symbol string) (*marketResponse.StockCompanyProfileResponse, error)
 
 type marketStockService struct {
-	provider                 marketdata.Provider
-	supplementProvider       marketdata.Provider
-	rankingProvider          marketdata.MarketRankingProvider
-	httpClient               *http.Client
-	detailRepo               repository.StockQuoteDetailRepository
-	klineRepo                repository.StockKlineRepository
-	boardConstituentRepo     repository.MarketBoardConstituentRepository
-	marketConfig             config.MarketConfig
-	akshareProfileFetcher    stockProfileFetcher
+	provider              marketdata.Provider
+	supplementProvider    marketdata.Provider
+	rankingProvider       marketdata.MarketRankingProvider
+	httpClient            *http.Client
+	detailRepo            repository.StockQuoteDetailRepository
+	klineRepo             repository.StockKlineRepository
+	boardConstituentRepo  repository.MarketBoardConstituentRepository
+	marketConfig          config.MarketConfig
+	akshareProfileFetcher stockProfileFetcher
 }
+
+const minExternalRefreshInterval = 10 * time.Second
 
 func NewMarketStockService(
 	marketConfig config.MarketConfig,
@@ -58,12 +60,12 @@ func NewMarketStockService(
 			"https://quote.eastmoney.com/center/gridlist.html",
 			&http.Client{Timeout: 5 * time.Second},
 		),
-		rankingProvider:      rankingProvider,
-		httpClient:           &http.Client{Timeout: 6 * time.Second},
-		detailRepo:           detailRepo,
-		klineRepo:            klineRepo,
-		boardConstituentRepo: boardConstituentRepo,
-		marketConfig:         marketConfig,
+		rankingProvider:       rankingProvider,
+		httpClient:            &http.Client{Timeout: 6 * time.Second},
+		detailRepo:            detailRepo,
+		klineRepo:             klineRepo,
+		boardConstituentRepo:  boardConstituentRepo,
+		marketConfig:          marketConfig,
 		akshareProfileFetcher: fetchAKShareCompanyProfile,
 	}
 }
@@ -139,6 +141,15 @@ func (s *marketStockService) GetStockDetail(symbol string, forceRefresh bool) (*
 	}
 
 	cached, err := s.detailRepo.FindBySymbol(normalized)
+	if forceRefresh && cached != nil && !cached.FetchedAt.IsZero() && time.Since(cached.FetchedAt) < minExternalRefreshInterval {
+		if !needsSupplementalStockDetail(cached) || s.supplementProvider == nil {
+			return marketResponse.NewMarketStockDetailResponse(cached, false, false), nil
+		}
+		if supplemented := s.trySupplementStockDetail(normalized, cached); supplemented != nil {
+			return marketResponse.NewMarketStockDetailResponse(supplemented, false, false), nil
+		}
+		return marketResponse.NewMarketStockDetailResponse(cached, false, false), nil
+	}
 	if err == nil && cached != nil && !forceRefresh {
 		if !needsSupplementalStockDetail(cached) || s.supplementProvider == nil {
 			return marketResponse.NewMarketStockDetailResponse(cached, false, false), nil
@@ -158,6 +169,21 @@ func (s *marketStockService) GetStockDetail(symbol string, forceRefresh bool) (*
 
 	fetched, fetchErr := s.provider.GetStockDetail(context.Background(), normalized)
 	if fetchErr != nil {
+		if supplemented := s.trySupplementStockDetail(normalized, cached); supplemented != nil {
+			return marketResponse.NewMarketStockDetailResponse(supplemented, true, true), nil
+		}
+		if cached == nil && s.supplementProvider != nil {
+			detail, supplementErr := s.supplementProvider.GetStockDetail(context.Background(), normalized)
+			if supplementErr == nil && detail != nil {
+				supplement := convertStockDetailToModel(detail)
+				if hasMeaningfulQuoteFields(supplement) {
+					if saveErr := s.detailRepo.Upsert(supplement); saveErr != nil {
+						return nil, saveErr
+					}
+					return marketResponse.NewMarketStockDetailResponse(supplement, true, true), nil
+				}
+			}
+		}
 		if err == nil && cached != nil {
 			return marketResponse.NewMarketStockDetailResponse(cached, true, false), nil
 		}
@@ -460,17 +486,17 @@ func (s *marketStockService) lookupConstituentBoards(symbol string) []marketResp
 	if s.boardConstituentRepo == nil {
 		return nil
 	}
-	items, err := s.boardConstituentRepo.FindAll()
+	normalized := normalizeSymbol(symbol)
+	if normalized == "" {
+		return nil
+	}
+	items, err := s.boardConstituentRepo.FindBySymbol(normalized)
 	if err != nil || len(items) == 0 {
 		return nil
 	}
-	normalized := normalizeSymbol(symbol)
 	boards := make([]marketResponse.StockBoardMembershipResponse, 0, 8)
 	seen := make(map[string]struct{}, 8)
 	for _, item := range items {
-		if normalizeSymbol(item.Symbol) != normalized {
-			continue
-		}
 		key := strings.ToLower(strings.TrimSpace(item.BoardType)) + "|" + strings.TrimSpace(item.BoardCode)
 		if _, ok := seen[key]; ok {
 			continue
@@ -537,6 +563,25 @@ func needsSupplementalStockDetail(detail *model.StockQuoteDetail) bool {
 		detail.VolumeRatio.IsZero()
 }
 
+func hasMeaningfulQuoteFields(detail *model.StockQuoteDetail) bool {
+	if detail == nil {
+		return false
+	}
+	return !detail.LastPrice.IsZero() ||
+		!detail.OpenPrice.IsZero() ||
+		!detail.HighPrice.IsZero() ||
+		!detail.LowPrice.IsZero() ||
+		!detail.PrevClose.IsZero() ||
+		!detail.ChangeAmount.IsZero() ||
+		!detail.ChangePercent.IsZero() ||
+		!detail.Volume.IsZero() ||
+		!detail.Turnover.IsZero() ||
+		!detail.TurnoverRate.IsZero() ||
+		!detail.Amplitude.IsZero() ||
+		!detail.TotalMarketCap.IsZero() ||
+		!detail.FloatMarketCap.IsZero()
+}
+
 func mergeStockQuoteDetail(current, supplement *model.StockQuoteDetail) *model.StockQuoteDetail {
 	if current == nil {
 		return supplement
@@ -583,8 +628,22 @@ func (s *marketStockService) GetStockKlines(symbol, period, adjust string, limit
 	if limit <= 0 {
 		limit = 120
 	}
+	if s.klineRepo == nil {
+		return nil, errors.New("stock kline repository is unavailable")
+	}
 
 	cachedBars, cachedErr := s.klineRepo.FindBars(normalized, normalizedPeriod, normalizedAdjust, limit)
+	if forceRefresh && cachedErr == nil && len(cachedBars) > 0 {
+		latestCachedAt := cachedBars[0].UpdatedAt
+		for _, bar := range cachedBars[1:] {
+			if bar.UpdatedAt.After(latestCachedAt) {
+				latestCachedAt = bar.UpdatedAt
+			}
+		}
+		if !latestCachedAt.IsZero() && time.Since(latestCachedAt) < minExternalRefreshInterval {
+			return marketResponse.NewMarketStockKlineResponse(normalized, normalizedPeriod, normalizedAdjust, cachedBars, false, false), nil
+		}
+	}
 	if cachedErr == nil && !forceRefresh && len(cachedBars) >= limit {
 		return marketResponse.NewMarketStockKlineResponse(normalized, normalizedPeriod, normalizedAdjust, cachedBars, false, false), nil
 	}
@@ -602,6 +661,12 @@ func (s *marketStockService) GetStockKlines(symbol, period, adjust string, limit
 			return marketResponse.NewMarketStockKlineResponse(normalized, normalizedPeriod, normalizedAdjust, cachedBars, true, false), nil
 		}
 		return nil, fetchErr
+	}
+	if len(fetchedBars) == 0 {
+		if cachedErr == nil && len(cachedBars) > 0 {
+			return marketResponse.NewMarketStockKlineResponse(normalized, normalizedPeriod, normalizedAdjust, cachedBars, true, false), nil
+		}
+		return nil, errors.New("market provider returned empty klines")
 	}
 
 	entities := convertKlinesToModels(fetchedBars)

@@ -11,6 +11,7 @@ import (
 type MarketBoardConstituentRepository interface {
 	ReplaceAll(items []model.MarketBoardConstituent) error
 	FindAll() ([]model.MarketBoardConstituent, error)
+	FindBySymbol(symbol string) ([]model.MarketBoardConstituent, error)
 	FindLatestSyncedAt() (time.Time, error)
 }
 
@@ -37,6 +38,12 @@ func (r *marketBoardConstituentRepository) ReplaceAll(items []model.MarketBoardC
 func (r *marketBoardConstituentRepository) FindAll() ([]model.MarketBoardConstituent, error) {
 	var items []model.MarketBoardConstituent
 	err := r.db.Order("board_type ASC, board_code ASC, symbol ASC").Find(&items).Error
+	return items, err
+}
+
+func (r *marketBoardConstituentRepository) FindBySymbol(symbol string) ([]model.MarketBoardConstituent, error) {
+	var items []model.MarketBoardConstituent
+	err := r.db.Where("symbol = ?", symbol).Order("board_type ASC, board_code ASC").Find(&items).Error
 	return items, err
 }
 

@@ -68,6 +68,13 @@ func (m *MockMarketSnapshotService) SearchStocks(query string, limit int) ([]res
 	return m.Snapshots, nil
 }
 
+func (m *MockMarketSnapshotService) SearchRelevantBoards(ctx context.Context, query string, limit int) ([]response.MarketBoardItemResponse, error) {
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return []response.MarketBoardItemResponse{}, nil
+}
+
 type MockMarketStockService struct {
 	Detail  *response.MarketStockDetailResponse
 	Profile *response.StockProfileResponse

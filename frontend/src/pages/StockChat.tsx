@@ -13,7 +13,6 @@ import {
   Space,
   Spin,
   Statistic,
-  Steps,
   Tag,
   Typography,
   message,
@@ -33,6 +32,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { analysisApi, marketApi } from '../api';
 import type {
   AnalysisCandidateResponse,
+  ChatContextSnapshotResponse,
+  ChatStepContextResponse,
+  RecommendationChatResponse,
   StockChatMessageResponse,
   StockChatNewsItemResponse,
   StockChatResponse,
@@ -55,12 +57,16 @@ const markdownBodyStyle: CSSProperties = {
   lineHeight: 1.8,
 };
 
-const stageOrder = ['market', 'news', 'prompt', 'ai', 'done'];
 const stageLabels: Record<string, string> = {
-  market: '行情',
+  planning: '规划',
+  profile: '画像',
+  holdings: '持仓',
   news: '新闻',
-  prompt: '上下文',
-  ai: '生成',
+  quote: '资料',
+  trend: '趋势',
+  board: '板块',
+  ranking: '排序',
+  report: '生成',
   done: '完成',
 };
 
@@ -96,6 +102,8 @@ function marketLabel(market?: string) {
       return 'A 股个股';
     case 'board':
       return '板块';
+    case 'recommendation':
+      return '推荐对话';
     default:
       return market || '市场';
   }
@@ -117,26 +125,82 @@ function extractHighlights(text: string) {
     .slice(0, 4);
 }
 
-function stepItems(activeStage: string, status: StepStatus) {
-  const activeIndex = Math.max(0, stageOrder.indexOf(activeStage));
-  return stageOrder.map((stage, index) => ({
-    title: stageLabels[stage],
-    status:
-      status === 'error' && index === activeIndex
-        ? ('error' as const)
-        : index < activeIndex
-          ? ('finish' as const)
-          : index === activeIndex
-            ? status
-            : ('wait' as const),
-  }));
-}
-
 function chatDataFromStreamData(data: StockChatStreamEvent['data']) {
   if (data && !Array.isArray(data) && 'messages' in data) {
-    return data as StockChatResponse | BoardChatResponse;
+    return data as StockChatResponse | BoardChatResponse | RecommendationChatResponse;
   }
   return null;
+}
+
+function contextDataFromStreamData(data: StockChatStreamEvent['data']) {
+  if (data && !Array.isArray(data) && 'label' in data && 'stage' in data) {
+    return data as ChatStepContextResponse;
+  }
+  return null;
+}
+
+function applyContextSnapshot(kind: 'stock' | 'board' | 'recommendation', snapshot: ChatContextSnapshotResponse, fallbackName: string, fallbackMarket: string): StockChatResponse | BoardChatResponse | RecommendationChatResponse {
+  const base = {
+    context_id: snapshot.context_id,
+    asset_name: fallbackName,
+    market: fallbackMarket,
+    reply: snapshot.reply || '',
+    ai_model: '',
+    generated_at: snapshot.generated_at || '',
+    news_status: snapshot.news_items?.length ? 'partial' : '',
+    news_summary: '',
+    news_coverage: '',
+    news_items: snapshot.news_items ?? [],
+    messages: snapshot.messages ?? [],
+    tool_trace: snapshot.tool_trace ?? [],
+    snapshot: {
+      last_price: '0',
+      change_percent: '0',
+      high_price: '',
+      low_price: '',
+      volume: '',
+      turnover: '',
+      source: '',
+      fetched_at: '',
+      period: kind === 'board' ? 'board' : kind === 'recommendation' ? 'recommendation' : 'day',
+      trend_summary: '',
+    },
+  };
+  if (kind === 'board') {
+    return {
+      ...base,
+      board_type: '',
+      code: '',
+    } as BoardChatResponse;
+  }
+  if (kind === 'recommendation') {
+    return {
+      ...base,
+      context: {
+        step_key: snapshot.report_id ? 'done' : 'clarify',
+        step_label: snapshot.report_id ? '报告生成完成' : '继续补充偏好',
+        profile_summary: {
+          investment_preference: '',
+          risk_tolerance: '',
+          total_profit: '0.00',
+          held_positions: 0,
+          candidate_count: 0,
+        },
+        candidate_count: 0,
+        discovery_count: snapshot.news_items?.length ?? 0,
+        held_count: 0,
+        focus_summary: snapshot.step_context?.summary || '',
+      },
+      report_id: snapshot.report_id || 0,
+      report_title: snapshot.report_title || '',
+      candidates: [],
+      step_context: snapshot.step_context,
+    } as RecommendationChatResponse;
+  }
+  return {
+    ...base,
+    symbol: '',
+  } as StockChatResponse;
 }
 
 function renderChatMarkdown(content: string, isAssistant: boolean) {
@@ -175,10 +239,13 @@ function renderChatMarkdown(content: string, isAssistant: boolean) {
 export default function StockChatPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const chatKind = searchParams.get('kind') === 'board' ? 'board' : 'stock';
+  const rawKind = searchParams.get('kind');
+  const chatKind = rawKind === 'board' ? 'board' : rawKind === 'recommendation' ? 'recommendation' : 'stock';
   const boardType = searchParams.get('boardType') || '';
   const boardCode = searchParams.get('code') || '';
   const boardName = searchParams.get('name') || '';
+  const recommendationReportId = Number(searchParams.get('reportId') || '0');
+  const chatContextId = Number(searchParams.get('contextId') || '0');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -186,13 +253,33 @@ export default function StockChatPage() {
   const [question, setQuestion] = useState('');
   const [candidates, setCandidates] = useState<AnalysisCandidateResponse[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState(searchParams.get('symbol') || '');
-  const [chat, setChat] = useState<StockChatResponse | BoardChatResponse | null>(null);
+  const [chat, setChat] = useState<StockChatResponse | BoardChatResponse | RecommendationChatResponse | null>(null);
   const [detailName, setDetailName] = useState('');
   const [streamText, setStreamText] = useState('');
-  const [currentStage, setCurrentStage] = useState('market');
+  const [currentStage, setCurrentStage] = useState('planning');
   const [stageMessage, setStageMessage] = useState('等待提问');
   const [stepStatus, setStepStatus] = useState<StepStatus>('wait');
   const [latestNews, setLatestNews] = useState<StockChatNewsItemResponse[]>([]);
+  const [stepContext, setStepContext] = useState<ChatStepContextResponse | null>(null);
+
+  const applyHeartbeat = (event: StockChatStreamEvent) => {
+    setCurrentStage(event.stage || 'planning');
+    setStageMessage(event.message || '正在持续处理当前步骤，请稍候');
+    setStepContext((prev) => (prev ? { ...prev, summary: '' } : prev));
+    setStepStatus('process');
+  };
+
+  const resetConversationState = () => {
+    setChat(null);
+    setLatestNews([]);
+    setStreamText('');
+    setQuestion('');
+    setError('');
+    setStepContext(null);
+    setStepStatus('wait');
+    setCurrentStage('planning');
+    setStageMessage('等待提问');
+  };
 
   const loadCandidates = async () => {
     setLoading(true);
@@ -202,7 +289,12 @@ export default function StockChatPage() {
         setCandidates([]);
         setSelectedSymbol('');
         setDetailName(boardName || boardCode);
-        setLoading(false);
+        return;
+      }
+      if (chatKind === 'recommendation') {
+        setCandidates([]);
+        setSelectedSymbol('');
+        setDetailName('AI 推荐对话');
         return;
       }
       const candidateRes = await analysisApi.getCandidates();
@@ -231,8 +323,9 @@ export default function StockChatPage() {
   };
 
   useEffect(() => {
+    resetConversationState();
     void loadCandidates();
-  }, [chatKind, boardCode, boardName]);
+  }, [chatKind, boardType, boardCode, boardName]);
 
   const candidateList = useMemo(
     () => [...candidates].sort((a, b) => Number(b.is_held) - Number(a.is_held) || (b.trade_count ?? 0) - (a.trade_count ?? 0)),
@@ -244,6 +337,43 @@ export default function StockChatPage() {
     [candidateList, selectedSymbol],
   );
 
+  useEffect(() => {
+    const restore = async () => {
+      if (chatKind === 'recommendation' && !chatContextId && recommendationReportId > 0) {
+        try {
+          const snapshot = await analysisApi.getRecommendationChatContextByReportId(recommendationReportId);
+          if (snapshot.context_id) {
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set('kind', 'recommendation');
+              next.set('reportId', String(recommendationReportId));
+              next.set('contextId', String(snapshot.context_id));
+              return next;
+            });
+          }
+        } catch (err: any) {
+          setError(err?.message ?? err?.data?.message ?? '通过报告恢复推荐上下文失败');
+        }
+        return;
+      }
+      if (!chatContextId) return;
+      try {
+        const snapshot = await analysisApi.getChatContext(chatContextId);
+        const fallbackName = chatKind === 'board' ? (boardName || boardCode || '板块 AI 助手') : chatKind === 'recommendation' ? 'AI 推荐对话' : (detailName || selectedCandidate?.asset_name || selectedSymbol || '个股 AI 助手');
+        const fallbackMarket = chatKind === 'board' ? 'board' : chatKind === 'recommendation' ? 'recommendation' : (selectedCandidate?.market || 'cn_stock');
+        setChat(applyContextSnapshot(chatKind, snapshot, fallbackName, fallbackMarket));
+        setLatestNews(snapshot.news_items ?? []);
+        setStepContext(snapshot.step_context ?? null);
+        setStageMessage(snapshot.step_context?.summary || '已恢复历史上下文');
+        setCurrentStage(snapshot.report_id ? 'done' : 'planning');
+        setStepStatus('wait');
+      } catch (err: any) {
+        setError(err?.message ?? err?.data?.message ?? '恢复聊天上下文失败');
+      }
+    };
+    void restore();
+  }, [chatContextId, chatKind, boardCode, boardName, detailName, recommendationReportId, selectedCandidate?.asset_name, selectedCandidate?.market, selectedSymbol, setSearchParams]);
+
   const messageList: StockChatMessageResponse[] = chat?.messages ?? [];
   const visibleMessages: StockChatMessageResponse[] = sending || refreshing
     ? [...messageList, { role: 'assistant', content: streamText || '正在准备回答...' }]
@@ -252,10 +382,14 @@ export default function StockChatPage() {
   const newsStatusMeta = getNewsStatusMeta(chat?.news_status);
   const highlights = extractHighlights(streamText || chat?.reply || '');
   const snapshot = chat?.snapshot;
-  const canAsk = chatKind === 'board' ? Boolean(boardType && boardCode) : Boolean(selectedSymbol);
+  const canAsk = chatKind === 'board' ? Boolean(boardType && boardCode) : chatKind === 'recommendation' ? true : Boolean(selectedSymbol);
 
   const submitQuestion = async (text: string, refreshMarket = false) => {
     const trimmed = text.trim();
+    if (chatKind === 'recommendation' && !trimmed) {
+      message.warning('请输入你的推荐问题');
+      return;
+    }
     if (chatKind === 'board' && (!boardType || !boardCode)) {
       message.warning('请先指定板块');
       return;
@@ -274,6 +408,7 @@ export default function StockChatPage() {
     setChat((prev) => prev ? { ...prev, messages: optimisticMessages, reply: prev.reply } : (
       chatKind === 'board'
         ? {
+            context_id: chatContextId || 0,
             board_type: boardType,
             code: boardCode,
             asset_name: detailName || boardName || boardCode,
@@ -300,6 +435,7 @@ export default function StockChatPage() {
             messages: optimisticMessages,
           } satisfies BoardChatResponse
         : {
+            context_id: chatContextId || 0,
             symbol: selectedSymbol,
             asset_name: detailName || selectedCandidate?.asset_name || selectedSymbol,
             market: selectedCandidate?.market || 'cn_stock',
@@ -327,11 +463,12 @@ export default function StockChatPage() {
     ));
     setStreamText('');
     setLatestNews([]);
+    setStepContext(null);
     setSending(!refreshMarket);
     setRefreshing(refreshMarket);
     setError('');
-    setCurrentStage('market');
-    setStageMessage('正在获取最新行情和新闻');
+    setCurrentStage('planning');
+    setStageMessage('正在规划工具步骤');
     setStepStatus('process');
 
     try {
@@ -342,19 +479,23 @@ export default function StockChatPage() {
             code: boardCode,
             question: trimmed,
             messages: previousMessages,
+            context_id: chatContextId || undefined,
           },
           (event) => {
             if (event.type === 'step') {
-              setCurrentStage(event.stage || 'market');
+              setCurrentStage(event.stage || 'planning');
               setStageMessage(event.message || '正在处理');
               setStepStatus('process');
+            }
+            if (event.type === 'heartbeat') {
+              applyHeartbeat(event);
             }
             if (event.type === 'context' && Array.isArray(event.data)) {
               setLatestNews(event.data);
               setStageMessage(event.message || '已获取新闻上下文');
             }
             if (event.type === 'token' && event.token) {
-              setCurrentStage('ai');
+              setCurrentStage('report');
               setStreamText((prev) => prev + event.token);
             }
             if (event.type === 'done') {
@@ -363,6 +504,17 @@ export default function StockChatPage() {
                 setChat(finalChat);
                 setDetailName(finalChat.asset_name || detailName);
                 setLatestNews(finalChat.news_items ?? []);
+                if ('context_id' in finalChat && finalChat.context_id) {
+                  setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set('kind', 'board');
+                    next.set('boardType', boardType);
+                    next.set('code', boardCode);
+                    if (boardName) next.set('name', boardName);
+                    next.set('contextId', String(finalChat.context_id));
+                    return next;
+                  });
+                }
               }
               setCurrentStage('done');
               setStageMessage(event.message || '回答生成完成');
@@ -374,26 +526,93 @@ export default function StockChatPage() {
             }
           },
         );
+      } else if (chatKind === 'recommendation') {
+        await analysisApi.recommendationChatStream(
+          {
+            question: trimmed,
+            messages: previousMessages,
+            report_id: recommendationReportId || undefined,
+            context_id: chatContextId || undefined,
+          },
+          (event) => {
+            if (event.type === 'step') {
+              setCurrentStage(event.stage || 'planning');
+              setStageMessage(event.message || '正在处理');
+              setStepStatus('process');
+            }
+            if (event.type === 'heartbeat') {
+              applyHeartbeat(event);
+            }
+            if (event.type === 'context') {
+              if (Array.isArray(event.data)) {
+                setLatestNews(event.data);
+              } else {
+                const contextData = contextDataFromStreamData(event.data);
+                if (contextData) {
+                  setStepContext(contextData);
+                  if (contextData.news_items?.length) {
+                    setLatestNews(contextData.news_items);
+                  }
+                  setStageMessage(event.message || contextData.summary || '已更新当前工具结果');
+                }
+              }
+            }
+            if (event.type === 'token' && event.token) {
+              setCurrentStage('report');
+              setStreamText((prev) => prev + event.token);
+            }
+            if (event.type === 'done') {
+              const finalChat = chatDataFromStreamData(event.data);
+              if (finalChat) {
+                setChat(finalChat);
+                setDetailName(finalChat.asset_name || 'AI 推荐对话');
+                setLatestNews(finalChat.news_items ?? []);
+                if ('context_id' in finalChat && finalChat.context_id) {
+                  setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set('kind', 'recommendation');
+                    next.set('contextId', String(finalChat.context_id));
+                    if ('report_id' in finalChat && finalChat.report_id) {
+                      next.set('reportId', String(finalChat.report_id));
+                    }
+                    return next;
+                  });
+                }
+              }
+              setCurrentStage('done');
+              setStageMessage(event.message || '推荐报告已生成');
+              setStepStatus('finish');
+              setQuestion('');
+            }
+            if (event.type === 'error') {
+              throw new Error(event.message || 'AI 推荐失败');
+            }
+          },
+        );
       } else {
         await analysisApi.stockChatStream(
           {
             symbol: selectedSymbol,
             question: trimmed,
             messages: previousMessages,
+            context_id: chatContextId || undefined,
             refresh_market: refreshMarket,
           },
           (event) => {
             if (event.type === 'step') {
-              setCurrentStage(event.stage || 'market');
+              setCurrentStage(event.stage || 'planning');
               setStageMessage(event.message || '正在处理');
               setStepStatus('process');
+            }
+            if (event.type === 'heartbeat') {
+              applyHeartbeat(event);
             }
             if (event.type === 'context' && Array.isArray(event.data)) {
               setLatestNews(event.data);
               setStageMessage(event.message || '已获取新闻上下文');
             }
             if (event.type === 'token' && event.token) {
-              setCurrentStage('ai');
+              setCurrentStage('report');
               setStreamText((prev) => prev + event.token);
             }
             if (event.type === 'done') {
@@ -402,6 +621,14 @@ export default function StockChatPage() {
                 setChat(finalChat);
                 setDetailName(finalChat.asset_name || detailName);
                 setLatestNews(finalChat.news_items ?? []);
+                if ('context_id' in finalChat && finalChat.context_id) {
+                  setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    if (selectedSymbol) next.set('symbol', selectedSymbol);
+                    next.set('contextId', String(finalChat.context_id));
+                    return next;
+                  });
+                }
               }
               setCurrentStage('done');
               setStageMessage(event.message || '回答生成完成');
@@ -430,13 +657,7 @@ export default function StockChatPage() {
   const handleSelectSymbol = async (symbol: string) => {
     setSelectedSymbol(symbol);
     setSearchParams({ symbol });
-    setChat(null);
-    setLatestNews([]);
-    setStreamText('');
-    setQuestion('');
-    setError('');
-    setStepStatus('wait');
-    setStageMessage('等待提问');
+    resetConversationState();
     try {
       const detail = await marketApi.getStockDetail(symbol);
       setDetailName(detail.name || '');
@@ -445,11 +666,10 @@ export default function StockChatPage() {
     }
   };
 
-  const displayName = detailName || boardName || selectedCandidate?.asset_name || selectedSymbol || (chatKind === 'board' ? '板块 AI 助手' : '个股 AI 助手');
-  const displayMarket = chat?.market || (chatKind === 'board' ? 'board' : (selectedCandidate?.market || 'cn_stock'));
+  const displayName = detailName || boardName || selectedCandidate?.asset_name || selectedSymbol || (chatKind === 'board' ? '板块 AI 助手' : chatKind === 'recommendation' ? '推荐 AI 助手' : '个股 AI 助手');
+  const displayMarket = chat?.market || (chatKind === 'board' ? 'board' : chatKind === 'recommendation' ? 'recommendation' : (selectedCandidate?.market || 'cn_stock'));
   const displayPrice = snapshot?.last_price || selectedCandidate?.last_price;
   const displayChange = snapshot?.change_percent || selectedCandidate?.change_percent;
-  const timelineItems = stepItems(currentStage, stepStatus);
   const isStreaming = sending || refreshing;
 
   return (
@@ -459,10 +679,12 @@ export default function StockChatPage() {
         type="text"
         onClick={() => navigate(chatKind === 'board'
           ? `/app/board?type=${encodeURIComponent(boardType)}&code=${encodeURIComponent(boardCode)}`
+          : chatKind === 'recommendation'
+            ? '/app/recommendation'
           : `/app/market-trend?symbol=${encodeURIComponent(selectedSymbol || searchParams.get('symbol') || '')}`)}
         style={{ marginBottom: 16, color: '#31566f', paddingLeft: 0 }}
       >
-        {chatKind === 'board' ? '返回板块页' : '返回行情页'}
+        {chatKind === 'board' ? '返回板块页' : chatKind === 'recommendation' ? '返回推荐页' : '返回行情页'}
       </Button>
 
       <div style={{ marginBottom: 18, padding: '22px 24px', borderRadius: 18, background: '#123a4a', color: '#fff', boxShadow: '0 18px 44px rgba(18, 58, 74, 0.22)' }}>
@@ -471,11 +693,11 @@ export default function StockChatPage() {
             <Space size={8} wrap style={{ marginBottom: 10 }}>
               <Tag color="gold">实时问答</Tag>
               <Tag color="cyan">{marketLabel(displayMarket)}</Tag>
-              {chatKind === 'stock' ? <Tag color={selectedCandidate?.is_held ? 'green' : 'default'}>{selectedCandidate?.is_held ? '当前持仓' : '候选标的'}</Tag> : <Tag color="purple">板块上下文</Tag>}
+              {chatKind === 'stock' ? <Tag color={selectedCandidate?.is_held ? 'green' : 'default'}>{selectedCandidate?.is_held ? '当前持仓' : '候选标的'}</Tag> : chatKind === 'board' ? <Tag color="purple">板块上下文</Tag> : <Tag color="magenta">推荐对话模式</Tag>}
               <Tag color={newsStatusMeta.color}>{newsStatusMeta.text}</Tag>
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>{displayName}</Title>
-            <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 16 }}>{chatKind === 'board' ? `${boardType || 'board'} · ${boardCode}` : (selectedSymbol || '未选择标的')}</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 16 }}>{chatKind === 'board' ? `${boardType || 'board'} · ${boardCode}` : chatKind === 'recommendation' ? `recommendation${recommendationReportId ? ` · report ${recommendationReportId}` : ''}${chatContextId ? ` · context ${chatContextId}` : ''}` : (selectedSymbol || '未选择标的')}</Text>
             {snapshot?.trend_summary ? <Paragraph style={{ color: 'rgba(255,255,255,0.78)', margin: '10px 0 0' }}>{snapshot.trend_summary}</Paragraph> : null}
           </Col>
           <Col span={24} lg={10}>
@@ -491,7 +713,7 @@ export default function StockChatPage() {
             ) : (
               <div style={{ padding: '12px 14px', borderRadius: 16, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)' }}>
                 <Text style={{ color: 'rgba(255,255,255,0.82)', fontSize: 14, lineHeight: 1.7 }}>
-                  当前为板块对话，会结合成分股强弱、板块热度和相关新闻生成回答。
+                  {chatKind === 'board' ? '当前为板块对话，会结合成分股强弱、板块热度和相关新闻生成回答。' : '当前为推荐对话，会结合用户画像、已有关注和新闻潜力股生成推荐报告。'}
                 </Text>
               </div>
             )}
@@ -573,7 +795,7 @@ export default function StockChatPage() {
                 <Card
                   bordered={false}
                   style={panelStyle}
-                  title={<span><RobotOutlined style={{ color: '#31566f', marginRight: 8 }} />{chatKind === 'board' ? 'AI 板块对话' : 'AI 个股对话'}</span>}
+                  title={<span><RobotOutlined style={{ color: '#31566f', marginRight: 8 }} />{chatKind === 'board' ? 'AI 板块对话' : chatKind === 'recommendation' ? 'AI 推荐对话' : 'AI 个股对话'}</span>}
                   extra={(
                     chatKind === 'stock' ? <Button icon={<ReloadOutlined />} loading={refreshing} disabled={sending} onClick={() => void submitQuestion(question || '请基于最新新闻和走势，更新一次当前判断。', true)}>
                       刷新后再问
@@ -582,7 +804,14 @@ export default function StockChatPage() {
                 >
                   <Space direction="vertical" size={14} style={{ width: '100%' }}>
                     <Space wrap>
-                      {starterQuestions.map((item) => (
+                    {(chatKind === 'recommendation'
+                      ? [
+                        '结合我的风险偏好和最近热点，当前更值得优先关注哪些股票？',
+                        '如果我想找未来 1 到 3 个月的潜力股，你会怎么筛？',
+                        '请区分我已有关注标的和你新发现的潜力股。',
+                      ]
+                      : starterQuestions
+                    ).map((item) => (
                         <Button key={item} size="small" onClick={() => setQuestion(item)}>{item}</Button>
                       ))}
                     </Space>
@@ -639,14 +868,12 @@ export default function StockChatPage() {
                                     {showInlineProgress ? (
                                       <div style={{ marginBottom: item.content ? 12 : 0, padding: '12px 12px 10px', borderRadius: 14, background: '#f4f8f5', border: '1px solid #dce8df' }}>
                                         <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                          <Text strong style={{ color: '#31566f' }}>AI 正在处理</Text>
-                                          <Steps
-                                            size="small"
-                                            current={Math.max(0, stageOrder.indexOf(currentStage))}
-                                            items={timelineItems}
-                                            responsive
-                                          />
-                                          <Text type={stepStatus === 'error' ? 'danger' : 'secondary'}>{stageMessage}</Text>
+                                          <Text strong style={{ color: '#31566f' }}>AI 正在使用工具</Text>
+                                          <Text type={stepStatus === 'error' ? 'danger' : 'secondary'}>{stageLabels[currentStage] || currentStage}</Text>
+                                          <Text type="secondary">{stageMessage}</Text>
+                                          {stepContext?.summary ? <Text type="secondary">{stepContext.summary}</Text> : null}
+                                          {stepContext?.reference_symbols?.length ? <Text type="secondary">关联股票：{stepContext.reference_symbols.join('、')}</Text> : null}
+                                          {stepContext?.reference_boards?.length ? <Text type="secondary">关联板块：{stepContext.reference_boards.join('、')}</Text> : null}
                                         </Space>
                                       </div>
                                     ) : null}
@@ -667,7 +894,7 @@ export default function StockChatPage() {
                       onChange={(event) => setQuestion(event.target.value)}
                       autoSize={{ minRows: 3, maxRows: 6 }}
                       disabled={sending || refreshing}
-                      placeholder={chatKind === 'board' ? '例如：这个板块今天走强的核心驱动是什么，持续性如何？' : '例如：结合最近新闻和走势，这只股票当前更适合继续持有还是等待回调？'}
+                      placeholder={chatKind === 'board' ? '例如：这个板块今天走强的核心驱动是什么，持续性如何？' : chatKind === 'recommendation' ? '例如：我偏好成长风格，能接受中等波动，想找未来 1-3 个月值得关注的潜力股。' : '例如：结合最近新闻和走势，这只股票当前更适合继续持有还是等待回调？'}
                     />
                     <Space>
                       <Button type="primary" icon={<SendOutlined />} loading={sending} disabled={refreshing} onClick={() => void submitQuestion(question)}>

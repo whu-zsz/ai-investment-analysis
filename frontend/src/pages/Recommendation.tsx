@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Empty, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
-import { ArrowLeftOutlined, BulbOutlined, ReloadOutlined, SafetyCertificateOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Alert, Button, Card, Col, Empty, List, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
+import { ArrowLeftOutlined, BulbOutlined, MessageOutlined, ReloadOutlined, SafetyCertificateOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { analysisApi } from '../api';
-import type { AnalysisCandidatesResponse, AnalysisRecommendationsResponse, RecommendationItemResponse } from '../api/types';
+import type { AnalysisCandidatesResponse, AnalysisReportDetailResponse, AnalysisReportResponse } from '../api/types';
 
 const { Title, Text, Paragraph } = Typography;
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
@@ -36,38 +36,47 @@ const preferenceMap: Record<string, string> = {
 
 export default function RecommendationPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [candidateInfo, setCandidateInfo] = useState<AnalysisCandidatesResponse | null>(null);
-  const [recommendation, setRecommendation] = useState<AnalysisRecommendationsResponse | null>(null);
+  const [latestReport, setLatestReport] = useState<AnalysisReportDetailResponse | null>(null);
+  const [historyReports, setHistoryReports] = useState<AnalysisReportResponse[]>([]);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [candidateResult, recommendationResult] = await Promise.allSettled([
+      const [candidateResult, historyResult] = await Promise.allSettled([
         analysisApi.getCandidates(),
-        analysisApi.getRecommendations(),
+        analysisApi.getReports({ report_type: 'recommendation', limit: 8 }),
       ]);
 
       const nextCandidateInfo = candidateResult.status === 'fulfilled' ? candidateResult.value : null;
-      const nextRecommendation = recommendationResult.status === 'fulfilled' ? recommendationResult.value : null;
+      const nextHistory = historyResult.status === 'fulfilled' ? historyResult.value : [];
 
       setCandidateInfo(nextCandidateInfo);
-      setRecommendation(nextRecommendation);
+      setHistoryReports(nextHistory);
 
-      if (!nextCandidateInfo && !nextRecommendation) {
+      const reportId = Number(searchParams.get('reportId') || nextHistory[0]?.id || 0);
+      if (reportId > 0) {
+        try {
+          const detail = await analysisApi.getReportDetail(reportId);
+          setLatestReport(detail);
+        } catch {
+          setLatestReport(null);
+        }
+      } else {
+        setLatestReport(null);
+      }
+
+      if (!nextCandidateInfo && nextHistory.length === 0) {
         const candidateError = candidateResult.status === 'rejected' ? candidateResult.reason : null;
-        const recommendationError = recommendationResult.status === 'rejected' ? recommendationResult.reason : null;
         setError(
-          recommendationError?.message
-            ?? recommendationError?.data?.message
-            ?? candidateError?.message
+          candidateError?.message
             ?? candidateError?.data?.message
             ?? 'AI 推荐加载失败'
         );
-      } else if (!nextRecommendation && nextCandidateInfo) {
-        setError('AI 解释生成较慢，当前先展示候选股票池。');
       }
     } finally {
       setLoading(false);
@@ -76,10 +85,7 @@ export default function RecommendationPage() {
 
   useEffect(() => {
     void load();
-  }, []);
-
-  const topCandidate = useMemo<RecommendationItemResponse | null>(() => recommendation?.candidates?.[0] ?? null, [recommendation]);
-  const profileSummary = recommendation?.profile_summary;
+  }, [searchParams]);
 
   return (
     <div style={{ padding: '24px' }}>
@@ -100,56 +106,54 @@ export default function RecommendationPage() {
             </Space>
             <Title level={2} style={{ margin: 0, color: '#fff' }}>适合你的股票推荐</Title>
             <Paragraph style={{ margin: '12px 0 0', color: 'rgba(255,255,255,0.82)', maxWidth: 620 }}>
-              根据你的投资偏好、风险承受能力、当前持仓和历史交易，实时生成更适合优先关注的股票建议。
+              通过几轮推荐对话，结合你的偏好、已有持仓、历史关注和近期新闻热点，生成可追溯的推荐报告。
             </Paragraph>
           </div>
-          <Button ghost icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} style={{ borderRadius: 10 }}>
-            重新生成
-          </Button>
+          <Space>
+            <Button ghost icon={<MessageOutlined />} onClick={() => navigate('/app/chat?kind=recommendation')} style={{ borderRadius: 10 }}>
+              发起推荐对话
+            </Button>
+            <Button ghost icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} style={{ borderRadius: 10 }}>
+              刷新报告
+            </Button>
+          </Space>
         </div>
       </Card>
 
       <Spin spinning={loading}>
-        {error && recommendation ? (
+        {error && latestReport ? (
           <Card bordered={false} style={{ ...cardStyle, marginBottom: 16 }}>
             <Alert type="warning" showIcon message={error} />
           </Card>
         ) : null}
 
-        {error && !recommendation && !candidateInfo ? (
+        {error && !latestReport && !candidateInfo ? (
           <Card bordered={false} style={cardStyle}><Alert type="error" showIcon message={error} /></Card>
-        ) : !recommendation && !candidateInfo ? (
+        ) : !latestReport && !candidateInfo ? (
           <Card bordered={false} style={cardStyle}><Empty description="暂无推荐结果" /></Card>
-        ) : recommendation && !recommendation.candidates.length ? (
-          <Card bordered={false} style={cardStyle}>
-            <Empty description={recommendation.summary_text || '暂无可用推荐，请先补充交易数据'} />
-            <div style={{ marginTop: 16 }}>
-              <Button type="primary" onClick={() => navigate('/app/upload')}>去导入交易记录</Button>
-            </div>
-          </Card>
-        ) : recommendation ? (
+        ) : latestReport ? (
           <>
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="候选池数量" value={profileSummary?.candidate_count ?? candidateInfo?.candidates.length ?? 0} /></Card></Col>
-              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="当前持仓数" value={profileSummary?.held_positions ?? 0} /></Card></Col>
-              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="累计盈亏" value={toNumber(profileSummary?.total_profit)} precision={2} prefix="¥" valueStyle={{ color: '#52c41a' }} /></Card></Col>
-              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="首选评分" value={toNumber(topCandidate?.score)} precision={2} valueStyle={{ color: '#1677ff' }} /></Card></Col>
+              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="候选池数量" value={candidateInfo?.candidates.length ?? latestReport.items.length} /></Card></Col>
+              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="当前持仓数" value={candidateInfo?.candidates.filter((item) => item.is_held).length ?? 0} /></Card></Col>
+              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="推荐标的数" value={latestReport.items.length} /></Card></Col>
+              <Col xs={12} lg={6}><Card bordered={false} style={cardStyle}><Statistic title="报告时间" value={latestReport.created_at.slice(11, 16)} /></Card></Col>
             </Row>
 
-            <Card bordered={false} style={cardStyle} title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />AI 总结</span>}>
-              <Paragraph style={{ marginBottom: 12 }}>{recommendation.summary_text}</Paragraph>
+            <Card bordered={false} style={cardStyle} title={<span><BulbOutlined style={{ color: '#1677ff', marginRight: 8 }} />最近推荐报告</span>} extra={<Tag color="processing">{latestReport.report_title}</Tag>}>
+              <Paragraph style={{ marginBottom: 12 }}>{latestReport.summary_text}</Paragraph>
               <Space wrap>
-                <Tag color="processing" icon={<SafetyCertificateOutlined />}>风险承受：{profileSummary?.risk_tolerance || '—'}</Tag>
-                <Tag color="blue" icon={<ThunderboltOutlined />}>投资偏好：{preferenceMap[profileSummary?.investment_preference || ''] ?? profileSummary?.investment_preference ?? '—'}</Tag>
-                <Tag>生成时间：{recommendation.generated_at}</Tag>
+                <Tag color="processing" icon={<SafetyCertificateOutlined />}>风险等级：{latestReport.risk_level || '—'}</Tag>
+                <Tag color="blue" icon={<ThunderboltOutlined />}>投资偏好：{preferenceMap[latestReport.investment_style || ''] ?? latestReport.investment_style ?? '—'}</Tag>
+                <Tag>生成时间：{latestReport.created_at}</Tag>
               </Space>
             </Card>
 
             <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-              {recommendation.candidates.map((item) => {
-                const meta = actionMeta(item.action);
+              {latestReport.items.map((item) => {
+                const meta = actionMeta(item.recommendation);
                 return (
-                  <Col span={24} lg={12} key={item.symbol}>
+                  <Col span={24} lg={12} key={`${latestReport.id}-${item.symbol}`}>
                     <Card bordered={false} style={cardStyle}>
                       <Space direction="vertical" size={10} style={{ width: '100%' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
@@ -157,31 +161,28 @@ export default function RecommendationPage() {
                             <Title level={4} style={{ margin: 0 }}>{item.asset_name || item.symbol}</Title>
                             <Text type="secondary">{item.symbol}</Text>
                           </div>
-                          <Space wrap>
-                            <Tag color={meta.color}>{meta.text}</Tag>
-                            <Tag color={item.is_held ? 'success' : 'default'}>{item.is_held ? '已持仓' : '候选观察'}</Tag>
-                          </Space>
+                          <Tag color={meta.color}>{meta.text}</Tag>
                         </div>
-
                         <Row gutter={[12, 12]}>
-                          <Col span={8}><Statistic title="评分" value={toNumber(item.score)} precision={2} valueStyle={{ color: '#1677ff', fontSize: 22 }} /></Col>
                           <Col span={8}><Statistic title="最新价" value={toNumber(item.latest_price)} precision={2} prefix="¥" valueStyle={{ fontSize: 22 }} /></Col>
-                          <Col span={8}><Statistic title="涨跌幅" value={toNumber(item.change_percent)} precision={2} suffix="%" valueStyle={{ color: toNumber(item.change_percent) >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 22 }} /></Col>
+                          <Col span={8}><Statistic title="阶段变化" value={toNumber(item.period_price_change_pct)} precision={2} suffix="%" valueStyle={{ color: toNumber(item.period_price_change_pct) >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 22 }} /></Col>
+                          <Col span={8}><Statistic title="历史关注" value={item.trade_count} valueStyle={{ fontSize: 22 }} /></Col>
                         </Row>
-
                         <div>
                           <Text strong>推荐理由</Text>
-                          <Paragraph style={{ margin: '6px 0 0' }}>{item.match_reason}</Paragraph>
+                          <Paragraph style={{ margin: '6px 0 0' }}>{item.analysis_text}</Paragraph>
                         </div>
                         <div>
-                          <Text strong>风险提示</Text>
-                          <Paragraph style={{ margin: '6px 0 0' }}>{item.risk_note}</Paragraph>
+                          <Text strong>重点</Text>
+                          <Paragraph style={{ margin: '6px 0 0' }}>{item.key_points?.join('；') || '—'}</Paragraph>
                         </div>
                         <Space wrap>
-                          <Tag>数据状态：{item.data_status}</Tag>
-                          <Tag>历史交易关注：{item.trade_count} 次</Tag>
+                          <Tag>数据状态：{item.market_data_status}</Tag>
                           <Button type="link" onClick={() => navigate(`/app/market-trend?symbol=${encodeURIComponent(item.symbol)}`)} style={{ paddingInline: 0 }}>
                             查看市场趋势
+                          </Button>
+                          <Button type="link" onClick={() => navigate(`/app/chat?kind=recommendation&reportId=${latestReport.id}`)} style={{ paddingInline: 0 }}>
+                            继续追问本报告
                           </Button>
                         </Space>
                       </Space>
@@ -190,14 +191,40 @@ export default function RecommendationPage() {
                 );
               })}
             </Row>
+
+            <Card bordered={false} style={{ ...cardStyle, marginTop: 16 }} title="历史推荐报告">
+              {historyReports.length ? (
+                <List
+                  dataSource={historyReports}
+                  renderItem={(item) => (
+                    <List.Item
+                      actions={[
+                        <Button key="open" type="link" onClick={() => navigate(`/app/recommendation?reportId=${item.id}`)}>查看</Button>,
+                        <Button key="chat" type="link" onClick={() => navigate(`/app/chat?kind=recommendation&reportId=${item.id}`)}>继续对话</Button>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={<Space wrap><span>{item.report_title}</span>{item.id === latestReport.id ? <Tag color="success">当前</Tag> : null}</Space>}
+                        description={`${item.created_at} · ${item.risk_level || '—'} 风险 · ${item.id === latestReport.id ? latestReport.items.length : '查看详情'} `}
+                      />
+                    </List.Item>
+                  )}
+                />
+              ) : (
+                <Empty description="暂无历史推荐报告" />
+              )}
+            </Card>
           </>
         ) : (
           <Card bordered={false} style={cardStyle}>
-            <Empty description="AI 解释生成较慢，当前先展示候选股票池。" />
+            <Empty description="暂无推荐报告，先发起一轮推荐对话。" />
             <div style={{ marginTop: 16 }}>
               <Space wrap>
                 <Tag color="processing">候选池数量 {candidateInfo?.candidates.length ?? 0}</Tag>
                 {candidateInfo?.default_symbol ? <Tag color="blue">默认关注 {candidateInfo.default_symbol}</Tag> : null}
+                <Button type="primary" icon={<MessageOutlined />} onClick={() => navigate('/app/chat?kind=recommendation')}>
+                  发起推荐对话
+                </Button>
               </Space>
             </div>
           </Card>

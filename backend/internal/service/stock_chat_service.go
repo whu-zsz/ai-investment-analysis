@@ -9,6 +9,7 @@ import (
 
 	requestdto "stock-analysis-backend/internal/dto/request"
 	responsedto "stock-analysis-backend/internal/dto/response"
+	"stock-analysis-backend/internal/repository"
 	"stock-analysis-backend/pkg/llm"
 
 	gozap "go.uber.org/zap"
@@ -24,9 +25,11 @@ type stockChatService struct {
 	newsService        NewsService
 	llmProvider        llm.Provider
 	logger             *gozap.Logger
+	contextService     *chatContextService
 }
 
 type stockChatContext struct {
+	contextID   uint64
 	symbol      string
 	question    string
 	messages    []stockChatMessage
@@ -36,64 +39,68 @@ type stockChatContext struct {
 	prompt      string
 }
 
-func NewStockChatService(marketStockService MarketStockService, newsService NewsService, llmProvider llm.Provider, logger *gozap.Logger) StockChatService {
+func NewStockChatService(marketStockService MarketStockService, newsService NewsService, llmProvider llm.Provider, logger *gozap.Logger, contextRepo repository.ChatContextRepository) StockChatService {
 	return &stockChatService{
 		marketStockService: marketStockService,
 		newsService:        newsService,
 		llmProvider:        llmProvider,
 		logger:             logger,
+		contextService:     newChatContextService(contextRepo),
 	}
 }
 
 func (s *stockChatService) Chat(ctx context.Context, userID uint64, req *requestdto.StockChatRequest) (*responsedto.StockChatResponse, error) {
-	chatCtx, err := s.prepareChatContext(ctx, userID, req, nil)
+	req = s.hydrateStockChatRequest(userID, req)
+	executor, err := newStockChatExecutor(s, req)
 	if err != nil {
 		return nil, err
 	}
-	reply, err := s.llmProvider.GetContent(ctx, stockChatSystemPrompt, chatCtx.prompt)
+	orchestrator := newChatOrchestrator(s.llmProvider)
+	reply, results, trace, err := orchestrator.Run(ctx, executor, nil)
 	if err != nil {
 		return nil, err
 	}
-	reply = normalizeMarkdownNarrative(reply)
-	if reply == "" {
-		return nil, fmt.Errorf("llm returned empty reply")
+	result, err := executor.BuildDoneResponse(reply, trace, results)
+	if err != nil {
+		return nil, err
 	}
-	return s.buildResponse(chatCtx, reply), nil
+	response, ok := result.(*responsedto.StockChatResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected stock chat response type")
+	}
+	if err := s.persistResponse(userID, response, req); err != nil && s.logger != nil {
+		s.logger.Warn("failed to persist stock chat context", gozap.Error(err))
+	}
+	return response, nil
 }
 
 func (s *stockChatService) ChatStream(ctx context.Context, userID uint64, req *requestdto.StockChatRequest, emit func(responsedto.StockChatStreamEvent) error) error {
+	req = s.hydrateStockChatRequest(userID, req)
 	if emit == nil {
 		return fmt.Errorf("stream emitter is required")
 	}
-	chatCtx, err := s.prepareChatContext(ctx, userID, req, emit)
+	executor, err := newStockChatExecutor(s, req)
 	if err != nil {
 		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Message: err.Error()})
 		return err
 	}
-
-	if err := emit(responsedto.StockChatStreamEvent{Type: "step", Stage: "ai", Message: "AI 正在结合问题生成回答"}); err != nil {
-		return err
-	}
-	reply, err := s.llmProvider.GetContentStream(ctx, stockChatSystemPrompt, chatCtx.prompt, func(token string) error {
-		return emit(responsedto.StockChatStreamEvent{Type: "token", Token: token})
-	})
+	orchestrator := newChatOrchestrator(s.llmProvider)
+	reply, results, trace, err := orchestrator.Run(ctx, executor, emit)
 	if err != nil {
-		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "ai", Message: err.Error()})
+		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "report", Message: err.Error()})
 		return err
 	}
-
-	reply = normalizeMarkdownNarrative(reply)
-	if reply == "" {
-		err := fmt.Errorf("llm returned empty reply")
-		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "ai", Message: err.Error()})
+	result, err := executor.BuildDoneResponse(reply, trace, results)
+	if err != nil {
+		_ = emit(responsedto.StockChatStreamEvent{Type: "error", Stage: "done", Message: err.Error()})
 		return err
 	}
-	return emit(responsedto.StockChatStreamEvent{
-		Type:    "done",
-		Stage:   "done",
-		Message: "回答生成完成",
-		Data:    s.buildResponse(chatCtx, reply),
-	})
+	if response, ok := result.(*responsedto.StockChatResponse); ok {
+		if persistErr := s.persistResponse(userID, response, req); persistErr != nil && s.logger != nil {
+			s.logger.Warn("failed to persist stock chat context", gozap.Error(persistErr))
+		}
+	}
+	return emit(responsedto.StockChatStreamEvent{Type: "done", Stage: "done", Message: "回答生成完成", Data: result})
 }
 
 func (s *stockChatService) prepareChatContext(ctx context.Context, userID uint64, req *requestdto.StockChatRequest, emit func(responsedto.StockChatStreamEvent) error) (*stockChatContext, error) {
@@ -155,6 +162,7 @@ func (s *stockChatService) prepareChatContext(ctx context.Context, userID uint64
 
 	messages := normalizeStockChatMessages(req.Messages)
 	return &stockChatContext{
+		contextID:   req.ContextID,
 		symbol:      symbol,
 		question:    question,
 		messages:    messages,
@@ -247,6 +255,7 @@ func (s *stockChatService) buildResponse(chatCtx *stockChatContext, reply string
 	)
 
 	return &responsedto.StockChatResponse{
+		ContextID:    chatCtx.contextID,
 		Symbol:       chatCtx.symbol,
 		AssetName:    chatCtx.detail.Name,
 		Market:       chatCtx.detail.Market,
@@ -271,6 +280,60 @@ func (s *stockChatService) buildResponse(chatCtx *stockChatContext, reply string
 		},
 		Messages: responseMessages,
 	}
+}
+
+func (s *stockChatService) hydrateStockChatRequest(userID uint64, req *requestdto.StockChatRequest) *requestdto.StockChatRequest {
+	if req == nil || req.ContextID == 0 || len(req.Messages) > 0 {
+		return req
+	}
+	if s.contextService == nil {
+		return req
+	}
+	messages, err := s.contextService.loadMessages(userID, req.ContextID)
+	if err != nil {
+		return req
+	}
+	metadata, metaErr := s.contextService.loadMetadata(userID, req.ContextID)
+	if metaErr == nil {
+		if toolMessage := buildToolResultsContextMessage(metadata); strings.TrimSpace(toolMessage) != "" {
+			messages = append(messages, requestdto.StockChatMessageRequest{Role: "system", Content: toolMessage})
+		}
+	}
+	if len(messages) == 0 {
+		return req
+	}
+	cloned := *req
+	cloned.Messages = messages
+	return &cloned
+}
+
+func (s *stockChatService) persistResponse(userID uint64, resp *responsedto.StockChatResponse, req *requestdto.StockChatRequest) error {
+	if s.contextService == nil || resp == nil || req == nil {
+		return nil
+	}
+	metadata := persistedChatContextMetadata{
+		ToolTrace:   resp.ToolTrace,
+		ToolResults: resp.ToolResults,
+		NewsItems:   resp.NewsItems,
+		GeneratedAt: resp.GeneratedAt,
+	}
+	contextID, err := s.contextService.saveContext(
+		userID,
+		"stock",
+		normalizeSymbol(req.Symbol),
+		fallbackString(resp.AssetName, normalizeSymbol(req.Symbol)),
+		req.ContextID,
+		0,
+		resp.Messages,
+		req.Question,
+		resp.Reply,
+		metadata,
+	)
+	if err != nil {
+		return err
+	}
+	resp.ContextID = contextID
+	return nil
 }
 
 func buildStockChatNewsItems(newsContext *StockNewsContext) []responsedto.StockChatNewsItemResponse {

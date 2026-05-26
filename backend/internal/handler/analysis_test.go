@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -38,10 +39,13 @@ type MockAIService struct {
 }
 
 type MockRecommendationService struct {
-	CandidatesResult      *response.AnalysisCandidatesResponse
-	CandidatesErr         error
-	RecommendationsResult *response.AnalysisRecommendationsResponse
-	RecommendationsErr    error
+	CandidatesResult         *response.AnalysisCandidatesResponse
+	CandidatesErr            error
+	RecommendationsResult    *response.AnalysisRecommendationsResponse
+	RecommendationsErr       error
+	RecommendationChatResult *response.RecommendationChatResponse
+	RecommendationChatErr    error
+	RecommendationContext    *response.RecommendationChatContextSnapshotResponse
 }
 
 func (m *MockAIService) CreateStockAnalysisTask(userID uint64, req *request.CreateAnalysisTaskRequest) (*response.AnalysisTaskResponse, error) {
@@ -105,6 +109,30 @@ func (m *MockRecommendationService) GetRecommendations(userID uint64) (*response
 		return nil, m.RecommendationsErr
 	}
 	return m.RecommendationsResult, nil
+}
+
+func (m *MockRecommendationService) RecommendationChat(ctx context.Context, userID uint64, req *request.RecommendationChatRequest) (*response.RecommendationChatResponse, error) {
+	if m.RecommendationChatErr != nil {
+		return nil, m.RecommendationChatErr
+	}
+	return m.RecommendationChatResult, nil
+}
+
+func (m *MockRecommendationService) RecommendationChatStream(ctx context.Context, userID uint64, req *request.RecommendationChatRequest, emit func(response.StockChatStreamEvent) error) error {
+	if m.RecommendationChatErr != nil {
+		return m.RecommendationChatErr
+	}
+	if emit != nil && m.RecommendationChatResult != nil {
+		return emit(response.StockChatStreamEvent{Type: "done", Data: m.RecommendationChatResult})
+	}
+	return nil
+}
+
+func (m *MockRecommendationService) GetRecommendationChatContext(userID, contextID uint64) (*response.RecommendationChatContextSnapshotResponse, error) {
+	if m.RecommendationChatErr != nil {
+		return nil, m.RecommendationChatErr
+	}
+	return m.RecommendationContext, nil
 }
 
 // TestAnalysisHandler_CreateTask 测试创建分析任务

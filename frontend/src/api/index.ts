@@ -10,7 +10,7 @@ import type {
   AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
   AnalysisCandidatesResponse, AnalysisRecommendationsResponse,
-  StockChatResponse, BoardChatResponse, StockChatMessageRequest, StockChatStreamEvent,
+  StockChatResponse, BoardChatResponse, RecommendationChatResponse, ChatContextSnapshotResponse, StockChatMessageRequest, StockChatStreamEvent,
 } from './types';
 
 // ══════════════════════════════════════════
@@ -223,6 +223,7 @@ export const analysisApi = {
     symbol: string;
     question: string;
     messages?: StockChatMessageRequest[];
+    context_id?: number;
     refresh_market?: boolean;
   }): Promise<StockChatResponse> =>
     request.post('/analysis/stock-chat', data),
@@ -233,6 +234,7 @@ export const analysisApi = {
       symbol: string;
       question: string;
       messages?: StockChatMessageRequest[];
+      context_id?: number;
       refresh_market?: boolean;
     },
     onEvent: (event: StockChatStreamEvent) => void,
@@ -290,6 +292,7 @@ export const analysisApi = {
     code: string;
     question: string;
     messages?: StockChatMessageRequest[];
+    context_id?: number;
   }): Promise<BoardChatResponse> =>
     request.post('/analysis/board-chat', data),
 
@@ -300,6 +303,7 @@ export const analysisApi = {
       code: string;
       question: string;
       messages?: StockChatMessageRequest[];
+      context_id?: number;
     },
     onEvent: (event: StockChatStreamEvent) => void,
   ): Promise<void> => {
@@ -357,4 +361,83 @@ export const analysisApi = {
   /** GET /analysis/recommendations */
   getRecommendations: (): Promise<AnalysisRecommendationsResponse> =>
     request.get('/analysis/recommendations'),
+
+  /** GET /analysis/chat-contexts/:id */
+  getChatContext: (id: number): Promise<ChatContextSnapshotResponse> =>
+    request.get(`/analysis/chat-contexts/${id}`),
+
+  /** GET /analysis/recommendation-chat/contexts/:id */
+  getRecommendationChatContext: (id: number): Promise<import('./types').RecommendationChatContextSnapshotResponse> =>
+    request.get(`/analysis/recommendation-chat/contexts/${id}`),
+
+  /** GET /analysis/recommendation-chat/reports/:id/context */
+  getRecommendationChatContextByReportId: (id: number): Promise<ChatContextSnapshotResponse> =>
+    request.get(`/analysis/recommendation-chat/reports/${id}/context`),
+
+  /** POST /analysis/recommendation-chat */
+  recommendationChat: (data: {
+    question: string;
+    messages?: StockChatMessageRequest[];
+    report_id?: number;
+    context_id?: number;
+  }): Promise<RecommendationChatResponse> =>
+    request.post('/analysis/recommendation-chat', data),
+
+  /** POST /analysis/recommendation-chat/stream */
+  recommendationChatStream: async (
+    data: {
+      question: string;
+      messages?: StockChatMessageRequest[];
+      report_id?: number;
+      context_id?: number;
+    },
+    onEvent: (event: StockChatStreamEvent) => void,
+  ): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`${API_BASE_URL}/api/v1/analysis/recommendation-chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (resp.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('userInfo');
+      window.location.href = '/login';
+      return;
+    }
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text();
+      throw new Error(text || `请求失败：${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    const parseChunk = (chunk: string) => {
+      const dataLine = chunk.split('\n').find((line) => line.startsWith('data:'));
+      if (!dataLine) return;
+      const payload = dataLine.slice(5).trim();
+      if (!payload) return;
+      onEvent(JSON.parse(payload) as StockChatStreamEvent);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.replace(/\r\n/g, '\n').split('\n\n');
+      buffer = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        parseChunk(chunk);
+      }
+    }
+    buffer += decoder.decode();
+    const tail = buffer.replace(/\r\n/g, '\n').trim();
+    if (tail) parseChunk(tail);
+  },
 };

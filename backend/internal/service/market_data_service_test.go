@@ -205,6 +205,19 @@ func (r *MockMarketBoardConstituentRepo) FindAll() ([]model.MarketBoardConstitue
 	return append([]model.MarketBoardConstituent(nil), r.Items...), nil
 }
 
+func (r *MockMarketBoardConstituentRepo) FindBySymbol(symbol string) ([]model.MarketBoardConstituent, error) {
+	if r.FindErr != nil {
+		return nil, r.FindErr
+	}
+	items := make([]model.MarketBoardConstituent, 0, len(r.Items))
+	for _, item := range r.Items {
+		if item.Symbol == symbol {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
 func (r *MockMarketBoardConstituentRepo) FindLatestSyncedAt() (time.Time, error) {
 	if r.LatestErr != nil {
 		return time.Time{}, r.LatestErr
@@ -285,6 +298,9 @@ func TestNormalizeSymbol(t *testing.T) {
 		{"510300.SZ", "510300.SH"},
 		{"159915", "159915.SZ"},
 		{"830799", "830799.BJ"},
+		{"920125", "920125.BJ"},
+		{"920125.BJ", "920125.BJ"},
+		{"920125.SH", "920125.BJ"},
 		{"000001", "000001.SZ"},
 		{"000001.SH", "000001.SH"},
 		{"000001.SZ", "000001.SZ"},
@@ -983,6 +999,24 @@ func TestMarketStockService_GetStockKlinesFetchesAndUpsertsWhenCacheInsufficient
 	}
 	if !res.RefreshTriggered {
 		t.Fatal("RefreshTriggered = false, want true")
+	}
+}
+
+func TestMarketStockService_GetStockKlinesReturnsErrorWhenHistoryMissingAndProviderReturnsEmpty(t *testing.T) {
+	provider := &MockMarketDataProvider{Klines: []marketdata.KlineBar{}}
+	repo := &MockStockKlineRepo{Bars: nil}
+	svc := &marketStockService{
+		provider:   provider,
+		detailRepo: &MockStockQuoteDetailRepo{},
+		klineRepo:  repo,
+	}
+
+	_, err := svc.GetStockKlines("000858.SZ", "day", "qfq", 20, false)
+	if err == nil {
+		t.Fatal("GetStockKlines() error = nil, want error")
+	}
+	if provider.KlineCalls != 1 {
+		t.Fatalf("KlineCalls = %d, want 1", provider.KlineCalls)
 	}
 }
 
