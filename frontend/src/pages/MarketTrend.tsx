@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AutoComplete, Button, Card, Col, Empty, Input, List, Progress, Row, Segmented, Space, Spin, Statistic, Tag, Typography, message } from 'antd';
 import { ArrowLeftOutlined, BarChartOutlined, DeleteOutlined, FundProjectionScreenOutlined, ReloadOutlined, RiseOutlined, RobotOutlined, StarOutlined, StockOutlined, ThunderboltOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -19,18 +19,40 @@ const { Title, Text } = Typography;
 const { Search } = Input;
 const cardStyle = { borderRadius: 16, boxShadow: '0 6px 22px rgba(15,23,42,0.06)' };
 
-type ChartView = 'kline' | 'snapshot';
-type KlinePeriod = 'day' | 'week' | 'month' | '5m' | '15m' | '60m';
+type ChartView = 'kline' | 'intraday';
+type KlinePeriod = 'day' | 'week' | 'month' | '1m' | '5m' | '15m' | '60m';
 type FavoriteSymbol = { symbol: string; asset_name: string; market: string };
 type KlineItem = MarketStockKlineResponse['items'][number];
+type LiveQuoteSnapshot = {
+  symbol: string;
+  name: string;
+  last_price: string;
+  change_amount: string;
+  change_percent: string;
+  turnover: string;
+  turnover_rate: string;
+  amplitude: string;
+  volume_ratio: string;
+  total_market_cap: string;
+  fetched_at: string;
+};
+type QuoteFlashState = {
+  direction: 'up' | 'down' | 'flat';
+  priceDiff: number;
+  changePercentDiff: number;
+  touchedAt: number;
+  fields: string[];
+};
 
 const FAVORITE_SYMBOLS_KEY = 'marketTrendFavoriteSymbols';
-const ACTIVE_STOCK_REFRESH_MS = 15 * 1000;
+const ACTIVE_STOCK_REFRESH_MS = 10 * 1000;
+const QUOTE_FLASH_WINDOW_MS = 3200;
 
 const klinePeriodOptions: Array<{ label: string; value: KlinePeriod }> = [
   { label: '日线', value: 'day' },
   { label: '周线', value: 'week' },
   { label: '月线', value: 'month' },
+  { label: '1分', value: '1m' },
   { label: '5分', value: '5m' },
   { label: '15分', value: '15m' },
   { label: '60分', value: '60m' },
@@ -123,6 +145,92 @@ function formatChangeText(changeAmount?: string, changePercent?: string) {
   return `${sign}${amount.toFixed(2)} / ${formatPercent(changePercent)}`;
 }
 
+function buildQuoteSnapshotFromCandidate(item: AnalysisCandidateResponse): LiveQuoteSnapshot {
+  return {
+    symbol: item.symbol,
+    name: item.asset_name || item.symbol,
+    last_price: item.last_price || '0',
+    change_amount: '0',
+    change_percent: item.change_percent || '0',
+    turnover: '0',
+    turnover_rate: '0',
+    amplitude: '0',
+    volume_ratio: '0',
+    total_market_cap: '0',
+    fetched_at: '',
+  };
+}
+
+function buildQuoteSnapshotFromDetail(detail: MarketStockDetailResponse | null | undefined): LiveQuoteSnapshot | null {
+  if (!detail?.symbol) return null;
+  return {
+    symbol: detail.symbol,
+    name: detail.name || detail.symbol,
+    last_price: detail.last_price || '0',
+    change_amount: detail.change_amount || '0',
+    change_percent: detail.change_percent || '0',
+    turnover: detail.turnover || '0',
+    turnover_rate: detail.turnover_rate || '0',
+    amplitude: detail.amplitude || '0',
+    volume_ratio: detail.volume_ratio || '0',
+    total_market_cap: detail.total_market_cap || '0',
+    fetched_at: detail.fetched_at || '',
+  };
+}
+
+function buildQuoteSnapshotFromProfile(profile: StockProfileResponse | null | undefined): LiveQuoteSnapshot | null {
+  if (!profile?.symbol) return null;
+  return {
+    symbol: profile.symbol,
+    name: profile.name || profile.symbol,
+    last_price: profile.last_price || '0',
+    change_amount: profile.change_amount || '0',
+    change_percent: profile.change_percent || '0',
+    turnover: profile.turnover || '0',
+    turnover_rate: profile.turnover_rate || '0',
+    amplitude: profile.amplitude || '0',
+    volume_ratio: profile.volume_ratio || '0',
+    total_market_cap: profile.total_market_cap || '0',
+    fetched_at: profile.fetched_at || '',
+  };
+}
+
+function buildQuoteFlash(previous: LiveQuoteSnapshot | undefined, next: LiveQuoteSnapshot): QuoteFlashState | null {
+  if (!previous) return null;
+  const fields: string[] = [];
+  if (toNumber(previous.last_price) !== toNumber(next.last_price)) fields.push('last_price');
+  if (toNumber(previous.change_amount) !== toNumber(next.change_amount)) fields.push('change_amount');
+  if (toNumber(previous.change_percent) !== toNumber(next.change_percent)) fields.push('change_percent');
+  if (toNumber(previous.turnover) !== toNumber(next.turnover)) fields.push('turnover');
+  if (toNumber(previous.turnover_rate) !== toNumber(next.turnover_rate)) fields.push('turnover_rate');
+  if (toNumber(previous.amplitude) !== toNumber(next.amplitude)) fields.push('amplitude');
+  if (toNumber(previous.volume_ratio) !== toNumber(next.volume_ratio)) fields.push('volume_ratio');
+  if (toNumber(previous.total_market_cap) !== toNumber(next.total_market_cap)) fields.push('total_market_cap');
+  if (!fields.length) return null;
+
+  const priceDiff = toNumber(next.last_price) - toNumber(previous.last_price);
+  const changePercentDiff = toNumber(next.change_percent) - toNumber(previous.change_percent);
+  return {
+    direction: priceDiff > 0 ? 'up' : priceDiff < 0 ? 'down' : 'flat',
+    priceDiff,
+    changePercentDiff,
+    touchedAt: Date.now(),
+    fields,
+  };
+}
+
+function getFlashAccentColor(flash?: QuoteFlashState) {
+  if (!flash) return '#1677ff';
+  if (flash.direction === 'up') return '#ff4d4f';
+  if (flash.direction === 'down') return '#52c41a';
+  return '#1677ff';
+}
+
+function formatPriceDelta(value: number) {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}`;
+}
+
 function normalizeDetailLabel(value?: string) {
   const trimmed = value?.trim() ?? '';
   if (!trimmed || trimmed === '-' || trimmed === '—') return '';
@@ -173,7 +281,7 @@ function buildKlineOption(kline: MarketStockKlineResponse | null, period: KlineP
   const priceAxisRange = computeCandleAxisRange(
     items.map((item) => toNumber(item.high_price)),
     items.map((item) => toNumber(item.low_price)),
-    { paddingRatio: 0.02, minPaddingAbs: period === '5m' || period === '15m' || period === '60m' ? 0.02 : 0.1, roundMode: 'magnitude', splitNumber: 4 },
+    { paddingRatio: 0.02, minPaddingAbs: period === '1m' || period === '5m' || period === '15m' || period === '60m' ? 0.02 : 0.1, roundMode: 'step', splitNumber: 4 },
   );
   const volumeAxisRange = computeNumericAxisRange(items.map((item) => toNumber(item.volume)), {
     minPaddingRatio: 0,
@@ -205,21 +313,99 @@ function buildKlineOption(kline: MarketStockKlineResponse | null, period: KlineP
   };
 }
 
-function buildSnapshotOption(history: MarketSnapshotResponse[]): EChartsOption {
-  const axisRange = computeNumericAxisRange(history.map((item) => toNumber(item.last_price)), {
-    minPaddingRatio: 0.06,
-    maxPaddingRatio: 0.06,
-    minPaddingAbs: 0.1,
-    roundMode: 'magnitude',
+function buildIntradayOption(kline: MarketStockKlineResponse | null, period: KlinePeriod): EChartsOption {
+  const items = kline?.items ?? [];
+  const prices = items.map((item) => toNumber(item.close_price));
+  const prevClose = items.length ? toNumber(items[0].open_price) || toNumber(items[0].close_price) : 0;
+  const axisRange = computeNumericAxisRange(prices.length ? [...prices, ...(prevClose > 0 ? [prevClose] : [])] : [0], {
+    minPaddingRatio: 0.015,
+    maxPaddingRatio: 0.015,
+    minPaddingAbs: period === '1m' ? 0.01 : 0.02,
+    roundMode: 'step',
     splitNumber: 4,
   });
 
   return {
     tooltip: { trigger: 'axis' },
-    grid: { top: 24, left: 36, right: 20, bottom: 28, containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: history.map((item) => item.snapshot_time.slice(5, 16)), axisLine: { lineStyle: { color: '#d9d9d9' } }, axisLabel: { color: '#8c8c8c', fontSize: 11 } },
-    yAxis: { type: 'value', min: axisRange?.min, max: axisRange?.max, splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } }, axisLabel: { color: '#8c8c8c', fontSize: 11 } },
-    series: [{ name: '最新价', type: 'line', smooth: false, showSymbol: false, data: history.map((item) => toNumber(item.last_price)), lineStyle: { width: 3, color: '#1677ff' }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,119,255,0.25)' }, { offset: 1, color: 'rgba(22,119,255,0.03)' }] } } }],
+    grid: [
+      { top: 24, left: 36, right: 18, height: 240, containLabel: true },
+      { left: 36, right: 18, top: 286, height: 82, containLabel: true },
+    ],
+    xAxis: [
+      {
+        type: 'category',
+        boundaryGap: false,
+        data: items.map((item) => formatKlineAxisTime(item.bar_time, period)),
+        axisLine: { lineStyle: { color: '#d9d9d9' } },
+        axisLabel: { color: '#8c8c8c', fontSize: 11 },
+      },
+      {
+        type: 'category',
+        gridIndex: 1,
+        boundaryGap: false,
+        data: items.map((item) => formatKlineAxisTime(item.bar_time, period)),
+        axisLine: { lineStyle: { color: '#d9d9d9' } },
+        axisLabel: { show: false },
+      },
+    ],
+    yAxis: [
+      {
+        type: 'value',
+        min: axisRange?.min,
+        max: axisRange?.max,
+        splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
+        axisLabel: { color: '#8c8c8c', fontSize: 11 },
+      },
+      {
+        type: 'value',
+        gridIndex: 1,
+        min: 0,
+        splitLine: { show: false },
+        axisLabel: { color: '#8c8c8c', fontSize: 10 },
+      },
+    ],
+    series: [
+      {
+        name: '价格',
+        type: 'line',
+        smooth: false,
+        showSymbol: false,
+        data: prices,
+        lineStyle: { width: 3, color: '#1677ff' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(22,119,255,0.22)' },
+              { offset: 1, color: 'rgba(22,119,255,0.03)' },
+            ],
+          },
+        },
+        markLine: prevClose > 0 ? {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#bfbfbf', type: 'dashed' },
+          data: [{ yAxis: prevClose }],
+        } : undefined,
+      },
+      {
+        name: '成交量',
+        type: 'bar',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        data: items.map((item) => toNumber(item.volume)),
+        itemStyle: {
+          color: (params: any) => {
+            const item = items[params.dataIndex];
+            return toNumber(item?.close_price) >= toNumber(item?.open_price) ? '#ff7875' : '#73d13d';
+          },
+        },
+      },
+    ],
   };
 }
 
@@ -237,8 +423,8 @@ function buildPriceMomentumOption(kline: MarketStockKlineResponse | null, period
   const axisRange = computeNumericAxisRange([...closes, ...ma5.filter((value): value is number => value !== null), ...ma20.filter((value): value is number => value !== null)], {
     minPaddingRatio: 0.04,
     maxPaddingRatio: 0.04,
-    minPaddingAbs: period === '5m' || period === '15m' || period === '60m' ? 0.02 : 0.1,
-    roundMode: 'magnitude',
+    minPaddingAbs: period === '1m' || period === '5m' || period === '15m' || period === '60m' ? 0.02 : 0.1,
+    roundMode: 'step',
     splitNumber: 4,
   });
 
@@ -358,10 +544,15 @@ export default function MarketTrendPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [newsLoading, setNewsLoading] = useState(false);
   const [klineLoading, setKlineLoading] = useState(false);
+  const [intradayLoading, setIntradayLoading] = useState(false);
   const [error, setError] = useState('');
   const [detailError, setDetailError] = useState('');
   const [klineError, setKlineError] = useState('');
+  const [intradayError, setIntradayError] = useState('');
   const [candidates, setCandidates] = useState<AnalysisCandidateResponse[]>([]);
   const [favoriteSymbols, setFavoriteSymbols] = useState<FavoriteSymbol[]>(() => readFavoriteSymbols());
   const [favoriteQuery, setFavoriteQuery] = useState('');
@@ -371,10 +562,49 @@ export default function MarketTrendPage() {
   const [profile, setProfile] = useState<StockProfileResponse | null>(null);
   const [stockNews, setStockNews] = useState<StockNewsResponse | null>(null);
   const [kline, setKline] = useState<MarketStockKlineResponse | null>(null);
+  const [intradayKline, setIntradayKline] = useState<MarketStockKlineResponse | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [chartView, setChartView] = useState<ChartView>('kline');
   const [klinePeriod, setKlinePeriod] = useState<KlinePeriod>('day');
   const [showAllConcepts, setShowAllConcepts] = useState(false);
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, LiveQuoteSnapshot>>({});
+  const [quoteFlashes, setQuoteFlashes] = useState<Record<string, QuoteFlashState>>({});
+  const loadRequestRef = useRef(0);
+  const refreshInFlightRef = useRef(false);
+  const flashTimersRef = useRef<Record<string, number>>({});
+
+  const commitLiveQuotes = (entries: Array<LiveQuoteSnapshot | null | undefined>) => {
+    const normalizedEntries = entries.filter((entry): entry is LiveQuoteSnapshot => Boolean(entry?.symbol));
+    if (!normalizedEntries.length) return;
+
+    const pendingFlashes: Record<string, QuoteFlashState> = {};
+    setLiveQuotes((previous) => {
+      const next = { ...previous };
+      normalizedEntries.forEach((entry) => {
+        const flash = buildQuoteFlash(previous[entry.symbol], entry);
+        if (flash) pendingFlashes[entry.symbol] = flash;
+        next[entry.symbol] = entry;
+      });
+      return next;
+    });
+
+    if (!Object.keys(pendingFlashes).length) return;
+
+    setQuoteFlashes((previous) => ({ ...previous, ...pendingFlashes }));
+    Object.entries(pendingFlashes).forEach(([symbol]) => {
+      if (flashTimersRef.current[symbol]) {
+        window.clearTimeout(flashTimersRef.current[symbol]);
+      }
+      flashTimersRef.current[symbol] = window.setTimeout(() => {
+        setQuoteFlashes((previous) => {
+          const next = { ...previous };
+          delete next[symbol];
+          return next;
+        });
+        delete flashTimersRef.current[symbol];
+      }, QUOTE_FLASH_WINDOW_MS);
+    });
+  };
 
   const loadKline = async (symbol: string, period: KlinePeriod, refresh = false) => {
     if (!symbol) {
@@ -394,17 +624,51 @@ export default function MarketTrendPage() {
     }
   };
 
+  const loadSupplementalData = async (symbol: string) => {
+    if (!symbol) return;
+    setProfileLoading(true);
+    setNewsLoading(true);
+    const [profileRes, newsRes] = await Promise.allSettled([
+      marketApi.getStockProfile(symbol),
+      marketApi.getStockNews(symbol, { limit: 10 }),
+    ]);
+    if (profileRes.status === 'fulfilled') {
+      setProfile(profileRes.value);
+      commitLiveQuotes([buildQuoteSnapshotFromProfile(profileRes.value)]);
+    } else {
+      setProfile(null);
+    }
+    if (newsRes.status === 'fulfilled') {
+      setStockNews(newsRes.value);
+    } else {
+      setStockNews(null);
+    }
+    setProfileLoading(false);
+    setNewsLoading(false);
+  };
+
   const load = async (preferSymbol?: string, forceRefresh = false, period: KlinePeriod = klinePeriod) => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     setError('');
     setDetailError('');
     setKlineError('');
     try {
       const candidateRes = await analysisApi.getCandidates();
+      if (requestId !== loadRequestRef.current) return;
       const candidateList = candidateRes.candidates ?? [];
       const favorites = readFavoriteSymbols();
       setCandidates(candidateList);
       setFavoriteSymbols(favorites);
+      setLiveQuotes((previous) => {
+        const next = { ...previous };
+        candidateList.forEach((item) => {
+          if (!next[item.symbol]) {
+            next[item.symbol] = buildQuoteSnapshotFromCandidate(item);
+          }
+        });
+        return next;
+      });
       const requestedSymbol = preferSymbol || searchParams.get('symbol') || candidateRes.default_symbol || candidateList[0]?.symbol || favorites[0]?.symbol || '';
       const nextSymbol = resolveMarketSymbol(requestedSymbol, candidateList, favorites);
       setSelectedSymbol(nextSymbol);
@@ -412,25 +676,35 @@ export default function MarketTrendPage() {
       if (!nextSymbol) {
         setHistory([]);
         setDetail(null);
+        setProfile(null);
+        setStockNews(null);
         setKline(null);
+        setIntradayKline(null);
         return;
       }
+
+      setSearchParams({ symbol: nextSymbol });
+      setProfile(null);
+      setStockNews(null);
+      setDetailLoading(true);
+      setKlineLoading(true);
+      setProfileLoading(true);
+      setNewsLoading(true);
+
+      void loadSupplementalData(nextSymbol);
+      void loadIntraday(nextSymbol, forceRefresh);
 
       const [historyRes, detailRes, klineRes] = await Promise.allSettled([
         marketApi.getSnapshotHistory({ symbol: nextSymbol, limit: 30 }),
         marketApi.getStockDetail(nextSymbol, forceRefresh ? { refresh: true } : undefined),
         marketApi.getStockKlines(nextSymbol, { period, adjust: 'qfq', limit: 60, refresh: forceRefresh }),
       ]);
-      const [profileRes, newsRes] = await Promise.allSettled([
-        marketApi.getStockProfile(nextSymbol),
-        marketApi.getStockNews(nextSymbol, { limit: 10 }),
-      ]);
+      if (requestId !== loadRequestRef.current) return;
 
       setHistory(historyRes.status === 'fulfilled' ? [...historyRes.value].reverse() : []);
-      setProfile(profileRes.status === 'fulfilled' ? profileRes.value : null);
-      setStockNews(newsRes.status === 'fulfilled' ? newsRes.value : null);
       if (detailRes.status === 'fulfilled') {
         setDetail(detailRes.value);
+        commitLiveQuotes([buildQuoteSnapshotFromDetail(detailRes.value)]);
       } else {
         setDetail(null);
         setDetailError(detailRes.reason?.message ?? detailRes.reason?.data?.message ?? '详细行情暂时不可用');
@@ -444,8 +718,8 @@ export default function MarketTrendPage() {
       if (historyRes.status === 'rejected' && detailRes.status === 'rejected' && klineRes.status === 'rejected') {
         throw detailRes.reason ?? klineRes.reason ?? historyRes.reason;
       }
-      setSearchParams({ symbol: nextSymbol });
     } catch (err: any) {
+      if (requestId !== loadRequestRef.current) return;
       setCandidates([]);
       setHistory([]);
       setDetail(null);
@@ -454,7 +728,11 @@ export default function MarketTrendPage() {
       setKline(null);
       setError(err?.message ?? err?.data?.message ?? '市场趋势加载失败');
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+        setDetailLoading(false);
+        setKlineLoading(false);
+      }
     }
   };
 
@@ -475,64 +753,6 @@ export default function MarketTrendPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [favoriteQuery]);
-
-  useEffect(() => {
-    if (!selectedSymbol) {
-      return;
-    }
-
-    const refreshViewedSymbol = async () => {
-      if (document.visibilityState !== 'visible') {
-        return;
-      }
-
-      const [historyRes, detailRes, klineRes] = await Promise.allSettled([
-        marketApi.getSnapshotHistory({ symbol: selectedSymbol, limit: 30 }),
-        marketApi.getStockDetail(selectedSymbol, { refresh: true }),
-        marketApi.getStockKlines(selectedSymbol, { period: klinePeriod, adjust: 'qfq', limit: 60, refresh: true }),
-      ]);
-
-      if (historyRes.status === 'fulfilled') {
-        setHistory([...historyRes.value].reverse());
-      }
-
-      if (detailRes.status === 'fulfilled') {
-        setDetail(detailRes.value);
-        setDetailError('');
-        try {
-          const nextProfile = await marketApi.getStockProfile(selectedSymbol);
-          setProfile(nextProfile);
-        } catch {
-          // Keep the last profile snapshot when the lightweight refresh cannot update it.
-        }
-      } else {
-        setDetailError(detailRes.reason?.message ?? detailRes.reason?.data?.message ?? '详细行情暂时不可用');
-      }
-
-      if (klineRes.status === 'fulfilled') {
-        setKline(klineRes.value);
-        setKlineError('');
-      } else {
-        setKlineError(klineRes.reason?.message ?? klineRes.reason?.data?.message ?? 'K线数据暂时不可用');
-      }
-    };
-
-    const timer = window.setInterval(() => {
-      void refreshViewedSymbol();
-    }, ACTIVE_STOCK_REFRESH_MS);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void refreshViewedSymbol();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [klinePeriod, selectedSymbol]);
 
   const candidateList = useMemo(() => {
     const bySymbol = new Map<string, AnalysisCandidateResponse>();
@@ -606,10 +826,12 @@ export default function MarketTrendPage() {
     }
     return Array.from(optionMap.values()).slice(0, 12);
   }, [candidateList, favoriteQuery, marketSearchResults]);
+  const selectedLiveQuote = selectedSymbol ? liveQuotes[selectedSymbol] : undefined;
+  const selectedFlash = selectedSymbol ? quoteFlashes[selectedSymbol] : undefined;
   const latestPoint = history[history.length - 1] ?? null;
-  const latestPrice = profile?.last_price || detail?.last_price || latestPoint?.last_price;
-  const latestChangePercent = profile?.change_percent || detail?.change_percent || latestPoint?.change_percent;
-  const latestChangeAmount = profile?.change_amount || detail?.change_amount || latestPoint?.change_amount;
+  const latestPrice = selectedLiveQuote?.last_price || profile?.last_price || detail?.last_price || latestPoint?.last_price;
+  const latestChangePercent = selectedLiveQuote?.change_percent || profile?.change_percent || detail?.change_percent || latestPoint?.change_percent;
+  const latestChangeAmount = selectedLiveQuote?.change_amount || profile?.change_amount || detail?.change_amount || latestPoint?.change_amount;
   const industryLabel = normalizeDetailLabel(profile?.industry || detail?.industry);
   const regionLabel = normalizeDetailLabel(profile?.region || detail?.region);
   const metaSummary = [industryLabel, regionLabel].filter(Boolean).join(' · ');
@@ -619,10 +841,19 @@ export default function MarketTrendPage() {
   const conceptList = normalizeConcepts(profile?.concepts?.length ? profile.concepts : detail?.concepts);
   const visibleConcepts = showAllConcepts ? conceptList : conceptList.slice(0, 8);
   const visibleBoards = boardMemberships.slice(0, 10);
-  const newsItems = stockNews?.items ?? [];
+  const newsItems = useMemo(() => {
+    const items = [...(stockNews?.items ?? [])];
+    items.sort((a, b) => {
+      const left = a.published_at ? new Date(a.published_at).getTime() : 0;
+      const right = b.published_at ? new Date(b.published_at).getTime() : 0;
+      return right - left;
+    });
+    return items;
+  }, [stockNews]);
   const recentNewsCount = newsItems.filter((item) => item.is_recent).length;
   const newestNews = newsItems[0] ?? null;
-  const chartTitle = chartView === 'kline' ? `${getKlinePeriodLabel(klinePeriod)} K 线` : '快照走势';
+  const intradayPeriod = (intradayKline?.period as KlinePeriod | undefined) || '5m';
+  const chartTitle = chartView === 'kline' ? `${getKlinePeriodLabel(klinePeriod)} K 线` : `${getKlinePeriodLabel(intradayPeriod)} 盘中走势`;
   const trendMetrics = useMemo(() => buildTrendMetrics(kline?.items ?? []), [kline]);
   const latestAboveMa20 = trendMetrics.ma20 > 0 && trendMetrics.latestClose >= trendMetrics.ma20;
   const trendBiasLabel = latestAboveMa20 ? '站上 MA20' : trendMetrics.ma20 > 0 ? '低于 MA20' : '均线不足';
@@ -640,15 +871,97 @@ export default function MarketTrendPage() {
   ].filter(Boolean) as Array<{ color: string; icon: React.ReactNode; text: string }>;
 
   const summaryCards = [
-    { title: '成交额', value: formatLargeNumber(profile?.turnover || detail?.turnover || latestPoint?.turnover), color: '#1677ff' },
-    { title: '换手率', value: formatPercent(profile?.turnover_rate || detail?.turnover_rate), color: '#722ed1' },
-    { title: '振幅', value: formatPercent(profile?.amplitude || detail?.amplitude), color: '#fa8c16' },
-    { title: '量比', value: toNumber(profile?.volume_ratio || detail?.volume_ratio).toFixed(2), color: '#13c2c2' },
-    { title: '总市值', value: formatLargeNumber(profile?.total_market_cap || detail?.total_market_cap), color: '#2f54eb' },
+    { title: '成交额', value: formatLargeNumber(selectedLiveQuote?.turnover || profile?.turnover || detail?.turnover || latestPoint?.turnover), color: '#1677ff', field: 'turnover' },
+    { title: '换手率', value: formatPercent(selectedLiveQuote?.turnover_rate || profile?.turnover_rate || detail?.turnover_rate), color: '#722ed1', field: 'turnover_rate' },
+    { title: '振幅', value: formatPercent(selectedLiveQuote?.amplitude || profile?.amplitude || detail?.amplitude), color: '#fa8c16', field: 'amplitude' },
+    { title: '量比', value: toNumber(selectedLiveQuote?.volume_ratio || profile?.volume_ratio || detail?.volume_ratio).toFixed(2), color: '#13c2c2', field: 'volume_ratio' },
+    { title: '总市值', value: formatLargeNumber(selectedLiveQuote?.total_market_cap || profile?.total_market_cap || detail?.total_market_cap), color: '#2f54eb', field: 'total_market_cap' },
     { title: '关注次数', value: String(selectedCandidate?.trade_count ?? 0), color: '#52c41a' },
   ];
 
   const onSelectSymbol = (symbol: string) => void load(symbol, false, klinePeriod);
+
+  useEffect(() => {
+    if (!selectedSymbol) {
+      return;
+    }
+
+    const refreshViewedSymbol = async () => {
+      if (document.visibilityState !== 'visible' || refreshInFlightRef.current) {
+        return;
+      }
+      refreshInFlightRef.current = true;
+
+      const symbolsToRefresh = Array.from(new Set(candidateList.map((item) => item.symbol).filter(Boolean)));
+
+      try {
+        const [historyRes, detailRes, klineRes, newsRes, watchDetailResults] = await Promise.all([
+          Promise.allSettled([
+            marketApi.getSnapshotHistory({ symbol: selectedSymbol, limit: 30 }),
+            marketApi.getStockDetail(selectedSymbol, { refresh: true }),
+            marketApi.getStockKlines(selectedSymbol, { period: klinePeriod, adjust: 'qfq', limit: 60, refresh: true }),
+            marketApi.getStockNews(selectedSymbol, { limit: 10 }),
+          ]),
+          Promise.allSettled(symbolsToRefresh.map((symbol) => marketApi.getStockDetail(symbol, { refresh: true }))),
+        ]).then(([mainResults, watchResults]) => [mainResults[0], mainResults[1], mainResults[2], mainResults[3], watchResults] as const);
+
+        if (historyRes.status === 'fulfilled') {
+          setHistory([...historyRes.value].reverse());
+        }
+
+        if (detailRes.status === 'fulfilled') {
+          setDetail(detailRes.value);
+          setDetailError('');
+          commitLiveQuotes([buildQuoteSnapshotFromDetail(detailRes.value)]);
+          try {
+            const nextProfile = await marketApi.getStockProfile(selectedSymbol);
+            setProfile(nextProfile);
+            commitLiveQuotes([buildQuoteSnapshotFromProfile(nextProfile)]);
+          } catch {
+            // Keep the last profile snapshot when the lightweight refresh cannot update it.
+          }
+        } else {
+          setDetailError(detailRes.reason?.message ?? detailRes.reason?.data?.message ?? '详细行情暂时不可用');
+        }
+
+        if (klineRes.status === 'fulfilled') {
+          setKline(klineRes.value);
+          setKlineError('');
+        } else {
+          setKlineError(klineRes.reason?.message ?? klineRes.reason?.data?.message ?? 'K线数据暂时不可用');
+        }
+
+        if (newsRes.status === 'fulfilled') {
+          setStockNews(newsRes.value);
+        }
+
+        await loadIntraday(selectedSymbol, true);
+
+        const quoteEntries = watchDetailResults
+          .filter((result): result is PromiseFulfilledResult<MarketStockDetailResponse> => result.status === 'fulfilled')
+          .map((result) => buildQuoteSnapshotFromDetail(result.value));
+        commitLiveQuotes(quoteEntries);
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshViewedSymbol();
+    }, ACTIVE_STOCK_REFRESH_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshViewedSymbol();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [candidateList, klinePeriod, selectedSymbol]);
 
   const addFavoriteSymbol = async (value: string) => {
     const symbol = normalizeSymbolInput(value);
@@ -693,11 +1006,60 @@ export default function MarketTrendPage() {
     if (selectedSymbol) void loadKline(selectedSymbol, period);
   };
 
+  const loadIntraday = async (symbol: string, refresh = false) => {
+    if (!symbol) {
+      setIntradayKline(null);
+      setIntradayError('');
+      return;
+    }
+    setIntradayLoading(true);
+    setIntradayError('');
+    try {
+      const oneMinute = await marketApi.getStockKlines(symbol, { period: '1m', adjust: 'qfq', limit: 120, refresh });
+      setIntradayKline(oneMinute);
+      setIntradayError('');
+      return;
+    } catch (oneMinuteErr: any) {
+      try {
+        const fallback = await marketApi.getStockKlines(symbol, { period: '5m', adjust: 'qfq', limit: 120, refresh });
+        setIntradayKline(fallback);
+        setIntradayError(oneMinuteErr?.message ?? oneMinuteErr?.data?.message ?? '');
+      } catch {
+        setIntradayKline(null);
+        setIntradayError('盘中走势暂时不可用');
+      }
+    } finally {
+      setIntradayLoading(false);
+    }
+  };
+
+  const flashCardStyle = (flash?: QuoteFlashState): React.CSSProperties | undefined => {
+    if (!flash) return undefined;
+    return {
+      position: 'relative',
+      overflow: 'hidden',
+      border: `1px solid ${getFlashAccentColor(flash)}`,
+      boxShadow: `0 0 0 1px ${getFlashAccentColor(flash)}22, 0 10px 26px ${getFlashAccentColor(flash)}1f`,
+      transition: 'all 0.28s ease',
+    };
+  };
+
+  const flashValueStyle = (baseColor: string, field: string): React.CSSProperties => {
+    const active = selectedFlash?.fields.includes(field);
+    return {
+      color: active ? getFlashAccentColor(selectedFlash) : baseColor,
+      fontSize: 24,
+      transition: 'color 0.28s ease, transform 0.28s ease, text-shadow 0.28s ease',
+      transform: active ? 'scale(1.05)' : 'scale(1)',
+      textShadow: active ? `0 0 18px ${getFlashAccentColor(selectedFlash)}55` : 'none',
+    };
+  };
+
   return (
     <div style={{ padding: '24px' }}>
       <Button icon={<ArrowLeftOutlined />} type="text" onClick={() => navigate('/')} style={{ marginBottom: 16, color: '#595959', paddingLeft: 0 }}>返回首页</Button>
 
-      <Card bordered={false} style={{ marginBottom: 24, borderRadius: 20, background: 'linear-gradient(135deg, #0f172a 0%, #1677ff 65%, #69b1ff 100%)', boxShadow: '0 18px 40px rgba(22,119,255,0.18)' }} bodyStyle={{ padding: 28 }}>
+      <Card bordered={false} style={{ marginBottom: 24, borderRadius: 20, background: 'linear-gradient(135deg, #0f172a 0%, #1677ff 65%, #69b1ff 100%)', boxShadow: '0 18px 40px rgba(22,119,255,0.18)', ...(selectedFlash ? { outline: `1px solid ${getFlashAccentColor(selectedFlash)}`, boxShadow: `0 18px 40px rgba(22,119,255,0.18), 0 0 0 1px ${getFlashAccentColor(selectedFlash)}44, 0 0 28px ${getFlashAccentColor(selectedFlash)}2a` } : {}) }} bodyStyle={{ padding: 28 }}>
         <Row gutter={[20, 20]} align="middle">
           <Col span={24} xl={15}>
             <Space size={10} wrap style={{ marginBottom: 14 }}>
@@ -714,8 +1076,13 @@ export default function MarketTrendPage() {
                 <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: 16 }}>{selectedSymbol || '—'}</Text>
               </Space>
               <Space align="end" size={16} wrap>
-                <Text style={{ color: '#fff', fontSize: 40, fontWeight: 700, lineHeight: 1 }}>{formatPrice(latestPrice)}</Text>
+                <Text style={{ color: '#fff', fontSize: 40, fontWeight: 700, lineHeight: 1, transition: 'transform 0.28s ease, text-shadow 0.28s ease', transform: selectedFlash?.fields.includes('last_price') ? 'scale(1.04)' : 'scale(1)', textShadow: selectedFlash?.fields.includes('last_price') ? `0 0 18px ${getFlashAccentColor(selectedFlash)}88` : 'none' }}>{formatPrice(latestPrice)}</Text>
                 <Text style={{ color: getChangeColor(latestChangePercent), fontSize: 18, fontWeight: 600, lineHeight: 1.3 }}>{formatChangeText(latestChangeAmount, latestChangePercent)}</Text>
+                {selectedFlash ? (
+                  <Tag color={selectedFlash.direction === 'up' ? 'error' : selectedFlash.direction === 'down' ? 'success' : 'processing'} style={{ marginInlineStart: 0, borderRadius: 999, paddingInline: 10, fontWeight: 600 }}>
+                    {selectedFlash.direction === 'up' ? '↑' : selectedFlash.direction === 'down' ? '↓' : '•'} {formatPriceDelta(selectedFlash.priceDiff)} / {formatSignedPercent(selectedFlash.changePercentDiff)}
+                  </Tag>
+                ) : null}
               </Space>
               {metaSummary ? <Text style={{ color: 'rgba(255,255,255,0.82)' }}>{metaSummary}</Text> : null}
               <Text style={{ color: 'rgba(255,255,255,0.72)' }}>更新时间 {profile?.fetched_at || detail?.fetched_at || latestPoint?.snapshot_time || '—'}</Text>
@@ -766,9 +1133,13 @@ export default function MarketTrendPage() {
                 </AutoComplete>
                 <List dataSource={candidateList} renderItem={(item) => {
                   const isFavorite = item.sources.some((source) => source.type === 'favorite');
+                  const liveQuote = liveQuotes[item.symbol];
+                  const flash = quoteFlashes[item.symbol];
+                  const itemChangePercent = liveQuote?.change_percent || item.change_percent;
+                  const itemPrice = liveQuote?.last_price || item.last_price;
                   return (
                     <List.Item style={{ paddingInline: 0 }}>
-                      <div onClick={() => onSelectSymbol(item.symbol)} style={{ width: '100%', cursor: 'pointer', padding: 12, borderRadius: 12, background: item.symbol === selectedSymbol ? '#e6f4ff' : '#fafafa', border: item.symbol === selectedSymbol ? '1px solid #91caff' : '1px solid #f0f0f0' }}>
+                      <div onClick={() => onSelectSymbol(item.symbol)} style={{ width: '100%', cursor: 'pointer', padding: 12, borderRadius: 12, background: item.symbol === selectedSymbol ? '#e6f4ff' : flash ? `${getFlashAccentColor(flash)}10` : '#fafafa', border: item.symbol === selectedSymbol ? '1px solid #91caff' : flash ? `1px solid ${getFlashAccentColor(flash)}66` : '1px solid #f0f0f0', boxShadow: flash ? `0 8px 22px ${getFlashAccentColor(flash)}18` : 'none', transition: 'all 0.28s ease' }}>
                         <Space direction="vertical" size={4} style={{ width: '100%' }}>
                           <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
                             <Space wrap>
@@ -781,7 +1152,11 @@ export default function MarketTrendPage() {
                           </Space>
                           <Text type="secondary">{item.symbol}</Text>
                           <Space split={<Text type="secondary">|</Text>} size={6} wrap>
-                            <Text type={getChangeColor(item.change_percent) === '#ff4d4f' ? 'danger' : getChangeColor(item.change_percent) === '#52c41a' ? 'success' : undefined}>涨跌幅 {formatPercent(item.change_percent)}</Text>
+                            <Text type={getChangeColor(itemChangePercent) === '#ff4d4f' ? 'danger' : getChangeColor(itemChangePercent) === '#52c41a' ? 'success' : undefined} style={{ fontWeight: flash?.fields.includes('change_percent') ? 700 : 500, transition: 'all 0.28s ease', textShadow: flash?.fields.includes('change_percent') ? `0 0 14px ${getFlashAccentColor(flash)}55` : 'none' }}>涨跌幅 {formatPercent(itemChangePercent)}</Text>
+                            <Text style={{ color: '#595959', fontWeight: flash?.fields.includes('last_price') ? 700 : 500, transition: 'all 0.28s ease', textShadow: flash?.fields.includes('last_price') ? `0 0 14px ${getFlashAccentColor(flash)}55` : 'none' }}>现价 {formatPrice(itemPrice)}</Text>
+                            {flash ? <Tag color={flash.direction === 'up' ? 'error' : flash.direction === 'down' ? 'success' : 'processing'} style={{ borderRadius: 999 }}>{
+                              flash.direction === 'up' ? `+${flash.priceDiff.toFixed(2)}` : flash.direction === 'down' ? flash.priceDiff.toFixed(2) : '更新'
+                            }</Tag> : null}
                             <Text type="secondary">关注 {item.trade_count ?? 0} 次</Text>
                           </Space>
                         </Space>
@@ -795,14 +1170,15 @@ export default function MarketTrendPage() {
             <Col span={24} lg={17}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Row gutter={[16, 16]}>
-                  {summaryCards.map((item) => <Col key={item.title} xs={12} xl={8}><Card bordered={false} style={cardStyle}><Statistic title={item.title} value={item.value} valueStyle={{ color: item.color, fontSize: 24 }} prefix={item.title === '关注次数' ? <RiseOutlined /> : undefined} /></Card></Col>)}
+                  {summaryCards.map((item) => <Col key={item.title} xs={12} xl={8}><Card bordered={false} style={{ ...cardStyle, ...(item.field ? flashCardStyle(selectedFlash?.fields.includes(item.field) ? selectedFlash : undefined) : undefined) }}><Statistic title={item.title} value={item.value} valueStyle={item.field ? flashValueStyle(item.color, item.field) : { color: item.color, fontSize: 24 }} prefix={item.title === '关注次数' ? <RiseOutlined /> : undefined} /></Card></Col>)}
                 </Row>
 
                 <Row gutter={[16, 16]}>
                   <Col span={24} xl={10}>
                     <Card bordered={false} style={cardStyle} title="证券介绍" extra={<Text type="secondary">来源 {profile?.company_profile?.source || profile?.source || detail?.source || '—'}</Text>}>
-                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                        <Space wrap>
+                      <Spin spinning={profileLoading}>
+                        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                          <Space wrap>
                           {profile?.company_profile?.market_label ? <Tag color="geekblue">{profile.company_profile.market_label}</Tag> : null}
                           {profile?.company_profile?.industry_label ? <Tag color="blue">{profile.company_profile.industry_label}</Tag> : industryLabel ? (
                             <Tag
@@ -830,7 +1206,8 @@ export default function MarketTrendPage() {
                           <Col span={12}><Statistic title="跌停价" value={toNumber(profile?.limit_down || detail?.limit_down)} precision={2} prefix="¥" /></Col>
                         </Row>
                         {profile?.company_profile?.website ? <Text type="secondary">官网：{profile.company_profile.website}</Text> : null}
-                      </Space>
+                        </Space>
+                      </Spin>
                     </Card>
                   </Col>
                   <Col span={24} xl={14}>
@@ -924,8 +1301,15 @@ export default function MarketTrendPage() {
                   </Col>
                 </Row>
 
-                <Card bordered={false} style={cardStyle} title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />{chartTitle}</span>} extra={<Space wrap size={12}><Segmented options={[{ label: 'K线', value: 'kline' }, { label: '快照走势', value: 'snapshot' }]} value={chartView} onChange={(value) => setChartView(value as ChartView)} />{chartView === 'kline' ? <Segmented options={klinePeriodOptions} value={klinePeriod} onChange={(value) => onSelectPeriod(value as KlinePeriod)} /> : null}<Button icon={<ReloadOutlined />} onClick={() => void load(selectedSymbol, true, klinePeriod)} loading={loading || klineLoading}>强制刷新</Button></Space>}>
-                  {chartView === 'kline' ? <Spin spinning={klineLoading}>{klineError ? <Alert type="warning" showIcon message={klineError} style={{ marginBottom: 16 }} /> : null}{kline?.items?.length ? <ReactECharts option={buildKlineOption(kline, klinePeriod)} style={{ height: 380 }} /> : <Empty description="暂无该标的的 K 线数据" />}</Spin> : history.length ? <ReactECharts option={buildSnapshotOption(history)} style={{ height: 380 }} /> : <Empty description="暂无该标的的历史快照" />}
+                <Card bordered={false} style={cardStyle} title={<span><BarChartOutlined style={{ color: '#1677ff', marginRight: 8 }} />{chartTitle}</span>} extra={<Space wrap size={12}><Segmented options={[{ label: 'K线', value: 'kline' }, { label: '盘中走势', value: 'intraday' }]} value={chartView} onChange={(value) => setChartView(value as ChartView)} />{chartView === 'kline' ? <Segmented options={klinePeriodOptions} value={klinePeriod} onChange={(value) => onSelectPeriod(value as KlinePeriod)} /> : intradayKline?.period === '5m' ? <Tag color="gold">1分不可用，已降级到5分</Tag> : intradayKline?.period === '1m' ? <Tag color="green">1分级别</Tag> : <Tag>等待盘中数据</Tag>}<Button icon={<ReloadOutlined />} onClick={() => void load(selectedSymbol, true, klinePeriod)} loading={detailLoading || klineLoading || intradayLoading}>强制刷新</Button></Space>}>
+                  {chartView === 'kline'
+                    ? <Spin spinning={klineLoading}>{klineError ? <Alert type="warning" showIcon message={klineError} style={{ marginBottom: 16 }} /> : null}{kline?.items?.length ? <ReactECharts option={buildKlineOption(kline, klinePeriod)} style={{ height: 380 }} /> : <Empty description="暂无该标的的 K 线数据" />}</Spin>
+                    : <Spin spinning={intradayLoading}>
+                        {intradayError ? <Alert type="warning" showIcon message={intradayError} style={{ marginBottom: 16 }} /> : null}
+                        {intradayKline?.items?.length
+                          ? <ReactECharts option={buildIntradayOption(intradayKline, intradayPeriod)} style={{ height: 380 }} />
+                          : <Empty description="暂无该标的的盘中走势数据" />}
+                      </Spin>}
                 </Card>
 
                 <Row gutter={[16, 16]}>
@@ -947,6 +1331,7 @@ export default function MarketTrendPage() {
                   title="新闻与公告"
                   extra={<Text type="secondary">覆盖 {stockNews?.coverage || '—'} · 最新 {newestNews?.published_at || '—'}</Text>}
                 >
+                  <Spin spinning={newsLoading}>
                   {newsItems.length ? (
                     <List
                       dataSource={newsItems}
@@ -969,6 +1354,7 @@ export default function MarketTrendPage() {
                   ) : (
                     <Empty description="暂无可追溯新闻；AI 分析时将不会编造资讯。" />
                   )}
+                  </Spin>
                 </Card>
 
                 <Card bordered={false} style={cardStyle} title="详细行情" extra={<Text type="secondary">数据源 {detail?.source || latestPoint?.source || '—'}</Text>}>

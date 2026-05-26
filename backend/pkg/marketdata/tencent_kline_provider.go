@@ -175,7 +175,7 @@ func (p *tencentKlineProvider) buildRequest(symbol, period, adjust string, limit
 			return p.rawKlineEndpoint(), fmt.Sprintf("%s,%s,,,%d", symbol, period, limit), []string{period}, nil
 		}
 		return p.fqKlineEndpoint(), fmt.Sprintf("%s,%s,,,%d,%s", symbol, period, limit, adjust), []string{adjust + period, period}, nil
-	case "5m", "15m", "60m":
+	case "1m", "5m", "15m", "60m":
 		minutePeriod := "m" + strings.TrimSuffix(period, "m")
 		return p.minuteKlineEndpoint(), fmt.Sprintf("%s,%s,,%d", symbol, minutePeriod, limit), []string{minutePeriod}, nil
 	default:
@@ -400,7 +400,7 @@ func parseTencentRow(symbol, period, adjust string, row []any, prevClose float64
 func parseTencentBarTime(period, value string) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	switch period {
-	case "5m", "15m", "60m":
+	case "1m", "5m", "15m", "60m":
 		return time.ParseInLocation("200601021504", trimmed, time.Local)
 	case "month", "week", "day":
 		return time.ParseInLocation("2006-01-02", trimmed, time.Local)

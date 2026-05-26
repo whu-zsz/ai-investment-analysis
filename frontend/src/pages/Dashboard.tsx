@@ -548,6 +548,18 @@ export default function Dashboard() {
     setHistoryLoading(false);
   };
 
+  const fetchMarketBreadth = async () => {
+    try {
+      const breadth = await marketApi.getDashboardMarketBreadth({ limit: 10 });
+      setMarketBreadth(breadth);
+      setBreadthError('');
+    } catch (err: unknown) {
+      const apiError = err as { message?: string; data?: { message?: string } };
+      setMarketBreadth(null);
+      setBreadthError(apiError.message ?? apiError.data?.message ?? '全市场雷达暂时不可用');
+    }
+  };
+
   const fetchMarketData = async (options?: { silent?: boolean }) => {
     const requestId = ++requestRef.current;
     const isSilent = options?.silent === true;
@@ -559,25 +571,12 @@ export default function Dashboard() {
     setError('');
     setHistoryError('');
     try {
-      const [snapshotRes, breadthRes] = await Promise.allSettled([
-        marketApi.getDashboardSnapshot(),
-        marketApi.getDashboardMarketBreadth({ limit: 10 }),
-      ]);
+      const res = await marketApi.getDashboardSnapshot();
       if (requestId !== requestRef.current) return;
-      if (snapshotRes.status === 'rejected') {
-        throw snapshotRes.reason;
-      }
-      const res = snapshotRes.value;
       setMarketData(res);
-      if (breadthRes.status === 'fulfilled') {
-        setMarketBreadth(breadthRes.value);
-        setBreadthError('');
-      } else {
-        setMarketBreadth(null);
-        setBreadthError(breadthRes.reason?.message ?? breadthRes.reason?.data?.message ?? '全市场雷达暂时不可用');
-      }
       setActiveIndexSymbol((prev) => prev || res.indices[0]?.symbol || '');
       void fetchIndexHistories(res.indices ?? [], chartRange, requestId);
+      void fetchMarketBreadth();
     } catch (err: unknown) {
       if (requestId !== requestRef.current) return;
       const apiError = err as { message?: string; data?: { message?: string } };
@@ -715,7 +714,7 @@ export default function Dashboard() {
               <Button ghost onClick={() => guardNavigate('/app/portfolio')}>持仓总览</Button>
               <Button ghost onClick={() => guardNavigate('/app/market-trend')}>市场趋势</Button>
               <Button ghost onClick={() => guardNavigate('/app/analysis')}>AI 风险分析</Button>
-              <Button ghost onClick={() => guardNavigate('/app/recommendation')}>AI 推荐</Button>
+              <Button ghost onClick={() => guardNavigate('/app/chat?kind=recommendation')}>AI 推荐</Button>
               <Button ghost onClick={() => guardNavigate('/app/prediction')}>趋势预测</Button>
               <Button ghost onClick={() => guardNavigate('/app/history')}>历史归档</Button>
               {isLoggedIn ? (

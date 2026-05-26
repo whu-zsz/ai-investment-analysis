@@ -1047,6 +1047,109 @@ func TestAIService_GetAnalysisReportDetail_UsesStructuredPredictionFromRawAIOutp
 	}
 }
 
+func TestAIService_GetAnalysisReportDetail_IgnoresWeakStructuredPredictionScenarios(t *testing.T) {
+	reportRepo := NewMockAnalysisReportRepository()
+	predictionText := "若白酒仓位止跌且新能源强势延续，组合收益有机会继续修复。"
+	rawOutput := `{"summary":{"report_title":"预测报告","summary_text":"组合当前由盈利股和亏损股共同驱动。","risk_level":"medium","investment_style":"balanced","risk_analysis":"亏损仓位仍会拖累净值。","pattern_insights":"仓位表现分化明显。","prediction_text":"若白酒仓位止跌且新能源强势延续，组合收益有机会继续修复。","prediction":{"bias":"neutral","confidence":"medium","horizon":"next_30d","drivers":["宁德时代近7日涨幅4.60%","五粮液近7日跌幅3.20%"],"scenarios":[{"condition":"市场行情向好，盈利股票继续上涨","outcome":"投资组合实现盈利"},{"condition":"市场行情走弱，亏损股票进一步下跌","outcome":"投资组合亏损扩大"}]},"recommendations":["控制回撤"]},"stocks":[{"symbol":"300750.SZ","asset_name":"宁德时代","risk_level":"medium","investment_style":"growth","analysis_text":"测试分析","recommendation":"hold","key_points":["测试"]}]}`
+	reportRepo.Create(&model.AnalysisReport{
+		UserID:              1,
+		ReportType:          "summary",
+		ReportTitle:         "预测报告",
+		AnalysisPeriodStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		AnalysisPeriodEnd:   time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
+		RiskLevel:           "medium",
+		SummaryText:         "测试总结",
+		PredictionText:      &predictionText,
+		RawAIOutput:         &rawOutput,
+		AIModel:             "test-model",
+	})
+
+	itemRepo := NewMockAnalysisReportItemRepository()
+	itemRepo.ItemsByReportID[1] = []model.AnalysisReportItem{
+		{
+			ID:                   1,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "300750.SZ",
+			AssetName:            "宁德时代",
+			TradeCount:           1,
+			BuyCount:             1,
+			SellCount:            0,
+			BuyAmount:            decimal.NewFromInt(50000),
+			SellAmount:           decimal.Zero,
+			NetQuantity:          decimal.NewFromInt(100),
+			RealizedProfit:       decimal.Zero,
+			RealizedProfitRate:   decimal.Zero,
+			EndingPositionQty:    decimal.NewFromInt(100),
+			EndingAvgCost:        decimal.NewFromFloat(200),
+			LatestPrice:          decimal.NewFromFloat(220),
+			LatestMarketValue:    decimal.NewFromInt(22000),
+			UnrealizedProfit:     decimal.NewFromInt(2000),
+			TotalProfit:          decimal.NewFromInt(2000),
+			ChangePercent7D:      decimal.NewFromFloat(4.6),
+			PeriodPriceChangePct: decimal.NewFromFloat(4.6),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "medium",
+			AnalysisText:         "测试个股分析",
+			Recommendation:       "hold",
+		},
+		{
+			ID:                   2,
+			ReportID:             1,
+			UserID:               1,
+			Symbol:               "000858.SZ",
+			AssetName:            "五粮液",
+			TradeCount:           1,
+			BuyCount:             1,
+			SellCount:            0,
+			BuyAmount:            decimal.NewFromInt(30000),
+			SellAmount:           decimal.Zero,
+			NetQuantity:          decimal.NewFromInt(100),
+			RealizedProfit:       decimal.Zero,
+			RealizedProfitRate:   decimal.Zero,
+			EndingPositionQty:    decimal.NewFromInt(100),
+			EndingAvgCost:        decimal.NewFromFloat(160),
+			LatestPrice:          decimal.NewFromFloat(145),
+			LatestMarketValue:    decimal.NewFromInt(14500),
+			UnrealizedProfit:     decimal.NewFromInt(-1500),
+			TotalProfit:          decimal.NewFromInt(-1500),
+			ChangePercent7D:      decimal.NewFromFloat(-3.2),
+			PeriodPriceChangePct: decimal.NewFromFloat(-3.2),
+			MarketDataStatus:     "complete",
+			RiskLevel:            "medium",
+			AnalysisText:         "测试个股分析",
+			Recommendation:       "observe",
+		},
+	}
+
+	aiService := service.NewAIService(
+		NewMockAnalysisTaskRepository(),
+		reportRepo,
+		itemRepo,
+		&MockTransactionRepositoryForAI{},
+		&MockStockMetricService{},
+		&MockLLMProvider{modelName: "test-model"},
+		zap.NewNop(),
+	)
+
+	detail, err := aiService.GetAnalysisReportDetail(1, 1)
+	if err != nil {
+		t.Fatalf("GetAnalysisReportDetail() error = %v", err)
+	}
+	if detail.Prediction == nil {
+		t.Fatal("expected fallback prediction")
+	}
+	if len(detail.Prediction.Scenarios) < 2 {
+		t.Fatalf("expected item-based fallback scenarios, got %d", len(detail.Prediction.Scenarios))
+	}
+	if strings.Contains(detail.Prediction.Scenarios[0].Condition, "市场行情向好") {
+		t.Fatalf("expected weak structured scenario to be ignored, got %s", detail.Prediction.Scenarios[0].Condition)
+	}
+	if !strings.Contains(detail.Prediction.Scenarios[0].Condition, "宁德时代") {
+		t.Fatalf("expected fallback scenario to mention concrete holding, got %s", detail.Prediction.Scenarios[0].Condition)
+	}
+}
+
 func TestAIService_GetAnalysisReportDetail_FallsBackToPredictionText(t *testing.T) {
 	reportRepo := NewMockAnalysisReportRepository()
 	predictionText := "若继续维持当前交易结构，强势标的可能继续贡献收益，但弱势仓位会放大组合回撤风险。"
@@ -1149,14 +1252,17 @@ func TestAIService_GetAnalysisReportDetail_FallsBackToPredictionText(t *testing.
 	if len(detail.Prediction.Drivers) != 2 {
 		t.Fatalf("expected 2 fallback drivers, got %d", len(detail.Prediction.Drivers))
 	}
-	if !strings.Contains(detail.Prediction.Drivers[0], "600519.SH") {
+	if !strings.Contains(detail.Prediction.Drivers[0], "贵州茅台") {
 		t.Fatalf("unexpected first driver: %s", detail.Prediction.Drivers[0])
 	}
-	if len(detail.Prediction.Scenarios) != 1 {
-		t.Fatalf("expected 1 fallback scenario, got %d", len(detail.Prediction.Scenarios))
+	if len(detail.Prediction.Scenarios) != 2 {
+		t.Fatalf("expected 2 fallback scenarios, got %d", len(detail.Prediction.Scenarios))
 	}
-	if detail.Prediction.Scenarios[0].Outcome != predictionText {
-		t.Fatalf("unexpected fallback scenario outcome: %s", detail.Prediction.Scenarios[0].Outcome)
+	if !strings.Contains(detail.Prediction.Scenarios[0].Condition, "贵州茅台") {
+		t.Fatalf("unexpected fallback scenario condition: %s", detail.Prediction.Scenarios[0].Condition)
+	}
+	if !strings.Contains(detail.Prediction.Scenarios[1].Condition, "平安银行") {
+		t.Fatalf("unexpected second fallback scenario condition: %s", detail.Prediction.Scenarios[1].Condition)
 	}
 	if detail.Prediction.Narrative != predictionText {
 		t.Fatalf("unexpected fallback narrative: %s", detail.Prediction.Narrative)

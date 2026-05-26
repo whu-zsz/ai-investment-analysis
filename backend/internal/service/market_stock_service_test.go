@@ -65,7 +65,9 @@ func (r *stubStockQuoteDetailRepo) FindBySymbols(symbols []string) ([]model.Stoc
 	return []model.StockQuoteDetail{*r.detail}, nil
 }
 
-type stubStockKlineRepo struct{}
+type stubStockKlineRepo struct{
+	bars []model.StockKlineBar
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -78,7 +80,7 @@ func (r *stubStockKlineRepo) UpsertBars(bars []model.StockKlineBar) error {
 }
 
 func (r *stubStockKlineRepo) FindBars(symbol, period, adjust string, limit int) ([]model.StockKlineBar, error) {
-	return nil, nil
+	return r.bars, nil
 }
 
 func (r *stubStockKlineRepo) FindLatestBar(symbol, period, adjust string) (*model.StockKlineBar, error) {
@@ -147,6 +149,44 @@ func TestMarketStockService_GetStockDetail_SupplementsCachedMetadata(t *testing.
 	}
 	if repo.upserted == nil {
 		t.Fatalf("expected supplemented detail to be persisted")
+	}
+}
+
+func TestMarketStockService_GetStockDetail_ForceRefreshWithinWindowUsesCache(t *testing.T) {
+	repo := &stubStockQuoteDetailRepo{
+		detail: &model.StockQuoteDetail{
+			Symbol:    "600519.SH",
+			Name:      "贵州茅台",
+			Market:    "cn_stock",
+			LastPrice: decimal.NewFromFloat(1540.12),
+			Source:    "tencent",
+			FetchedAt: time.Now().Add(-3 * time.Second),
+		},
+	}
+	provider := &stubStockDetailProvider{
+		detail: &marketdata.StockDetail{
+			Symbol:    "600519.SH",
+			Name:      "贵州茅台",
+			LastPrice: 1600.00,
+			Source:    "tencent",
+			FetchedAt: time.Now(),
+		},
+	}
+	svc := &marketStockService{
+		provider:   provider,
+		detailRepo: repo,
+		klineRepo:  &stubStockKlineRepo{},
+	}
+
+	resp, err := svc.GetStockDetail("600519.SH", true)
+	if err != nil {
+		t.Fatalf("GetStockDetail() error = %v", err)
+	}
+	if resp.LastPrice != "1540.12" {
+		t.Fatalf("LastPrice = %q, want %q", resp.LastPrice, "1540.12")
+	}
+	if repo.upserted != nil {
+		t.Fatal("expected cache short-circuit without upsert")
 	}
 }
 
@@ -220,6 +260,39 @@ func TestMarketStockService_LookupBoardMetadata(t *testing.T) {
 	}
 	if meta.Source != "em-board" {
 		t.Fatalf("Source = %q, want %q", meta.Source, "em-board")
+	}
+}
+
+func TestMarketStockService_GetStockKlines_ForceRefreshWithinWindowUsesCache(t *testing.T) {
+	now := time.Now()
+	repo := &stubStockKlineRepo{
+		bars: []model.StockKlineBar{
+			{
+				Symbol:     "600519.SH",
+				Period:     "5m",
+				AdjustType: "qfq",
+				BarTime:    now.Add(-5 * time.Minute),
+				ClosePrice: decimal.NewFromFloat(1540.12),
+				Source:     "tencent",
+				UpdatedAt:  now.Add(-4 * time.Second),
+			},
+		},
+	}
+	svc := &marketStockService{
+		provider:   &stubStockDetailProvider{},
+		detailRepo: &stubStockQuoteDetailRepo{},
+		klineRepo:  repo,
+	}
+
+	resp, err := svc.GetStockKlines("600519.SH", "5m", "qfq", 1, true)
+	if err != nil {
+		t.Fatalf("GetStockKlines() error = %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(resp.Items))
+	}
+	if resp.RefreshTriggered {
+		t.Fatal("expected cached kline response without external refresh")
 	}
 }
 
