@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"sort"
 	"strings"
 
 	"stock-analysis-backend/internal/model"
@@ -46,6 +47,60 @@ func (r *InMemoryMarketSnapshotRepository) FindLatestBatchNo() (string, error) {
 		}
 	}
 	return latest.BatchNo, nil
+}
+
+func (r *InMemoryMarketSnapshotRepository) FindLatestBatchNoBySource(source string) (string, error) {
+	if len(r.snapshots) == 0 {
+		return "", gorm.ErrRecordNotFound
+	}
+	var latest *model.MarketSnapshot
+	for _, s := range r.snapshots {
+		if s.Source != source {
+			continue
+		}
+		if latest == nil || s.SnapshotTime.After(latest.SnapshotTime) {
+			latest = s
+		}
+	}
+	if latest == nil {
+		return "", gorm.ErrRecordNotFound
+	}
+	return latest.BatchNo, nil
+}
+
+func (r *InMemoryMarketSnapshotRepository) FindRecentBatchNos(limit int) ([]string, error) {
+	if len(r.snapshots) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	type batchEntry struct {
+		batchNo string
+		latest  time.Time
+	}
+	index := map[string]batchEntry{}
+	for _, s := range r.snapshots {
+		entry, ok := index[s.BatchNo]
+		if !ok || s.SnapshotTime.After(entry.latest) {
+			index[s.BatchNo] = batchEntry{batchNo: s.BatchNo, latest: s.SnapshotTime}
+		}
+	}
+	entries := make([]batchEntry, 0, len(index))
+	for _, entry := range index {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].latest.After(entries[j].latest)
+	})
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry.batchNo)
+	}
+	return result, nil
 }
 
 func (r *InMemoryMarketSnapshotRepository) FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error) {
@@ -411,6 +466,7 @@ func TestMarketSnapshotRepository_Interface(t *testing.T) {
 		Source:        "mock",
 	}})
 	_, _ = repo.FindLatestBatchNo()
+	_, _ = repo.FindLatestBatchNoBySource("mock")
 	_, _ = repo.FindByBatchNo("batch001")
 	_, _ = repo.FindLatestBySymbol("000001.SH")
 	_, _ = repo.FindHistory(10, nil, nil)

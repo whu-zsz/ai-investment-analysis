@@ -128,6 +128,14 @@ func (r *MockMetricMarketSnapshotRepository) FindLatestBatchNo() (string, error)
 	return "", r.Err
 }
 
+func (r *MockMetricMarketSnapshotRepository) FindLatestBatchNoBySource(source string) (string, error) {
+	return "", r.Err
+}
+
+func (r *MockMetricMarketSnapshotRepository) FindRecentBatchNos(limit int) ([]string, error) {
+	return nil, r.Err
+}
+
 func (r *MockMetricMarketSnapshotRepository) FindByBatchNo(batchNo string) ([]model.MarketSnapshot, error) {
 	return nil, r.Err
 }
@@ -161,6 +169,14 @@ type MockMetricMarketDataService struct {
 }
 
 func (s *MockMetricMarketDataService) FetchAndStoreMarketSnapshots(ctx context.Context) (string, int, error) {
+	return "batch001", len(s.Snapshots), s.Err
+}
+
+func (s *MockMetricMarketDataService) FetchAndStoreFullMarketSnapshots(ctx context.Context) (string, int, error) {
+	return "batch001", len(s.Snapshots), s.Err
+}
+
+func (s *MockMetricMarketDataService) FetchAndStoreMarketBoardSnapshots(ctx context.Context) (string, int, error) {
 	return "batch001", len(s.Snapshots), s.Err
 }
 

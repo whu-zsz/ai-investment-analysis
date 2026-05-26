@@ -76,6 +76,7 @@ func SetupRouter(
 			dashboard := protected.Group("/dashboard")
 			{
 				dashboard.GET("/market-snapshot", marketHandler.GetDashboardSnapshot)
+				dashboard.GET("/market-breadth", marketHandler.GetDashboardMarketBreadth)
 			}
 
 			market := protected.Group("/market")
@@ -83,7 +84,11 @@ func SetupRouter(
 				market.GET("/snapshots/latest", marketHandler.GetLatestSnapshots)
 				market.GET("/snapshots/history", marketHandler.GetSnapshotHistory)
 				market.GET("/stocks/search", marketHandler.SearchStocks)
+				market.GET("/boards/:boardType/:code", marketHandler.GetBoardDetail)
+				market.GET("/boards/:boardType/:code/news", marketHandler.GetBoardNews)
 				market.GET("/stocks/:symbol/detail", marketHandler.GetStockDetail)
+				market.GET("/stocks/:symbol/profile", marketHandler.GetStockProfile)
+				market.GET("/stocks/:symbol/news", marketHandler.GetStockNews)
 				market.GET("/stocks/:symbol/kline", marketHandler.GetStockKlines)
 			}
 
@@ -98,6 +103,8 @@ func SetupRouter(
 				analysis.GET("/reports/:id/pdf", analysisHandler.ExportReportPDF)
 				analysis.POST("/stock-chat", analysisHandler.StockChat)
 				analysis.POST("/stock-chat/stream", analysisHandler.StockChatStream)
+				analysis.POST("/board-chat", analysisHandler.BoardChat)
+				analysis.POST("/board-chat/stream", analysisHandler.BoardChatStream)
 				analysis.GET("/candidates", analysisHandler.GetCandidates)
 				analysis.GET("/recommendations", analysisHandler.GetRecommendations)
 			}

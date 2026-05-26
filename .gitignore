@@ -45,6 +45,8 @@ frontend/*.log
 frontend/.vite.pid
 frontend/coverage/
 frontend/.nyc_output/
+frontend/playwright-report/
+frontend/test-results/
 
 # ====================
 # TypeScript / 编辑器

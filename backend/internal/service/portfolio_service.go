@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"strings"
+
 	"stock-analysis-backend/internal/model"
 	"stock-analysis-backend/internal/repository"
 	"time"
@@ -16,19 +18,116 @@ type PortfolioService interface {
 }
 
 type portfolioService struct {
-	portfolioRepo   repository.PortfolioRepository
-	transactionRepo repository.TransactionRepository
+	portfolioRepo      repository.PortfolioRepository
+	transactionRepo    repository.TransactionRepository
+	marketStockService MarketStockService
 }
 
-func NewPortfolioService(portfolioRepo repository.PortfolioRepository, transactionRepo repository.TransactionRepository) PortfolioService {
+func NewPortfolioService(portfolioRepo repository.PortfolioRepository, transactionRepo repository.TransactionRepository, marketStockService ...MarketStockService) PortfolioService {
+	var stockService MarketStockService
+	if len(marketStockService) > 0 {
+		stockService = marketStockService[0]
+	}
 	return &portfolioService{
-		portfolioRepo:   portfolioRepo,
-		transactionRepo: transactionRepo,
+		portfolioRepo:      portfolioRepo,
+		transactionRepo:    transactionRepo,
+		marketStockService: stockService,
 	}
 }
 
 func (s *portfolioService) GetPortfolios(userID uint64) ([]model.Portfolio, error) {
-	return s.portfolioRepo.FindByUserID(userID)
+	portfolios, err := s.portfolioRepo.FindByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	if s.marketStockService == nil {
+		return portfolios, nil
+	}
+	for i := range portfolios {
+		if !needsPortfolioPriceRefresh(&portfolios[i]) {
+			continue
+		}
+		if err := s.refreshPortfolioPrice(&portfolios[i]); err != nil {
+			continue
+		}
+		_ = s.portfolioRepo.Update(&portfolios[i])
+	}
+	return portfolios, nil
+}
+
+func needsPortfolioPriceRefresh(portfolio *model.Portfolio) bool {
+	return portfolio != nil &&
+		portfolio.TotalQuantity.GreaterThan(decimal.Zero) &&
+		(portfolio.CurrentPrice == nil || portfolio.CurrentPrice.LessThanOrEqual(decimal.Zero) || portfolio.MarketValue.LessThanOrEqual(decimal.Zero))
+}
+
+func (s *portfolioService) refreshPortfolioPrice(portfolio *model.Portfolio) error {
+	var lastErr error
+	for _, symbol := range portfolioPriceSampleSymbols(portfolio.AssetCode, portfolio.AssetType) {
+		detail, err := s.marketStockService.GetStockDetail(symbol, false)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !matchesPortfolioAssetName(portfolio.AssetName, detail.Name) {
+			lastErr = errors.New("sampled market detail does not match portfolio asset")
+			continue
+		}
+		return applyPortfolioMarketPrice(portfolio, detail.LastPrice)
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("market price sample unavailable")
+}
+
+func portfolioPriceSampleSymbols(assetCode, assetType string) []string {
+	code := strings.TrimSpace(strings.ToUpper(assetCode))
+	if code == "" {
+		return nil
+	}
+	if strings.Contains(code, ".") {
+		return []string{code}
+	}
+	if strings.EqualFold(strings.TrimSpace(assetType), "fund") {
+		if strings.HasPrefix(code, "5") {
+			return []string{code + ".SH", code}
+		}
+		if strings.HasPrefix(code, "1") {
+			return []string{code + ".SZ", code}
+		}
+	}
+	if strings.HasPrefix(code, "6") {
+		return []string{code + ".SH", code}
+	} else if strings.HasPrefix(code, "0") || strings.HasPrefix(code, "3") {
+		return []string{code + ".SZ", code}
+	}
+	return []string{code}
+}
+
+func matchesPortfolioAssetName(portfolioName, marketName string) bool {
+	left := normalizeAssetNameForPriceMatch(portfolioName)
+	right := normalizeAssetNameForPriceMatch(marketName)
+	return left == "" || right == "" || left == right || strings.Contains(left, right) || strings.Contains(right, left)
+}
+
+func normalizeAssetNameForPriceMatch(value string) string {
+	return strings.ReplaceAll(strings.TrimSpace(value), " ", "")
+}
+
+func applyPortfolioMarketPrice(portfolio *model.Portfolio, lastPrice string) error {
+	currentPrice, err := decimal.NewFromString(lastPrice)
+	if err != nil || currentPrice.LessThanOrEqual(decimal.Zero) {
+		return errors.New("invalid sampled market price")
+	}
+	portfolio.CurrentPrice = &currentPrice
+	portfolio.MarketValue = portfolio.TotalQuantity.Mul(currentPrice)
+	portfolio.ProfitLoss = portfolio.TotalQuantity.Mul(currentPrice.Sub(portfolio.AverageCost))
+	if portfolio.AverageCost.GreaterThan(decimal.Zero) {
+		portfolio.ProfitLossPercent = currentPrice.Sub(portfolio.AverageCost).Div(portfolio.AverageCost).Mul(decimal.NewFromInt(100))
+	}
+	portfolio.LastUpdated = time.Now()
+	return nil
 }
 
 func (s *portfolioService) UpdatePortfolioFromTransaction(userID uint64, transaction *model.Transaction) error {

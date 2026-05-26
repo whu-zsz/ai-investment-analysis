@@ -50,3 +50,31 @@ func TestEastmoneyProviderGetStockDetailUsesQuoteEndpoint(t *testing.T) {
 		t.Fatalf("Source = %s, want eastmoney", res.Source)
 	}
 }
+
+func TestNormalizeEastmoneySymbol_Beijing(t *testing.T) {
+	market, symbol := normalizeEastmoneySymbol("920125")
+	if market != "cn_stock" {
+		t.Fatalf("market = %q, want cn_stock", market)
+	}
+	if symbol != "920125.BJ" {
+		t.Fatalf("symbol = %q, want 920125.BJ", symbol)
+	}
+}
+
+func TestNormalizeProviderSymbol_DistinguishesPingAnBankAndShanghaiIndex(t *testing.T) {
+	if got := normalizeProviderSymbol("000001"); got != "000001.SZ" {
+		t.Fatalf("normalizeProviderSymbol(000001) = %q, want 000001.SZ", got)
+	}
+	if got := normalizeProviderSymbol("000001.SH"); got != "000001.SH" {
+		t.Fatalf("normalizeProviderSymbol(000001.SH) = %q, want 000001.SH", got)
+	}
+	if got := marketFromSymbol("000001.SZ"); got != "cn_stock" {
+		t.Fatalf("marketFromSymbol(000001.SZ) = %q, want cn_stock", got)
+	}
+	if got := marketFromSymbol("000001.SH"); got != "cn_index" {
+		t.Fatalf("marketFromSymbol(000001.SH) = %q, want cn_index", got)
+	}
+	if got := DefaultName("000001.SZ"); got != "000001.SZ" {
+		t.Fatalf("DefaultName(000001.SZ) = %q, want 000001.SZ", got)
+	}
+}

@@ -20,6 +20,7 @@ type StockNewsContext struct {
 
 type NewsService interface {
 	GetStockNews(ctx context.Context, symbol, assetName string) (*StockNewsContext, error)
+	GetTopicNews(ctx context.Context, keyword string) (*StockNewsContext, error)
 }
 
 type newsService struct {
@@ -37,6 +38,18 @@ func NewNewsService(providers ...news.Provider) NewsService {
 }
 
 func (s *newsService) GetStockNews(ctx context.Context, symbol, assetName string) (*StockNewsContext, error) {
+	return s.fetchNews(ctx, symbol, assetName)
+}
+
+func (s *newsService) GetTopicNews(ctx context.Context, keyword string) (*StockNewsContext, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, fmt.Errorf("topic keyword is required")
+	}
+	return s.fetchNews(ctx, keyword, keyword)
+}
+
+func (s *newsService) fetchNews(ctx context.Context, symbol, assetName string) (*StockNewsContext, error) {
 	if len(s.providers) == 0 {
 		return nil, fmt.Errorf("news providers are unavailable")
 	}

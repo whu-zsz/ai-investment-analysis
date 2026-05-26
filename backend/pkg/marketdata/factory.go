@@ -38,3 +38,14 @@ func NewProvider(cfg config.MarketConfig) (Provider, error) {
 		return nil, fmt.Errorf("unsupported market provider: %s", cfg.Provider)
 	}
 }
+
+func NewRankingProvider(cfg config.MarketConfig) MarketRankingProvider {
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 8 * time.Second
+	}
+	client := &http.Client{Timeout: timeout}
+	sina := NewSinaRankingProvider("", cfg.EastmoneyUserAgent, client, time.Duration(cfg.SinaRequestDelayMS)*time.Millisecond)
+	eastmoney := NewEastmoneyRankingProvider(defaultEastmoneyBoardURL, cfg.EastmoneyUserAgent, cfg.EastmoneyReferer, client)
+	return NewFallbackRankingProvider(eastmoney, sina)
+}

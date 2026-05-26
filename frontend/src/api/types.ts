@@ -288,6 +288,93 @@ export interface DashboardMarketSnapshotResponse {
   stats: DashboardStatResponse[];
 }
 
+export interface MarketBreadthItemResponse {
+  symbol: string;
+  name: string;
+  market: string;
+  last_price: string;
+  change_amount: string;
+  change_percent: string;
+  open_price: string;
+  high_price: string;
+  low_price: string;
+  prev_close: string;
+  volume: string;
+  turnover: string;
+  turnover_rate: string;
+  total_market_cap: string;
+  float_market_cap: string;
+}
+
+export interface MarketBoardItemResponse {
+  board_type: string;
+  code: string;
+  name: string;
+  last_price: string;
+  change_amount: string;
+  change_percent: string;
+  volume: string;
+  turnover: string;
+  total_market_cap: string;
+  float_market_cap: string;
+  stock_count: number;
+  rise_count: number;
+  fall_count: number;
+  flat_count: number;
+  constituent_node: string;
+}
+
+export interface BoardConstituentResponse {
+  symbol: string;
+  name: string;
+  market: string;
+  last_price: string;
+  change_amount: string;
+  change_percent: string;
+  volume: string;
+  turnover: string;
+  total_market_cap: string;
+  float_market_cap: string;
+  source: string;
+  has_snapshot: boolean;
+}
+
+export interface MarketBoardDetailResponse {
+  snapshot_time: string;
+  refreshed_at: string;
+  source: string;
+  is_partial: boolean;
+  message: string;
+  board: MarketBoardItemResponse;
+  coverage: DashboardStatResponse[];
+  constituents: BoardConstituentResponse[];
+  top_gainers: BoardConstituentResponse[];
+  top_losers: BoardConstituentResponse[];
+  top_turnover: BoardConstituentResponse[];
+}
+
+export interface DistributionBucketResponse {
+  label: string;
+  count: number;
+  value: string;
+}
+
+export interface DashboardMarketBreadthResponse {
+  snapshot_time: string;
+  refreshed_at: string;
+  source: string;
+  is_partial: boolean;
+  message: string;
+  coverage: DashboardStatResponse[];
+  top_gainers: MarketBreadthItemResponse[];
+  top_losers: MarketBreadthItemResponse[];
+  top_turnover: MarketBreadthItemResponse[];
+  sectors: MarketBoardItemResponse[];
+  concepts: MarketBoardItemResponse[];
+  change_distribution: DistributionBucketResponse[];
+  turnover_distribution: DistributionBucketResponse[];
+}
+
 export interface MarketSnapshotResponse {
   symbol: string;
   name: string;
@@ -361,6 +448,88 @@ export interface MarketStockKlineResponse {
   is_stale: boolean;
   refresh_triggered: boolean;
   items: MarketKlineBarResponse[];
+}
+
+export interface StockBoardMembershipResponse {
+  board_type: string;
+  code: string;
+  name: string;
+  source: string;
+}
+
+export interface StockCompanyProfileResponse {
+  company_name: string;
+  english_name: string;
+  market_label: string;
+  industry_label: string;
+  legal_representative: string;
+  registered_capital: string;
+  founded_at: string;
+  listed_at: string;
+  website: string;
+  email: string;
+  phone: string;
+  address: string;
+  office_address: string;
+  business: string;
+  business_scope: string;
+  introduction: string;
+  source: string;
+}
+
+export interface StockProfileResponse {
+  symbol: string;
+  name: string;
+  market: string;
+  description: string;
+  company_profile?: StockCompanyProfileResponse;
+  industry: string;
+  region: string;
+  concepts: string[];
+  boards: StockBoardMembershipResponse[];
+  last_price: string;
+  change_amount: string;
+  change_percent: string;
+  volume: string;
+  turnover: string;
+  volume_ratio: string;
+  turnover_rate: string;
+  amplitude: string;
+  limit_up: string;
+  limit_down: string;
+  total_market_cap: string;
+  float_market_cap: string;
+  source: string;
+  fetched_at: string;
+  is_stale: boolean;
+  refresh_triggered: boolean;
+}
+
+export interface StockNewsItemResponse {
+  title: string;
+  summary: string;
+  source: string;
+  url: string;
+  published_at: string;
+  provider: string;
+  is_recent: boolean;
+}
+
+export interface StockNewsResponse {
+  symbol: string;
+  asset_name: string;
+  generated_at: string;
+  coverage: string;
+  items: StockNewsItemResponse[];
+}
+
+export interface BoardNewsResponse {
+  board_type: string;
+  code: string;
+  board_name: string;
+  generated_at: string;
+  coverage: string;
+  items: StockNewsItemResponse[];
 }
 
 export interface AnalysisCandidateSource {
@@ -462,6 +631,22 @@ export interface StockChatResponse {
   messages: StockChatMessageResponse[];
 }
 
+export interface BoardChatResponse {
+  board_type: string;
+  code: string;
+  asset_name: string;
+  market: string;
+  reply: string;
+  ai_model: string;
+  generated_at: string;
+  news_status: string;
+  news_summary: string;
+  news_coverage: string;
+  news_items: StockChatNewsItemResponse[];
+  snapshot: StockChatSnapshotResponse;
+  messages: StockChatMessageResponse[];
+}
+
 export type StockChatStreamEventType = 'step' | 'context' | 'token' | 'done' | 'error';
 
 export interface StockChatStreamEvent {
@@ -469,7 +654,7 @@ export interface StockChatStreamEvent {
   stage?: string;
   message?: string;
   token?: string;
-  data?: StockChatResponse | StockChatNewsItemResponse[];
+  data?: StockChatResponse | BoardChatResponse | StockChatNewsItemResponse[];
 }
 
 // ─────────────────────────────────────────

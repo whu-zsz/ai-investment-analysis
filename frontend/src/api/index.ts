@@ -6,10 +6,11 @@ import type {
   PortfolioResponse,
   DashboardMarketSnapshotResponse, MarketSnapshotResponse,
   MarketStockDetailResponse, MarketStockKlineResponse,
+  DashboardMarketBreadthResponse, StockProfileResponse, StockNewsResponse, BoardNewsResponse, MarketBoardDetailResponse,
   AnalysisReportResponse, AnalysisTaskResponse, AnalysisTaskDetailResponse, AnalysisTaskListResponse, AnalysisReportDetailResponse,
   UploadResponse, UploadHistoryResponse,
   AnalysisCandidatesResponse, AnalysisRecommendationsResponse,
-  StockChatResponse, StockChatMessageRequest, StockChatStreamEvent,
+  StockChatResponse, BoardChatResponse, StockChatMessageRequest, StockChatStreamEvent,
 } from './types';
 
 // ══════════════════════════════════════════
@@ -121,6 +122,10 @@ export const marketApi = {
   getDashboardSnapshot: (): Promise<DashboardMarketSnapshotResponse> =>
     request.get('/dashboard/market-snapshot'),
 
+  /** GET /dashboard/market-breadth —— 全市场宽度、排行与板块 */
+  getDashboardMarketBreadth: (params?: { limit?: number }): Promise<DashboardMarketBreadthResponse> =>
+    request.get('/dashboard/market-breadth', { params }),
+
   /** GET /market/snapshots/latest */
   getLatestSnapshots: (): Promise<MarketSnapshotResponse[]> =>
     request.get('/market/snapshots/latest'),
@@ -146,6 +151,22 @@ export const marketApi = {
     params?: { period?: string; adjust?: string; limit?: number; refresh?: boolean },
   ): Promise<MarketStockKlineResponse> =>
     request.get(`/market/stocks/${encodeURIComponent(symbol)}/kline`, { params }),
+
+  /** GET /market/stocks/:symbol/profile */
+  getStockProfile: (symbol: string): Promise<StockProfileResponse> =>
+    request.get(`/market/stocks/${encodeURIComponent(symbol)}/profile`),
+
+  /** GET /market/stocks/:symbol/news */
+  getStockNews: (symbol: string, params?: { limit?: number }): Promise<StockNewsResponse> =>
+    request.get(`/market/stocks/${encodeURIComponent(symbol)}/news`, { params }),
+
+  /** GET /market/boards/:boardType/:code */
+  getBoardDetail: (boardType: string, code: string, params?: { limit?: number }): Promise<MarketBoardDetailResponse> =>
+    request.get(`/market/boards/${encodeURIComponent(boardType)}/${encodeURIComponent(code)}`, { params }),
+
+  /** GET /market/boards/:boardType/:code/news */
+  getBoardNews: (boardType: string, code: string, params?: { limit?: number }): Promise<BoardNewsResponse> =>
+    request.get(`/market/boards/${encodeURIComponent(boardType)}/${encodeURIComponent(code)}/news`, { params }),
 };
 
 // ══════════════════════════════════════════
@@ -246,6 +267,72 @@ export const analysisApi = {
         const payload = dataLine.slice(5).trim();
         if (!payload) return;
         onEvent(JSON.parse(payload) as StockChatStreamEvent);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.replace(/\r\n/g, '\n').split('\n\n');
+      buffer = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        parseChunk(chunk);
+      }
+    }
+    buffer += decoder.decode();
+    const tail = buffer.replace(/\r\n/g, '\n').trim();
+    if (tail) parseChunk(tail);
+  },
+
+  /** POST /analysis/board-chat */
+  boardChat: (data: {
+    board_type: string;
+    code: string;
+    question: string;
+    messages?: StockChatMessageRequest[];
+  }): Promise<BoardChatResponse> =>
+    request.post('/analysis/board-chat', data),
+
+  /** POST /analysis/board-chat/stream */
+  boardChatStream: async (
+    data: {
+      board_type: string;
+      code: string;
+      question: string;
+      messages?: StockChatMessageRequest[];
+    },
+    onEvent: (event: StockChatStreamEvent) => void,
+  ): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`${API_BASE_URL}/api/v1/analysis/board-chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (resp.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('userInfo');
+      window.location.href = '/login';
+      return;
+    }
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text();
+      throw new Error(text || `请求失败：${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    const parseChunk = (chunk: string) => {
+      const dataLine = chunk.split('\n').find((line) => line.startsWith('data:'));
+      if (!dataLine) return;
+      const payload = dataLine.slice(5).trim();
+      if (!payload) return;
+      onEvent(JSON.parse(payload) as StockChatStreamEvent);
     };
 
     while (true) {

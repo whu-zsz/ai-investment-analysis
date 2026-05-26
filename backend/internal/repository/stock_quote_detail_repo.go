@@ -10,6 +10,7 @@ import (
 type StockQuoteDetailRepository interface {
 	Upsert(detail *model.StockQuoteDetail) error
 	FindBySymbol(symbol string) (*model.StockQuoteDetail, error)
+	FindBySymbols(symbols []string) ([]model.StockQuoteDetail, error)
 }
 
 type stockQuoteDetailRepository struct {
@@ -38,4 +39,14 @@ func (r *stockQuoteDetailRepository) FindBySymbol(symbol string) (*model.StockQu
 		return nil, err
 	}
 	return &detail, nil
+}
+
+func (r *stockQuoteDetailRepository) FindBySymbols(symbols []string) ([]model.StockQuoteDetail, error) {
+	if len(symbols) == 0 {
+		return []model.StockQuoteDetail{}, nil
+	}
+
+	var details []model.StockQuoteDetail
+	err := r.db.Where("symbol IN ?", symbols).Find(&details).Error
+	return details, err
 }

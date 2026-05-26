@@ -40,9 +40,9 @@ type JWTConfig struct {
 var weakJWTSecrets = map[string]struct{}{
 	"your_jwt_secret_key_change_this":               {},
 	"your_jwt_secret_key_change_this_in_production": {},
-	"change_this":                                  {},
-	"default":                                      {},
-	"secret":                                       {},
+	"change_this": {},
+	"default":     {},
+	"secret":      {},
 }
 
 type LLMConfig struct {
@@ -62,16 +62,25 @@ type DoubaoConfig struct {
 }
 
 type MarketConfig struct {
-	Provider           string `mapstructure:"MARKET_PROVIDER"`
-	Symbols            string `mapstructure:"MARKET_SYMBOLS"`
-	SnapshotInterval   int    `mapstructure:"MARKET_SNAPSHOT_INTERVAL"`
-	Enabled            bool   `mapstructure:"MARKET_ENABLED"`
-	TimeoutSeconds     int    `mapstructure:"MARKET_TIMEOUT_SECONDS"`
-	EastmoneyBaseURL   string `mapstructure:"MARKET_EASTMONEY_BASE_URL"`
-	EastmoneyUserAgent string `mapstructure:"MARKET_EASTMONEY_USER_AGENT"`
-	EastmoneyReferer   string `mapstructure:"MARKET_EASTMONEY_REFERER"`
-	TencentBaseURL     string `mapstructure:"MARKET_TENCENT_BASE_URL"`
-	TencentUserAgent   string `mapstructure:"MARKET_TENCENT_USER_AGENT"`
+	Provider               string `mapstructure:"MARKET_PROVIDER"`
+	Symbols                string `mapstructure:"MARKET_SYMBOLS"`
+	SnapshotInterval       int    `mapstructure:"MARKET_SNAPSHOT_INTERVAL"`
+	Enabled                bool   `mapstructure:"MARKET_ENABLED"`
+	TimeoutSeconds         int    `mapstructure:"MARKET_TIMEOUT_SECONDS"`
+	SinaRequestDelayMS     int    `mapstructure:"MARKET_SINA_REQUEST_DELAY_MS"`
+	THSPageDelayMS         int    `mapstructure:"MARKET_THS_PAGE_DELAY_MS"`
+	THSBoardDelayMS        int    `mapstructure:"MARKET_THS_BOARD_DELAY_MS"`
+	THSRetryBaseDelayMS    int    `mapstructure:"MARKET_THS_RETRY_BASE_DELAY_MS"`
+	FullSnapshotSource     string `mapstructure:"MARKET_FULL_SNAPSHOT_SOURCE"`
+	AKSharePythonPath         string `mapstructure:"MARKET_AKSHARE_PYTHON_PATH"`
+	AKShareScriptPath         string `mapstructure:"MARKET_AKSHARE_SCRIPT_PATH"`
+	AKShareBoardScriptPath    string `mapstructure:"MARKET_AKSHARE_BOARD_SCRIPT_PATH"`
+	AKShareProfileScriptPath  string `mapstructure:"MARKET_AKSHARE_PROFILE_SCRIPT_PATH"`
+	EastmoneyBaseURL       string `mapstructure:"MARKET_EASTMONEY_BASE_URL"`
+	EastmoneyUserAgent     string `mapstructure:"MARKET_EASTMONEY_USER_AGENT"`
+	EastmoneyReferer       string `mapstructure:"MARKET_EASTMONEY_REFERER"`
+	TencentBaseURL         string `mapstructure:"MARKET_TENCENT_BASE_URL"`
+	TencentUserAgent       string `mapstructure:"MARKET_TENCENT_USER_AGENT"`
 }
 
 type UploadConfig struct {
@@ -123,16 +132,25 @@ func LoadConfig() (*Config, error) {
 			Model:  v.GetString("DOUBAO_MODEL"),
 		},
 		Market: MarketConfig{
-			Provider:           v.GetString("MARKET_PROVIDER"),
-			Symbols:            v.GetString("MARKET_SYMBOLS"),
-			SnapshotInterval:   v.GetInt("MARKET_SNAPSHOT_INTERVAL"),
-			Enabled:            v.GetBool("MARKET_ENABLED"),
-			TimeoutSeconds:     v.GetInt("MARKET_TIMEOUT_SECONDS"),
-			EastmoneyBaseURL:   v.GetString("MARKET_EASTMONEY_BASE_URL"),
-			EastmoneyUserAgent: v.GetString("MARKET_EASTMONEY_USER_AGENT"),
-			EastmoneyReferer:   v.GetString("MARKET_EASTMONEY_REFERER"),
-			TencentBaseURL:     v.GetString("MARKET_TENCENT_BASE_URL"),
-			TencentUserAgent:   v.GetString("MARKET_TENCENT_USER_AGENT"),
+			Provider:               v.GetString("MARKET_PROVIDER"),
+			Symbols:                v.GetString("MARKET_SYMBOLS"),
+			SnapshotInterval:       v.GetInt("MARKET_SNAPSHOT_INTERVAL"),
+			Enabled:                v.GetBool("MARKET_ENABLED"),
+			TimeoutSeconds:         v.GetInt("MARKET_TIMEOUT_SECONDS"),
+			SinaRequestDelayMS:     v.GetInt("MARKET_SINA_REQUEST_DELAY_MS"),
+			THSPageDelayMS:         v.GetInt("MARKET_THS_PAGE_DELAY_MS"),
+			THSBoardDelayMS:        v.GetInt("MARKET_THS_BOARD_DELAY_MS"),
+			THSRetryBaseDelayMS:    v.GetInt("MARKET_THS_RETRY_BASE_DELAY_MS"),
+			FullSnapshotSource:     v.GetString("MARKET_FULL_SNAPSHOT_SOURCE"),
+			AKSharePythonPath:        v.GetString("MARKET_AKSHARE_PYTHON_PATH"),
+			AKShareScriptPath:        v.GetString("MARKET_AKSHARE_SCRIPT_PATH"),
+			AKShareBoardScriptPath:   v.GetString("MARKET_AKSHARE_BOARD_SCRIPT_PATH"),
+			AKShareProfileScriptPath: v.GetString("MARKET_AKSHARE_PROFILE_SCRIPT_PATH"),
+			EastmoneyBaseURL:       v.GetString("MARKET_EASTMONEY_BASE_URL"),
+			EastmoneyUserAgent:     v.GetString("MARKET_EASTMONEY_USER_AGENT"),
+			EastmoneyReferer:       v.GetString("MARKET_EASTMONEY_REFERER"),
+			TencentBaseURL:         v.GetString("MARKET_TENCENT_BASE_URL"),
+			TencentUserAgent:       v.GetString("MARKET_TENCENT_USER_AGENT"),
 		},
 		Upload: UploadConfig{
 			Path:          v.GetString("UPLOAD_PATH"),
@@ -166,10 +184,35 @@ func LoadConfig() (*Config, error) {
 		cfg.Market.Symbols = "000001.SH,399001.SZ,399006.SZ,000300.SH"
 	}
 	if cfg.Market.SnapshotInterval == 0 {
-		cfg.Market.SnapshotInterval = 60
+		cfg.Market.SnapshotInterval = 1800
 	}
 	if cfg.Market.TimeoutSeconds == 0 {
 		cfg.Market.TimeoutSeconds = 5
+	}
+	if cfg.Market.SinaRequestDelayMS <= 0 {
+		cfg.Market.SinaRequestDelayMS = 350
+	}
+	if cfg.Market.THSPageDelayMS <= 0 {
+		cfg.Market.THSPageDelayMS = 1200
+	}
+	if cfg.Market.THSBoardDelayMS <= 0 {
+		cfg.Market.THSBoardDelayMS = 2000
+	}
+	if cfg.Market.THSRetryBaseDelayMS <= 0 {
+		cfg.Market.THSRetryBaseDelayMS = 2000
+	}
+	cfg.Market.FullSnapshotSource = strings.ToLower(strings.TrimSpace(cfg.Market.FullSnapshotSource))
+	if cfg.Market.FullSnapshotSource == "" {
+		cfg.Market.FullSnapshotSource = "akshare"
+	}
+	if cfg.Market.AKShareScriptPath == "" {
+		cfg.Market.AKShareScriptPath = "./scripts/akshare_stock_zh_a_spot.py"
+	}
+	if cfg.Market.AKShareBoardScriptPath == "" {
+		cfg.Market.AKShareBoardScriptPath = "./scripts/akshare_sector_boards.py"
+	}
+	if cfg.Market.AKShareProfileScriptPath == "" {
+		cfg.Market.AKShareProfileScriptPath = "./scripts/akshare_stock_profile_cninfo.py"
 	}
 	if cfg.Market.EastmoneyBaseURL == "" {
 		cfg.Market.EastmoneyBaseURL = "https://push2.eastmoney.com/api/qt/ulist.np/get"

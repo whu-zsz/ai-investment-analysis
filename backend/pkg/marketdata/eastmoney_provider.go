@@ -26,34 +26,34 @@ type eastmoneyResponseEnvelope struct {
 }
 
 type eastmoneyQuoteItem struct {
-	Code          string `json:"f12"`
-	Name          string `json:"f14"`
-	LastPrice     any    `json:"f2"`
-	ChangePercent any    `json:"f3"`
-	ChangeAmount  any    `json:"f4"`
-	Volume        any    `json:"f5"`
-	Turnover      any    `json:"f6"`
-	Amplitude     any    `json:"f7"`
-	TurnoverRate  any    `json:"f8"`
-	VolumeRatio   any    `json:"f10"`
-	OpenPrice     any    `json:"f17"`
-	HighPrice     any    `json:"f15"`
-	LowPrice      any    `json:"f16"`
-	PrevClose     any    `json:"f18"`
-	TotalMarketCap any   `json:"f20"`
-	FloatMarketCap any   `json:"f21"`
-	F50           any    `json:"f50"`
-	F51           any    `json:"f51"`
-	F52           any    `json:"f52"`
-	F55           any    `json:"f55"`
-	F71           any    `json:"f71"`
-	F84           any    `json:"f84"`
-	F85           any    `json:"f85"`
-	F116          any    `json:"f116"`
-	F117          any    `json:"f117"`
-	F127          any    `json:"f127"`
-	F128          any    `json:"f128"`
-	F129          any    `json:"f129"`
+	Code           string `json:"f12"`
+	Name           string `json:"f14"`
+	LastPrice      any    `json:"f2"`
+	ChangePercent  any    `json:"f3"`
+	ChangeAmount   any    `json:"f4"`
+	Volume         any    `json:"f5"`
+	Turnover       any    `json:"f6"`
+	Amplitude      any    `json:"f7"`
+	TurnoverRate   any    `json:"f8"`
+	VolumeRatio    any    `json:"f10"`
+	OpenPrice      any    `json:"f17"`
+	HighPrice      any    `json:"f15"`
+	LowPrice       any    `json:"f16"`
+	PrevClose      any    `json:"f18"`
+	TotalMarketCap any    `json:"f20"`
+	FloatMarketCap any    `json:"f21"`
+	F50            any    `json:"f50"`
+	F51            any    `json:"f51"`
+	F52            any    `json:"f52"`
+	F55            any    `json:"f55"`
+	F71            any    `json:"f71"`
+	F84            any    `json:"f84"`
+	F85            any    `json:"f85"`
+	F116           any    `json:"f116"`
+	F117           any    `json:"f117"`
+	F127           any    `json:"f127"`
+	F128           any    `json:"f128"`
+	F129           any    `json:"f129"`
 }
 
 type eastmoneyStockDetailEnvelope struct {
@@ -293,31 +293,44 @@ func buildEastmoneyEndpoint(base string, historical bool, path string) string {
 }
 
 func (p *eastmoneyProvider) doRequest(ctx context.Context, endpoint string, query url.Values) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+query.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	if p.userAgent != "" {
-		req.Header.Set("User-Agent", p.userAgent)
-	}
-	if p.referer != "" {
-		req.Header.Set("Referer", p.referer)
-	}
+	var lastErr error
+	for attempt := 1; attempt <= eastmoneyRetryAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+query.Encode(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Close = true
+		if p.userAgent != "" {
+			req.Header.Set("User-Agent", p.userAgent)
+		}
+		if p.referer != "" {
+			req.Header.Set("Referer", p.referer)
+		}
+		req.Header.Set("Connection", "close")
 
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch eastmoney data: %w", err)
-	}
-	defer resp.Body.Close()
+		resp, err := p.client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to fetch eastmoney data: %w", err)
+		} else {
+			body, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr != nil {
+				lastErr = fmt.Errorf("failed to read eastmoney response: %w", readErr)
+			} else if resp.StatusCode != http.StatusOK {
+				return nil, fmt.Errorf("eastmoney request failed with status %d: %s", resp.StatusCode, string(body))
+			} else {
+				return body, nil
+			}
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read eastmoney response: %w", err)
+		if !shouldRetryEastmoneyError(lastErr) || attempt == eastmoneyRetryAttempts {
+			break
+		}
+		if err := sleepWithContext(ctx, eastmoneyRetryDelay*time.Duration(attempt)); err != nil {
+			return nil, err
+		}
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("eastmoney request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-	return body, nil
+	return nil, lastErr
 }
 
 func buildEastmoneySecIDs(symbols []string) ([]string, error) {
@@ -351,6 +364,9 @@ func normalizeEastmoneySymbol(code string) (string, string) {
 	if strings.HasPrefix(trimmed, "6") {
 		return market, trimmed + ".SH"
 	}
+	if strings.HasPrefix(trimmed, "4") || strings.HasPrefix(trimmed, "8") || strings.HasPrefix(trimmed, "9") {
+		return "cn_stock", trimmed + ".BJ"
+	}
 	return market, trimmed + ".SZ"
 }
 
@@ -359,21 +375,18 @@ func normalizeProviderSymbol(value string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if trimmed == "000001.SH" || trimmed == "000001.SZ" {
-		return "000001.SH"
-	}
-	if trimmed == "000300.SH" || trimmed == "000300.SZ" {
-		return "000300.SH"
-	}
-	if strings.HasSuffix(trimmed, ".SH") || strings.HasSuffix(trimmed, ".SZ") {
+	if strings.HasSuffix(trimmed, ".SH") || strings.HasSuffix(trimmed, ".SZ") || strings.HasSuffix(trimmed, ".BJ") {
 		return trimmed
 	}
 	if len(trimmed) == 6 {
-		if trimmed == "000001" || trimmed == "000300" {
+		if trimmed == "000300" {
 			return trimmed + ".SH"
 		}
 		if strings.HasPrefix(trimmed, "6") {
 			return trimmed + ".SH"
+		}
+		if strings.HasPrefix(trimmed, "8") || strings.HasPrefix(trimmed, "9") || strings.HasPrefix(trimmed, "4") {
+			return trimmed + ".BJ"
 		}
 		return trimmed + ".SZ"
 	}
@@ -381,10 +394,12 @@ func normalizeProviderSymbol(value string) string {
 }
 
 func marketFromSymbol(symbol string) string {
-	if strings.HasPrefix(symbol, "399") || strings.HasPrefix(symbol, "000300") || strings.HasPrefix(symbol, "000001") {
+	switch normalizeProviderSymbol(symbol) {
+	case "000001.SH", "000300.SH", "399001.SZ", "399006.SZ":
 		return "cn_index"
+	default:
+		return "cn_stock"
 	}
-	return "cn_stock"
 }
 
 func eastmoneyKlineType(period string) (string, error) {

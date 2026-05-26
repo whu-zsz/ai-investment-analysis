@@ -177,7 +177,6 @@ func normalizeChartData(raw string) string {
 	return ""
 }
 
-
 func NewAIService(
 	analysisTaskRepo repository.AnalysisTaskRepository,
 	analysisReportRepo repository.AnalysisReportRepository,
@@ -789,7 +788,7 @@ func buildPredictionFallback(predictionText string, items []responsedto.Analysis
 	}
 	if positiveMomentum > negativeMomentum {
 		bias = "bullish"
-		} else if negativeMomentum > positiveMomentum {
+	} else if negativeMomentum > positiveMomentum {
 		bias = "bearish"
 	}
 	drivers := []string{}
@@ -1319,6 +1318,31 @@ func normalizeNarrativeText(value string) string {
 	return strings.TrimSpace(text)
 }
 
+func normalizeMarkdownNarrative(value string) string {
+	text := strings.ReplaceAll(value, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	result := make([]string, 0, len(lines))
+	blankCount := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			blankCount++
+			if blankCount <= 1 {
+				result = append(result, "")
+			}
+			continue
+		}
+		blankCount = 0
+		result = append(result, trimmed)
+	}
+	return strings.TrimSpace(strings.Join(result, "\n"))
+}
+
 func countNarrativeSegments(value string) int {
 	text := normalizeNarrativeText(value)
 	if text == "" {
@@ -1534,7 +1558,6 @@ func isWeakKeyPoint(value string) bool {
 	return true
 }
 
-
 func isWeakNarrative(value string, minRunes int) bool {
 	text := normalizeNarrativeText(value)
 	if text == "" || utf8.RuneCountInString(text) < minRunes {
@@ -1626,25 +1649,36 @@ func normalizeSymbol(value string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if trimmed == "000001.SH" || trimmed == "000001.SZ" {
-		return "000001.SH"
-	}
-	if trimmed == "000300.SH" || trimmed == "000300.SZ" {
-		return "000300.SH"
-	}
-	if strings.HasSuffix(trimmed, ".SH") || strings.HasSuffix(trimmed, ".SZ") {
+	if strings.HasSuffix(trimmed, ".SH") || strings.HasSuffix(trimmed, ".SZ") || strings.HasSuffix(trimmed, ".BJ") {
+		parts := strings.Split(trimmed, ".")
+		if len(parts) == 2 {
+			code := parts[0]
+			if code == "000001" {
+				return trimmed
+			}
+			return code + "." + inferSymbolSuffix(code)
+		}
 		return trimmed
 	}
 	if len(trimmed) == 6 {
-		if trimmed == "000001" || trimmed == "000300" {
-			return trimmed + ".SH"
-		}
-		if strings.HasPrefix(trimmed, "6") {
-			return trimmed + ".SH"
-		}
-		return trimmed + ".SZ"
+		return trimmed + "." + inferSymbolSuffix(trimmed)
 	}
 	return trimmed
+}
+
+func inferSymbolSuffix(code string) string {
+	switch {
+	case code == "000300":
+		return "SH"
+	case strings.HasPrefix(code, "399"):
+		return "SZ"
+	case strings.HasPrefix(code, "5"), strings.HasPrefix(code, "6"), strings.HasPrefix(code, "9"):
+		return "SH"
+	case strings.HasPrefix(code, "8"):
+		return "BJ"
+	default:
+		return "SZ"
+	}
 }
 
 func normalizeRiskLevel(value string) string {
