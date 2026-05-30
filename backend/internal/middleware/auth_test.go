@@ -223,7 +223,7 @@ func TestAuthMiddleware_WrongSecret(t *testing.T) {
 func TestAuth_Security_MissingBearer(t *testing.T) {
 	// 创建一个没有 Bearer 前缀的请求
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -243,7 +243,7 @@ func TestAuth_Security_MissingBearer(t *testing.T) {
 func TestAuth_Security_EmptyToken(t *testing.T) {
 	// 创建一个空 token 的请求
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -263,7 +263,7 @@ func TestAuth_Security_EmptyToken(t *testing.T) {
 func TestAuth_Security_OnlyBearer(t *testing.T) {
 	// 创建一个只有 Bearer 的请求
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -283,7 +283,7 @@ func TestAuth_Security_OnlyBearer(t *testing.T) {
 func TestAuth_Security_SQLInjection(t *testing.T) {
 	// 创建一个包含 SQL 注入的 token
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -303,7 +303,7 @@ func TestAuth_Security_SQLInjection(t *testing.T) {
 func TestAuth_Security_XSSPayload(t *testing.T) {
 	// 创建一个包含 XSS 的 token
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -323,7 +323,7 @@ func TestAuth_Security_XSSPayload(t *testing.T) {
 func TestAuth_Security_UnicodeToken(t *testing.T) {
 	// 创建一个包含 Unicode 的 token
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
@@ -344,7 +344,7 @@ func TestAuth_Security_VeryLongHeader(t *testing.T) {
 	// 创建一个超长的 Authorization header
 	longToken := strings.Repeat("a", 10000)
 	router := gin.New()
-	router.Use(middleware.AuthMiddleware(testJWTSecret))
+	router.Use(middleware.AuthMiddleware(testJWTSecret, &stubRevokedTokenRepository{revokedJTIs: map[string]bool{}}))
 	router.GET("/api/v1/user/profile", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
